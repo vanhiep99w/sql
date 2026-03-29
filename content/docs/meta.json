@@ -1,0 +1,10 @@
+{
+  "pages": [
+    "fundamentals",
+    "mysql",
+    "postgresql",
+    "oracle",
+    "comparison",
+    "optimization"
+  ]
+}

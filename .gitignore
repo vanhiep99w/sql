@@ -1,0 +1,18 @@
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
+
+# Astro
+node_modules/
+dist/
+.astro/
+src/content/docs/
+
+# Wrangler
+.wrangler/
+
+# Python
+__pycache__/
+.next/
+.source/
