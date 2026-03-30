@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Database cylinder body -->
+  <ellipse cx="16" cy="8" rx="11" ry="4" fill="#3b82f6"/>
+  <rect x="5" y="8" width="22" height="14" fill="#2563eb"/>
+  <ellipse cx="16" cy="22" rx="11" ry="4" fill="#1d4ed8"/>
+  <!-- Top highlight ellipse -->
+  <ellipse cx="16" cy="8" rx="11" ry="4" fill="#60a5fa" opacity="0.5"/>
+  <!-- Middle line accents -->
+  <ellipse cx="16" cy="14" rx="11" ry="3.5" fill="none" stroke="#93c5fd" stroke-width="0.8" opacity="0.6"/>
+  <!-- Shine on top -->
+  <ellipse cx="13" cy="7" rx="4" ry="1.5" fill="white" opacity="0.25"/>
+</svg>

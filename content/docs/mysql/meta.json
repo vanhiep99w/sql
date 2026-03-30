@@ -1,4 +1,4 @@
 {
   "title": "MySQL",
-  "pages": []
+  "pages": ["innodb", "replication"]
 }

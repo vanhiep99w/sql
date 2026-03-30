@@ -111,5 +111,52 @@ description: "Tìm hiểu về Index — khái niệm, cấu trúc lưu trữ, B
            │                     │
      ┌─────┴─────┐         ┌─────┴─────┐
   [Leaf Node]  [Leaf Node]  [Leaf Node]  ...
+```
+
+### Các loại node trong B+Tree
+
+| Loại node | Vai trò |
+| -------------- | ----------------------------------------------------------------------- |
+| **Root Node** | Node gốc, điểm khởi đầu tìm kiếm. |
+| **Internal Node** | Chứa key để định hướng (không chứa dữ liệu thực). |
+| **Leaf Node** | Chứa key + dữ liệu thực (hoặc pointer tới row). Các leaf node liên kết với nhau thành linked list — hỗ trợ range scan hiệu quả. |
+
+### Quy trình tìm kiếm trong B+Tree
+
+Ví dụ tìm `id = 42` trong bảng có B+Tree index:
 
 ```
+1. Bắt đầu từ Root Node
+2. So sánh 42 với các key trong root → đi theo nhánh phù hợp
+3. Duyệt qua Internal Node (mỗi bước loại bỏ một nửa tập dữ liệu)
+4. Đến Leaf Node chứa key = 42 → lấy pointer (rowid / primary key)
+5. Dùng pointer để fetch dữ liệu thực từ bảng
+```
+
+- Độ phức tạp: **O(log n)** — bảng 1 triệu dòng chỉ cần ~20 bước so sánh.
+
+### Range Scan với B+Tree
+
+Vì các Leaf Node được liên kết thành linked list, truy vấn range rất hiệu quả:
+
+```sql
+SELECT * FROM orders WHERE created_at BETWEEN '2024-01-01' AND '2024-03-31';
+```
+
+```
+1. Tìm Leaf Node chứa '2024-01-01' → O(log n)
+2. Duyệt sang phải qua linked list cho đến khi vượt '2024-03-31' → O(k)
+   (k = số dòng trong range)
+```
+
+### Chi phí bảo trì Index
+
+Index không miễn phí — mỗi thao tác ghi đều phải cập nhật index:
+
+| Thao tác | Chi phí |
+| --------- | ----------------------------------------------------------------------- |
+| `INSERT` | Thêm entry vào index, có thể gây **page split** nếu node đầy. |
+| `DELETE` | Đánh dấu entry đã xóa, có thể gây **page merge**. |
+| `UPDATE` | Xóa entry cũ + thêm entry mới trong index. |
+
+> **Page split** là khi một node B+Tree đầy, DB phải chia node thành 2 → tốn I/O và có thể gây index fragmentation theo thời gian.
