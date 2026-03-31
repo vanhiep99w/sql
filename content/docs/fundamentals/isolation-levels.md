@@ -15,6 +15,13 @@ description: "4 mức độ cô lập trong SQL — Read Uncommitted, Read Commi
 - [Bảng so sánh tổng hợp](#bảng-so-sánh-tổng-hợp)
 - [Default Isolation Level theo Database](#default-isolation-level-theo-database)
 - [Mermaid Diagram minh họa](#mermaid-diagram-minh-họa)
+- [Sự khác biệt giữa các Database](#sự-khác-biệt-giữa-các-database)
+  - [PostgreSQL — chỉ có 3 behavior thực sự](#postgresql--chỉ-có-3-behavior-thực-sự)
+  - [MySQL InnoDB — Repeatable Read mạnh hơn chuẩn](#mysql-innodb--repeatable-read-mạnh-hơn-chuẩn)
+  - [PostgreSQL vs MySQL — Serializable khác nhau hoàn toàn](#postgresql-vs-mysql--serializable-khác-nhau-hoàn-toàn)
+  - [Oracle — chỉ 2 level thực sự](#oracle--chỉ-2-level-thực-sự)
+  - [SQL Server — có thêm level SNAPSHOT](#sql-server--có-thêm-level-snapshot)
+  - [Bảng so sánh tổng hợp theo Database](#bảng-so-sánh-tổng-hợp-theo-database)
 - [Khi nào chọn level nào](#khi-nào-chọn-level-nào)
 
 ---
@@ -309,6 +316,152 @@ sequenceDiagram
     Note over DB: Mất update -3M của TX1
     Note over DB: Đáng lẽ = 10M - 3M - 5M = 2M
 ```
+
+## Sự khác biệt giữa các Database
+
+Chuẩn SQL định nghĩa 4 isolation levels, nhưng mỗi database **implement khác nhau** — thậm chí cùng tên level nhưng behavior không giống nhau.
+
+### PostgreSQL — chỉ có 3 behavior thực sự
+
+PostgreSQL dùng **MVCC thuần túy** cho mọi read operation. Điều này có nghĩa là reader không bao giờ block writer và ngược lại — và **dirty read không thể xảy ra** dù bạn set level nào.
+
+```
+Chuẩn SQL:   READ UNCOMMITTED → READ COMMITTED → REPEATABLE READ → SERIALIZABLE
+PostgreSQL:  READ UNCOMMITTED ↗
+                              READ COMMITTED  → REPEATABLE READ → SERIALIZABLE
+                              (behavior giống nhau)
+```
+
+| Level (set) | Behavior thực tế trong PostgreSQL |
+|-------------|----------------------------------|
+| READ UNCOMMITTED | Hoạt động **giống READ COMMITTED** — MVCC không bao giờ show uncommitted data |
+| READ COMMITTED | Snapshot mới cho **mỗi statement** trong transaction |
+| REPEATABLE READ | Snapshot cố định từ statement **đầu tiên** của transaction — ngăn cả phantom read |
+| SERIALIZABLE | Dùng **SSI** (Serializable Snapshot Isolation) — optimistic, phát hiện conflict sau |
+
+**PostgreSQL REPEATABLE READ ngăn cả phantom read** — khác với chuẩn SQL (chuẩn SQL chỉ yêu cầu ngăn non-repeatable read ở level này). Lý do: snapshot MVCC đã "đóng băng" toàn bộ view của data, insert mới từ transaction khác không thể lọt vào.
+
+```sql
+-- PostgreSQL: REPEATABLE READ vẫn ngăn phantom read
+BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+SELECT COUNT(*) FROM employees WHERE dept = 'IT';  -- = 10
+
+-- Session khác INSERT + COMMIT
+
+SELECT COUNT(*) FROM employees WHERE dept = 'IT';  -- vẫn = 10 (không phải 11)
+COMMIT;
+```
+
+---
+
+### MySQL InnoDB — Repeatable Read mạnh hơn chuẩn
+
+MySQL default là **REPEATABLE READ** và dùng kết hợp **MVCC + Gap Lock** để ngăn phantom read — behavior vượt chuẩn SQL.
+
+| Level | Cơ chế | Phantom Read |
+|-------|--------|-------------|
+| READ UNCOMMITTED | Không dùng MVCC | ⚠️ Có thể xảy ra |
+| READ COMMITTED | MVCC snapshot per-statement | ⚠️ Có thể xảy ra |
+| REPEATABLE READ | MVCC snapshot + **Gap Lock** | ✅ Ngăn được (bonus!) |
+| SERIALIZABLE | Tất cả SELECT → `LOCK IN SHARE MODE` | ✅ Ngăn được |
+
+**Gap Lock** là gì: MySQL lock cả "khoảng trống" giữa các row thỏa điều kiện WHERE, ngăn INSERT vào vùng đó từ transaction khác.
+
+```sql
+-- MySQL: SELECT này tạo gap lock trên khoảng dept='IT'
+SELECT * FROM employees WHERE dept = 'IT' FOR UPDATE;
+-- → Transaction khác không INSERT được vào dept='IT' cho đến khi COMMIT
+```
+
+---
+
+### PostgreSQL vs MySQL — Serializable khác nhau hoàn toàn
+
+Đây là điểm khác biệt lớn nhất:
+
+| | PostgreSQL Serializable | MySQL Serializable |
+|--|------------------------|-------------------|
+| **Cơ chế** | SSI — Serializable Snapshot Isolation | Pessimistic Locking |
+| **Approach** | **Optimistic** — chạy trước, phát hiện conflict sau | **Pessimistic** — block ngay từ đầu |
+| **Khi conflict** | Abort 1 transaction → app phải retry | Block và chờ transaction kia xong |
+| **Throughput** | Cao hơn khi ít conflict | Thấp hơn — nhiều lock contention |
+| **Deadlock** | Ít hơn | Nhiều hơn (do locking) |
+| **SELECT** | Không thêm lock | Tự động thêm `LOCK IN SHARE MODE` |
+
+```sql
+-- PostgreSQL Serializable: chạy bình thường, lỗi xảy ra khi COMMIT
+BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+SELECT SUM(amount) FROM accounts WHERE user_id = 1;
+INSERT INTO transactions ...;
+COMMIT;
+-- ERROR: could not serialize access due to read/write dependencies
+-- → App cần retry
+
+-- MySQL Serializable: block ngay khi SELECT
+BEGIN;
+SELECT * FROM accounts WHERE user_id = 1;
+-- ^ Tự động thêm LOCK IN SHARE MODE
+-- → Transaction khác muốn UPDATE row này phải chờ
+```
+
+---
+
+### Oracle — chỉ 2 level thực sự
+
+Oracle **không hỗ trợ** `READ UNCOMMITTED` và `REPEATABLE READ`. Nếu set 2 level đó sẽ báo lỗi hoặc bị ignore.
+
+```sql
+-- Oracle: chỉ hỗ trợ 2 level này
+SET TRANSACTION ISOLATION LEVEL READ COMMITTED;   -- ✅ Default
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;     -- ✅
+
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; -- ❌ ORA-02179: valid options: READ COMMITTED or SERIALIZABLE
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;  -- ❌ Không hỗ trợ
+```
+
+Oracle Serializable dùng **SCN (System Change Number)** — mỗi transaction có một SCN snapshot, đọc data tại thời điểm đó xuyên suốt transaction.
+
+---
+
+### SQL Server — có thêm level SNAPSHOT
+
+SQL Server hỗ trợ chuẩn 4 level + thêm **SNAPSHOT** isolation (phải enable thủ công):
+
+```sql
+-- Enable SNAPSHOT isolation cho database
+ALTER DATABASE mydb SET ALLOW_SNAPSHOT_ISOLATION ON;
+
+-- Dùng SNAPSHOT
+SET TRANSACTION ISOLATION LEVEL SNAPSHOT;
+```
+
+| Level | Cơ chế | Ghi chú |
+|-------|--------|---------|
+| READ UNCOMMITTED | Không lock | Dirty read có thể xảy ra |
+| READ COMMITTED | Lock-based (default) | Giải phóng read lock ngay sau mỗi read |
+| READ COMMITTED SNAPSHOT | MVCC-based | Phải enable `READ_COMMITTED_SNAPSHOT ON` |
+| REPEATABLE READ | Lock-based | Giữ read lock đến hết transaction |
+| SNAPSHOT | MVCC-based | Tương đương Repeatable Read nhưng không block |
+| SERIALIZABLE | Lock-based | Lock cả range |
+
+> SQL Server có 2 chế độ READ COMMITTED: lock-based (default) và MVCC-based (`READ_COMMITTED_SNAPSHOT`). Nhiều team bật RCSI để giảm blocking mà không đổi isolation level.
+
+---
+
+### Bảng so sánh tổng hợp theo Database
+
+| | MySQL InnoDB | PostgreSQL | Oracle | SQL Server |
+|--|-------------|-----------|--------|-----------|
+| **Default level** | Repeatable Read | Read Committed | Read Committed | Read Committed |
+| **MVCC** | ✅ (+ Gap Lock) | ✅ (thuần MVCC) | ✅ (SCN-based) | ✅ (opt-in RCSI) |
+| **READ UNCOMMITTED** | ✅ (dirty read) | ✅ (= Read Committed!) | ❌ | ✅ |
+| **READ COMMITTED** | ✅ | ✅ | ✅ | ✅ |
+| **REPEATABLE READ** | ✅ (+ ngăn phantom) | ✅ (= ngăn phantom) | ❌ | ✅ |
+| **SERIALIZABLE** | ✅ (locking) | ✅ (SSI) | ✅ (SCN) | ✅ (locking) |
+| **SNAPSHOT** | ❌ | ❌ | ❌ | ✅ (extra level) |
+| **Phantom Read** ở RR | ✅ Ngăn (gap lock) | ✅ Ngăn (MVCC) | N/A | ⚠️ Có thể xảy ra |
+
+---
 
 ## Khi nào chọn level nào
 
