@@ -2,6 +2,7 @@
   "title": "Nền tảng SQL",
   "pages": [
     "sql-overview",
+    "query-execution-order",
     "acid-transaction",
     "isolation-levels",
     "lock",
