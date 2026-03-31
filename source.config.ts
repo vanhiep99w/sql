@@ -1,5 +1,6 @@
 import { defineDocs, defineConfig } from 'fumadocs-mdx/config';
 import { visit } from 'unist-util-visit';
+import remarkGithubAdmonitionsToDirectives from 'remark-github-admonitions-to-directives';
 
 function remarkMermaid() {
   return (tree: import('mdast').Root) => {
@@ -27,6 +28,6 @@ export const docs = defineDocs({
 
 export default defineConfig({
   mdxOptions: {
-    remarkPlugins: [remarkMermaid],
+    remarkPlugins: [remarkGithubAdmonitionsToDirectives, remarkMermaid],
   },
 });

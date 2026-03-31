@@ -60,94 +60,94 @@ Client gửi SQL text
         │
         ▼
 ┌───────────────────────────────────────────────────────────────────┐
-│                   GIAI ĐOẠN 1: TRƯỚC THỰC THI                    │
+│                   GIAI ĐOẠN 1: TRƯỚC THỰC THI                     │
 │                                                                   │
-│  ┌─────────────────┐                                             │
-│  │  1. PARSING     │  Tokenize SQL → build Parse Tree            │
-│  │                 │  kiểm tra syntax (dấu phẩy, ngoặc...)       │
-│  └────────┬────────┘                                             │
-│           │  Parse Tree                                          │
+│  ┌─────────────────┐                                              │
+│  │  1. PARSING     │  Tokenize SQL → build Parse Tree             │
+│  │                 │  kiểm tra syntax (dấu phẩy, ngoặc...)        │
+│  └────────┬────────┘                                              │
+│           │  Parse Tree                                           │
 │           ▼                                                       │
-│  ┌─────────────────┐                                             │
-│  │  2. SEMANTIC    │  Validate tên bảng/cột có tồn tại?          │
-│  │     ANALYSIS    │  User có quyền truy cập không?              │
-│  │                 │  Data types có khớp không?                  │
-│  └────────┬────────┘                                             │
-│           │  Validated AST                                       │
+│  ┌─────────────────┐                                              │
+│  │  2. SEMANTIC    │  Validate tên bảng/cột có tồn tại?           │
+│  │     ANALYSIS    │  User có quyền truy cập không?               │
+│  │                 │  Data types có khớp không?                   │
+│  └────────┬────────┘                                              │
+│           │  Validated AST                                        │
 │           ▼                                                       │
-│  ┌─────────────────┐                                             │
-│  │  3. QUERY       │  Expand SELECT * → tên cột cụ thể           │
-│  │     REWRITING   │  Unfold VIEW → SQL gốc của view             │
-│  │                 │  Transform subquery → JOIN nếu được         │
-│  └────────┬────────┘                                             │
-│           │  Logical Plan                                        │
+│  ┌─────────────────┐                                              │
+│  │  3. QUERY       │  Expand SELECT * → tên cột cụ thể            │
+│  │     REWRITING   │  Unfold VIEW → SQL gốc của view              │
+│  │                 │  Transform subquery → JOIN nếu được          │
+│  └────────┬────────┘                                              │
+│           │  Logical Plan                                         │
 │           ▼                                                       │
-│  ┌─────────────────┐                                             │
-│  │  4. OPTIMIZATION│  Cost-Based Optimizer (CBO) chạy:           │
+│  ┌─────────────────┐                                              │
+│  │  4. OPTIMIZATION│  Cost-Based Optimizer (CBO) chạy:            │
 │  │                 │  - Đọc table statistics (row count, NDV...)  │
 │  │                 │  - Thử nhiều execution plan khác nhau        │
 │  │                 │  - Chọn plan có estimated cost thấp nhất     │
 │  │                 │  (chọn index nào, join order, join algo...)  │
-│  └────────┬────────┘                                             │
-│           │  Optimized Physical Plan                             │
+│  └────────┬────────┘                                              │
+│           │  Optimized Physical Plan                              │
 │           ▼                                                       │
-│  ┌─────────────────┐                                             │
-│  │  5. PLAN        │  Compile plan thành bytecode/instructions   │
-│  │     COMPILATION │  Cache plan (prepared statements)           │
-│  └────────┬────────┘                                             │
+│  ┌─────────────────┐                                              │
+│  │  5. PLAN        │  Compile plan thành bytecode/instructions    │
+│  │     COMPILATION │  Cache plan (prepared statements)            │
+│  └────────┬────────┘                                              │
 └───────────┼───────────────────────────────────────────────────────┘
             │  Executable Plan
             ▼
 ┌───────────────────────────────────────────────────────────────────┐
-│                   GIAI ĐOẠN 2: THỰC THI QUERY                    │
+│                   GIAI ĐOẠN 2: THỰC THI QUERY                     │
 │                                                                   │
-│  Thứ tự logic thực thi (không phải thứ tự bạn viết):             │
+│  Thứ tự logic thực thi (không phải thứ tự bạn viết):              │
 │                                                                   │
-│   6. FROM / JOIN  ──→  Tạo bảng trung gian từ các bảng nguồn     │
+│   6. FROM / JOIN  ──→  Tạo bảng trung gian từ các bảng nguồn      │
 │         │                                                         │
 │         ▼                                                         │
-│   7. WHERE        ──→  Lọc từng ROW (chưa có aggregate)          │
+│   7. WHERE        ──→  Lọc từng ROW (chưa có aggregate)           │
 │         │                                                         │
 │         ▼                                                         │
-│   8. GROUP BY     ──→  Gom rows thành NHÓM                       │
+│   8. GROUP BY     ──→  Gom rows thành NHÓM                        │
 │         │                                                         │
 │         ▼                                                         │
-│   9. HAVING       ──→  Lọc từng NHÓM (có aggregate)             │
+│   9. HAVING       ──→  Lọc từng NHÓM (có aggregate)               │
 │         │                                                         │
 │         ▼                                                         │
-│  10. SELECT       ──→  Tính toán cột, tạo alias                  │
+│  10. SELECT       ──→  Tính toán cột, tạo alias                   │
 │         │                                                         │
 │         ▼                                                         │
-│  11. WINDOW FUNC  ──→  ROW_NUMBER, RANK, LAG, SUM OVER...        │
+│  11. WINDOW FUNC  ──→  ROW_NUMBER, RANK, LAG, SUM OVER...         │
 │         │                                                         │
 │         ▼                                                         │
-│  12. DISTINCT     ──→  Loại bỏ row trùng lặp                     │
+│  12. DISTINCT     ──→  Loại bỏ row trùng lặp                      │
 │         │                                                         │
 │         ▼                                                         │
-│  13. ORDER BY     ──→  Sắp xếp kết quả (có thể dùng alias)      │
+│  13. ORDER BY     ──→  Sắp xếp kết quả (có thể dùng alias)        │
 │         │                                                         │
 │         ▼                                                         │
-│  14. LIMIT/OFFSET ──→  Cắt lấy số row cần thiết                 │
+│  14. LIMIT/OFFSET ──→  Cắt lấy số row cần thiết                   │
 │                                                                   │
 └───────────┬───────────────────────────────────────────────────────┘
             │  Result Set
             ▼
 ┌───────────────────────────────────────────────────────────────────┐
-│                   GIAI ĐOẠN 3: SAU THỰC THI                      │
+│                   GIAI ĐOẠN 3: SAU THỰC THI                       │
 │                                                                   │
-│  15. RESULT FORMATTING  ──→  Đóng gói rows/columns → wire format │
+│  15. RESULT FORMATTING  ──→  Đóng gói rows/columns → wire format  │
 │         │                                                         │
 │         ▼                                                         │
-│  16. STATS UPDATE       ──→  Ghi lại execution time, rows read   │
+│  16. STATS UPDATE       ──→  Ghi lại execution time, rows read    │
 │         │                    (dùng để optimizer học về sau)       │
 │         ▼                                                         │
-│  17. LOCK RELEASE       ──→  Giải phóng shared/row locks         │
-│      & CLEANUP               Free memory, đóng cursor, trả buffer│
+│  17. LOCK RELEASE       ──→  Giải phóng shared/row locks          │
+│      & CLEANUP               Free memory, đóng cursor, trả buffer │
 │         │                                                         │
 │         ▼                                                         │
-│  18. WAL FLUSH          ──→  (Chỉ write queries)                 │
-│      (write only)            Flush WAL buffer → disk             │
-│                              Báo commit success về client        │
+│  18. WAL FLUSH          ──→  (Chỉ write queries)                  │
+│      (write only)            Flush WAL buffer → disk              │
+│                              Báo commit success về client         │
 └───────────┬───────────────────────────────────────────────────────┘
             │
             ▼
