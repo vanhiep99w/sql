@@ -33,3 +33,8 @@
 .prose table {
   font-size: 0.9rem;
 }
+
+/* Remove shadow from callout */
+.bg-fd-card.shadow-md {
+  box-shadow: none;
+}
