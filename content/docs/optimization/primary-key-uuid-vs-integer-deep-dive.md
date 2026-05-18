@@ -197,8 +197,8 @@ Insert ID = 1, 2, 3, …, 9999, 10000 — kịch bản trong mơ của B+Tree. H
 ╭──────────────────────────────────────────────────────────────╮
 │       Root                                                   │
 │      / | \                                                   │
-│    ...    \                                                   │
-│            \                                                  │
+│    ...    \                                                  │
+│            \                                                 │
 │  Leaf-N-2 ⇄ Leaf-N-1 ⇄ Leaf-N (rightmost)  ← insert ở đây    │
 │                                  ▲                           │
 │                                  │                           │
@@ -609,14 +609,26 @@ Tổng: **48 (time) + 74 (random) + 6 (version/variant) = 128 bit**.
 
 ### 10.4. Ví dụ một UUIDv7 thực tế
 
+Một UUIDv7 sinh lúc `2024-05-19 06:26:40 UTC`:
+
 ```
-0190ec7b-3f40-7a8c-b3ed-9ad1d4a8f00d
-└─────────────────┘└─┬──┘└─┬─┘└──────────┘
-   48b timestamp    ver  var
-   = 0x0190ec7b3f40
-   = 1716100000000  ms
-   = 2024-05-19T05:46:40 UTC
+   018f8f87-e900-7a8c-b3ed-9ad1d4a8f00d
+   ───────────── ─ ─── ── ──────────────
+        │        │  │   │       │
+        │        │  │   │       └─ rand_b   (62 bit random)
+        │        │  │   └────────  variant  (2 bit  = 10)
+        │        │  └────────────  rand_a   (12 bit random)
+        │        └───────────────  version  (4 bit  = 0111 = 7)
+        └────────────────────────  unix_ms  (48 bit timestamp)
 ```
+
+| Hex chars | Bits | Field | Giá trị trong ví dụ |
+|-----------|------|-------|---------------------|
+| `018f8f87e900` (12 hex) | 48 | `unix_ms` | `0x018f8f87e900` = `1,716,100,000,000 ms` = `2024-05-19 06:26:40 UTC` |
+| `7` (1 hex) | 4 | `version` | `0111` = **v7** |
+| `a8c` (3 hex) | 12 | `rand_a` | random |
+| `b` (1 hex) | 4 | 2 bit `variant` + 2 bit `rand_b` | `1011` → variant `10`, random `11` |
+| `3ed9ad1d4a8f00d` (15 hex) | 60 | `rand_b` (cont.) | random |
 
 Liên tiếp 5 UUIDv7 sinh ra trong 1 ms:
 
