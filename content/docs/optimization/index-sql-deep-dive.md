@@ -1052,32 +1052,32 @@ LIMIT 20;
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
 │   Step 1: Analyze the query                                                     │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │ • customer_id = 12345         → Equality, HIGH selectivity              │  │
-│   │ • status IN (...)             → Equality, LOW selectivity               │  │
-│   │ • created_at > ...            → Range condition                         │  │
-│   │ • ORDER BY created_at DESC    → Sorting requirement                     │  │
-│   └─────────────────────────────────────────────────────────────────────────┘  │
+│   ┌─────────────────────────────────────────────────────────────────────────┐   │
+│   │ • customer_id = 12345         → Equality, HIGH selectivity              │   │
+│   │ • status IN (...)             → Equality, LOW selectivity               │   │
+│   │ • created_at > ...            → Range condition                         │   │
+│   │ • ORDER BY created_at DESC    → Sorting requirement                     │   │
+│   └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                 │
 │   Step 2: Design optimal index                                                  │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │ Rule: Equality columns first, range/sort column last                    │  │
-│   │                                                                         │  │
-│   │ Option A: (customer_id, status, created_at)                             │  │
-│   │   ✅ customer_id filters first (very selective)                         │  │
-│   │   ✅ status further filters                                             │  │
-│   │   ✅ created_at for range AND sort (no filesort needed!)                │  │
-│   │                                                                         │  │
-│   │ Option B: (customer_id, created_at, status)                             │  │
-│   │   ⚠️ status after range column = status can't use index                 │  │
-│   │   (Range condition "breaks" the index for subsequent columns)           │  │
-│   └─────────────────────────────────────────────────────────────────────────┘  │
+│   ┌─────────────────────────────────────────────────────────────────────────┐   │
+│   │ Rule: Equality columns first, range/sort column last                    │   │
+│   │                                                                         │   │
+│   │ Option A: (customer_id, status, created_at)                             │   │
+│   │   ✅ customer_id filters first (very selective)                         │   │
+│   │   ✅ status further filters                                             │   │
+│   │   ✅ created_at for range AND sort (no filesort needed!)                │   │
+│   │                                                                         │   │
+│   │ Option B: (customer_id, created_at, status)                             │   │
+│   │   ⚠️ status after range column = status can't use index                 │   │
+│   │   (Range condition "breaks" the index for subsequent columns)           │   │
+│   └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                 │
 │   Step 3: Create the index                                                      │
 │   CREATE INDEX idx_orders_customer_status_date                                  │
 │   ON orders(customer_id, status, created_at);                                   │
 │                                                                                 │
-│   Result: Query time 15 seconds → 5 milliseconds (3000x improvement!)          │
+│   Result: Query time 15 seconds → 5 milliseconds (3000x improvement!)           │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1132,28 +1132,28 @@ GROUP BY customer_id;
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
 │   Before: Index on (created_at)                                                 │
-│   ┌─────────────────┐          ┌─────────────────────────────────┐             │
-│   │ Index Leaf      │   2nd    │ Table Row                       │             │
-│   │ created_at      │ ──────►  │ customer_id, total, ...         │             │
-│   │ + row pointer   │  I/O     │                                 │             │
-│   └─────────────────┘          └─────────────────────────────────┘             │
-│   ⚠️ Thousands of random I/O operations to fetch columns                       │
+│   ┌─────────────────┐          ┌─────────────────────────────────┐              │
+│   │ Index Leaf      │   2nd    │ Table Row                       │              │
+│   │ created_at      │ ──────►  │ customer_id, total, ...         │              │
+│   │ + row pointer   │  I/O     │                                 │              │
+│   └─────────────────┘          └─────────────────────────────────┘              │
+│   ⚠️ Thousands of random I/O operations to fetch columns                        │
 │                                                                                 │
-│   After: Covering Index on (created_at, customer_id, total)                    │
-│   ┌─────────────────────────────────────────────────────────────────┐          │
-│   │ Index Leaf (contains all needed columns)                        │          │
-│   │ created_at | customer_id | total                                │          │
-│   └─────────────────────────────────────────────────────────────────┘          │
+│   After: Covering Index on (created_at, customer_id, total)                     │
+│   ┌─────────────────────────────────────────────────────────────────┐           │
+│   │ Index Leaf (contains all needed columns)                        │           │
+│   │ created_at | customer_id | total                                │           │
+│   └─────────────────────────────────────────────────────────────────┘           │
 │   ✅ No table access needed - "Index Only Scan"!                                │
 │                                                                                 │
 │   CREATE INDEX idx_orders_covering                                              │
 │   ON orders(created_at, customer_id, total);                                    │
 │                                                                                 │
-│   -- Or using INCLUDE (PostgreSQL/SQL Server)                                  │
+│   -- Or using INCLUDE (PostgreSQL/SQL Server)                                   │
 │   CREATE INDEX idx_orders_covering                                              │
-│   ON orders(created_at) INCLUDE (customer_id, total);                          │
+│   ON orders(created_at) INCLUDE (customer_id, total);                           │
 │                                                                                 │
-│   EXPLAIN shows: Extra = "Using index" ← This is the goal!                     │
+│   EXPLAIN shows: Extra = "Using index" ← This is the goal!                      │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1249,16 +1249,16 @@ ORDER BY pg_relation_size(i.indexrelid) DESC;
 │                    INDEX HEALTH MONITORING DASHBOARD                            │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │ METRIC                    │ HEALTHY    │ WARNING    │ CRITICAL          │  │
-│   ├───────────────────────────┼────────────┼────────────┼───────────────────┤  │
-│   │ Index Hit Ratio           │ > 99%      │ 95-99%     │ < 95%             │  │
-│   │ Index Scans vs Seq Scans  │ > 90%      │ 70-90%     │ < 70%             │  │
-│   │ Index Bloat               │ < 20%      │ 20-50%     │ > 50%             │  │
-│   │ Unused Indexes            │ 0          │ 1-3        │ > 3               │  │
-│   │ Missing Index Suggestions │ 0          │ 1-2        │ > 2               │  │
-│   │ Index Size vs Table Size  │ < 50%      │ 50-100%    │ > 100%            │  │
-│   └───────────────────────────┴────────────┴────────────┴───────────────────┘  │
+│   ┌─────────────────────────────────────────────────────────────────────────┐   │
+│   │ METRIC                    │ HEALTHY    │ WARNING    │ CRITICAL          │   │
+│   ├───────────────────────────┼────────────┼────────────┼───────────────────┤   │
+│   │ Index Hit Ratio           │ > 99%      │ 95-99%     │ < 95%             │   │
+│   │ Index Scans vs Seq Scans  │ > 90%      │ 70-90%     │ < 70%             │   │
+│   │ Index Bloat               │ < 20%      │ 20-50%     │ > 50%             │   │
+│   │ Unused Indexes            │ 0          │ 1-3        │ > 3               │   │
+│   │ Missing Index Suggestions │ 0          │ 1-2        │ > 2               │   │
+│   │ Index Size vs Table Size  │ < 50%      │ 50-100%    │ > 100%            │   │
+│   └───────────────────────────┴────────────┴────────────┴───────────────────┘   │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1402,23 +1402,23 @@ This section focuses specifically on scenarios where you CREATE an index but the
 │                    WHY DATABASE IGNORES YOUR INDEX                              │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
-│   You created index → Query still slow → EXPLAIN shows full table scan         │
+│   You created index → Query still slow → EXPLAIN shows full table scan          │
 │                                                                                 │
 │   Common Reasons:                                                               │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │ 1. Function/Expression on indexed column                                │  │
-│   │ 2. Implicit type conversion                                             │  │
-│   │ 3. LIKE with leading wildcard                                           │  │
-│   │ 4. OR conditions                                                        │  │
-│   │ 5. NOT, !=, <> operators                                                │  │
-│   │ 6. Low selectivity (optimizer chooses full scan)                        │  │
-│   │ 7. Wrong column order in composite index                                │  │
-│   │ 8. NULL comparisons (IS NULL / IS NOT NULL)                             │  │
-│   │ 9. Outdated statistics                                                  │  │
-│   │ 10. Small table (full scan faster)                                      │  │
-│   │ 11. Returning too many rows (>15-30% of table)                          │  │
-│   │ 12. Index hints ignored by optimizer                                    │  │
-│   └─────────────────────────────────────────────────────────────────────────┘  │
+│   ┌─────────────────────────────────────────────────────────────────────────┐   │
+│   │ 1. Function/Expression on indexed column                                │   │
+│   │ 2. Implicit type conversion                                             │   │
+│   │ 3. LIKE with leading wildcard                                           │   │
+│   │ 4. OR conditions                                                        │   │
+│   │ 5. NOT, !=, <> operators                                                │   │
+│   │ 6. Low selectivity (optimizer chooses full scan)                        │   │
+│   │ 7. Wrong column order in composite index                                │   │
+│   │ 8. NULL comparisons (IS NULL / IS NOT NULL)                             │   │
+│   │ 9. Outdated statistics                                                  │   │
+│   │ 10. Small table (full scan faster)                                      │   │
+│   │ 11. Returning too many rows (>15-30% of table)                          │   │
+│   │ 12. Index hints ignored by optimizer                                    │   │
+│   └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1453,31 +1453,31 @@ SELECT * FROM users WHERE created_at + INTERVAL 1 DAY > NOW();
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
 │   Index on email stores:          Query needs:                                  │
-│   ┌─────────────────────┐         ┌─────────────────────┐                      │
-│   │ 'John@Example.com'  │   VS    │ LOWER('John@...') = │                      │
-│   │ 'JANE@COMPANY.COM'  │         │ 'john@example.com'  │                      │
-│   │ 'bob@test.org'      │         │                     │                      │
-│   └─────────────────────┘         └─────────────────────┘                      │
+│   ┌─────────────────────┐         ┌─────────────────────┐                       │
+│   │ 'John@Example.com'  │   VS    │ LOWER('John@...') = │                       │
+│   │ 'JANE@COMPANY.COM'  │         │ 'john@example.com'  │                       │
+│   │ 'bob@test.org'      │         │                     │                       │
+│   └─────────────────────┘         └─────────────────────┘                       │
 │                                                                                 │
 │   Index cannot help because:                                                    │
-│   • Index stores 'John@Example.com'                                            │
-│   • Query looks for 'john@example.com' (after LOWER)                           │
-│   • These don't match in index lookup!                                         │
+│   • Index stores 'John@Example.com'                                             │
+│   • Query looks for 'john@example.com' (after LOWER)                            │
+│   • These don't match in index lookup!                                          │
 │                                                                                 │
 │   ✅ SOLUTIONS:                                                                 │
 │                                                                                 │
 │   Solution 1: Rewrite query (best)                                              │
-│   SELECT * FROM users WHERE email = 'john@example.com';                        │
-│   -- Store emails in lowercase, compare as-is                                  │
+│   SELECT * FROM users WHERE email = 'john@example.com';                         │
+│   -- Store emails in lowercase, compare as-is                                   │
 │                                                                                 │
-│   Solution 2: Functional Index (PostgreSQL/MySQL 8.0+)                         │
-│   CREATE INDEX idx_email_lower ON users((LOWER(email)));                       │
-│   SELECT * FROM users WHERE LOWER(email) = 'john@example.com'; -- Now works!   │
+│   Solution 2: Functional Index (PostgreSQL/MySQL 8.0+)                          │
+│   CREATE INDEX idx_email_lower ON users((LOWER(email)));                        │
+│   SELECT * FROM users WHERE LOWER(email) = 'john@example.com'; -- Now works!    │
 │                                                                                 │
-│   Solution 3: Generated Column + Index (MySQL 5.7+)                            │
-│   ALTER TABLE users ADD email_lower VARCHAR(255)                               │
-│       GENERATED ALWAYS AS (LOWER(email)) STORED;                               │
-│   CREATE INDEX idx_email_lower ON users(email_lower);                          │
+│   Solution 3: Generated Column + Index (MySQL 5.7+)                             │
+│   ALTER TABLE users ADD email_lower VARCHAR(255)                                │
+│       GENERATED ALWAYS AS (LOWER(email)) STORED;                                │
+│   CREATE INDEX idx_email_lower ON users(email_lower);                           │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1533,21 +1533,21 @@ SELECT * FROM accounts WHERE phone = 1234567890;
 │   Query value: 12345 (integer)                                                  │
 │                                                                                 │
 │   What MySQL does:                                                              │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │ Row 1: account_number = '12345'  → CAST to INT → 12345  → Compare      │  │
-│   │ Row 2: account_number = '12346'  → CAST to INT → 12346  → Compare      │  │
-│   │ Row 3: account_number = '00123'  → CAST to INT → 123    → Compare      │  │
-│   │ Row 4: account_number = 'ABC12'  → CAST to INT → 0      → Compare      │  │
-│   │ ... (EVERY row must be converted!)                                      │  │
-│   └─────────────────────────────────────────────────────────────────────────┘  │
+│   ┌─────────────────────────────────────────────────────────────────────────┐   │
+│   │ Row 1: account_number = '12345'  → CAST to INT → 12345  → Compare       │   │
+│   │ Row 2: account_number = '12346'  → CAST to INT → 12346  → Compare       │   │
+│   │ Row 3: account_number = '00123'  → CAST to INT → 123    → Compare       │   │
+│   │ Row 4: account_number = 'ABC12'  → CAST to INT → 0      → Compare       │   │
+│   │ ... (EVERY row must be converted!)                                      │   │
+│   └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                 │
 │   ⚠️ Extra Problem: Data loss in conversion!                                    │
-│   • '00123' becomes 123 (leading zeros lost)                                   │
-│   • 'ABC12' becomes 0 (non-numeric converted to 0)                             │
-│   • You might get WRONG results!                                               │
+│   • '00123' becomes 123 (leading zeros lost)                                    │
+│   • 'ABC12' becomes 0 (non-numeric converted to 0)                              │
+│   • You might get WRONG results!                                                │
 │                                                                                 │
 │   ✅ SOLUTION: Always match data types                                          │
-│   SELECT * FROM accounts WHERE account_number = '12345';                       │
+│   SELECT * FROM accounts WHERE account_number = '12345';                        │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1587,37 +1587,37 @@ SELECT * FROM products WHERE name LIKE '%Phone 15';
 │                                                                                 │
 │   B-Tree Index on 'name' (sorted alphabetically):                               │
 │                                                                                 │
-│   ┌──────────────────────────────────────────────────────────────────────────┐ │
-│   │ Apple Watch │ Galaxy Phone │ iPhone 15 │ MacBook │ Pixel │ Samsung TV │  │ │
-│   └──────────────────────────────────────────────────────────────────────────┘ │
+│   ┌──────────────────────────────────────────────────────────────────────────┐  │
+│   │ Apple Watch │ Galaxy Phone │ iPhone 15 │ MacBook │ Pixel │ Samsung TV │  │  │
+│   └──────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                 │
 │   Query: WHERE name LIKE 'iPhone%'                                              │
 │   ✅ Can seek to 'iPhone' position, scan forward                                │
-│   ┌──────────────────────────────────────────────────────────────────────────┐ │
-│   │ Apple Watch │ Galaxy Phone │ [iPhone 15] │ MacBook │ Pixel │ Samsung TV │ │ │
-│   └──────────────────────────────────────────────────────────────────────────┘ │
+│   ┌──────────────────────────────────────────────────────────────────────────┐  │
+│   │ Apple Watch │ Galaxy Phone │ [iPhone 15] │ MacBook │ Pixel │ Samsung TV  │  │ 
+│   └──────────────────────────────────────────────────────────────────────────┘  │
 │                              ↑ Start here                                       │
 │                                                                                 │
 │   Query: WHERE name LIKE '%Phone%'                                              │
 │   ❌ Where to start? 'Phone' could be ANYWHERE in string                        │
-│   ┌──────────────────────────────────────────────────────────────────────────┐ │
-│   │ Apple Watch │ [Galaxy Phone] │ [iPhone 15] │ MacBook │ Pixel │ Samsung │ │ │
-│   └──────────────────────────────────────────────────────────────────────────┘ │
-│        Must check ALL ↑              ↑ Also matches                            │
+│   ┌──────────────────────────────────────────────────────────────────────────┐  │
+│   │ Apple Watch │ [Galaxy Phone] │ [iPhone 15] │ MacBook │ Pixel │ Samsung │ │  │
+│   └──────────────────────────────────────────────────────────────────────────┘  │
+│        Must check ALL ↑              ↑ Also matches                             │
 │                                                                                 │
 │   ✅ SOLUTIONS:                                                                 │
 │                                                                                 │
-│   1. Full-Text Search Index (recommended for text search)                      │
-│      CREATE FULLTEXT INDEX idx_name_ft ON products(name);                      │
-│      SELECT * FROM products WHERE MATCH(name) AGAINST('phone');                │
+│   1. Full-Text Search Index (recommended for text search)                       │
+│      CREATE FULLTEXT INDEX idx_name_ft ON products(name);                       │
+│      SELECT * FROM products WHERE MATCH(name) AGAINST('phone');                 │
 │                                                                                 │
-│   2. Reverse index for suffix search (PostgreSQL)                              │
-│      CREATE INDEX idx_name_reverse ON products(REVERSE(name));                 │
-│      WHERE REVERSE(name) LIKE REVERSE('%Phone 15');                            │
+│   2. Reverse index for suffix search (PostgreSQL)                               │
+│      CREATE INDEX idx_name_reverse ON products(REVERSE(name));                  │
+│      WHERE REVERSE(name) LIKE REVERSE('%Phone 15');                             │
 │                                                                                 │
-│   3. Trigram index (PostgreSQL pg_trgm extension)                              │
-│      CREATE INDEX idx_name_trgm ON products USING gin(name gin_trgm_ops);      │
-│      WHERE name LIKE '%phone%';  -- Now uses index!                            │
+│   3. Trigram index (PostgreSQL pg_trgm extension)                               │
+│      CREATE INDEX idx_name_trgm ON products USING gin(name gin_trgm_ops);       │
+│      WHERE name LIKE '%phone%';  -- Now uses index!                             │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1646,34 +1646,34 @@ WHERE customer_id = 100 OR status = 'pending';
 │   Query: WHERE customer_id = 100 OR status = 'pending'                          │
 │                                                                                 │
 │   Option 1: Use idx_customer                                                    │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │ Find customer_id = 100 → 50 rows                                        │  │
-│   │ But what about status = 'pending'? Index doesn't help!                  │  │
-│   │ Must scan remaining rows → defeats purpose                              │  │
-│   └─────────────────────────────────────────────────────────────────────────┘  │
+│   ┌─────────────────────────────────────────────────────────────────────────┐   │
+│   │ Find customer_id = 100 → 50 rows                                        │   │
+│   │ But what about status = 'pending'? Index doesn't help!                  │   │
+│   │ Must scan remaining rows → defeats purpose                              │   │
+│   └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                 │
 │   Option 2: Index Merge (if optimizer supports)                                 │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │ Scan idx_customer for customer_id = 100 → Row IDs: {1, 5, 10, ...}     │  │
-│   │ Scan idx_status for status = 'pending' → Row IDs: {2, 5, 15, ...}      │  │
-│   │ UNION both sets → {1, 2, 5, 10, 15, ...}                                │  │
-│   │ Fetch rows by IDs                                                       │  │
-│   │ ⚠️ Expensive if both return many rows                                   │  │
-│   └─────────────────────────────────────────────────────────────────────────┘  │
+│   ┌─────────────────────────────────────────────────────────────────────────┐   │
+│   │ Scan idx_customer for customer_id = 100 → Row IDs: {1, 5, 10, ...}      │   │
+│   │ Scan idx_status for status = 'pending' → Row IDs: {2, 5, 15, ...}       │   │
+│   │ UNION both sets → {1, 2, 5, 10, 15, ...}                                │   │
+│   │ Fetch rows by IDs                                                       │   │
+│   │ ⚠️ Expensive if both return many rows                                   │   │
+│   └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                 │
 │   ✅ SOLUTIONS:                                                                 │
 │                                                                                 │
-│   Solution 1: UNION (guaranteed to use both indexes)                           │
-│   SELECT * FROM orders WHERE customer_id = 100                                 │
-│   UNION                                                                        │
-│   SELECT * FROM orders WHERE status = 'pending';                               │
+│   Solution 1: UNION (guaranteed to use both indexes)                            │
+│   SELECT * FROM orders WHERE customer_id = 100                                  │
+│   UNION                                                                         │
+│   SELECT * FROM orders WHERE status = 'pending';                                │
 │                                                                                 │
-│   Solution 2: Composite index (if pattern is common)                           │
-│   CREATE INDEX idx_composite ON orders(customer_id, status);                   │
-│   -- But only helps if BOTH conditions use same index                          │
+│   Solution 2: Composite index (if pattern is common)                            │
+│   CREATE INDEX idx_composite ON orders(customer_id, status);                    │
+│   -- But only helps if BOTH conditions use same index                           │
 │                                                                                 │
-│   Solution 3: Rethink the query                                                │
-│   -- Maybe two separate queries are better for your use case                   │
+│   Solution 3: Rethink the query                                                 │
+│   -- Maybe two separate queries are better for your use case                    │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```

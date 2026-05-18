@@ -3,6 +3,7 @@
   "pages": [
     "index-sql",
     "index-sql-deep-dive",
+    "like-query-deep-dive",
     "sql-partition-deep-dive"
   ]
 }
