@@ -795,7 +795,8 @@ Bình thường, `WHERE b = X` trên index `(a, b)` → không dùng index. Như
 |----|-----|--------------|---------|
 | **Oracle** | INDEX SKIP SCAN | Khi cột đầu cardinality thấp (~< 100) | Có từ Oracle 9i |
 | **MySQL 8+** | Loose Index Scan / Skip Scan | Vài trường hợp với InnoDB | Hạn chế hơn Oracle |
-| **PostgreSQL** | **Không có cho B-Tree** | – | Có cho Index-Only Scan trên cùng leaf nhưng không phải skip scan thực sự |
+| **PostgreSQL ≤ 17** | **Không có cho B-Tree** | – | Tìm "giả lập" bằng recursive CTE / lateral join thủ công |
+| **PostgreSQL 18+** | B-Tree Skip Scan | Cột đầu cardinality thấp + có equality ở cột sau | Mới ra GA 2025-09; nhìn `Index Searches: N` trong EXPLAIN ANALYZE |
 | **SQL Server** | Không gọi tên — tự động optimizer chọn | Tương tự MySQL | Khá hiếm |
 
 ### 8.3. Oracle Skip Scan ví dụ
@@ -839,10 +840,10 @@ Nếu cột đầu cardinality cao (vài nghìn distinct), skip scan nhanh chón
 > **Đừng bao giờ thiết kế index dựa vào skip scan.** Coi nó là **safety net** cho query bất ngờ. Nếu query lặp đi lặp lại, hãy tạo index đúng thứ tự cột — skip scan luôn chậm hơn full prefix match.
 
 > [!TIP]
-> Postgres không có skip scan B-Tree → nếu chạy Postgres và có pattern "skip leftmost", cách duy nhất là **tạo thêm index** hoặc dùng query technique như `IN (SELECT DISTINCT a FROM ...)` lateral join (chính là skip scan thủ công):
+> **Postgres ≤ 17** không có skip scan B-Tree → nếu chạy Postgres cũ và có pattern "skip leftmost", cách duy nhất là **tạo thêm index** hoặc dùng query technique như recursive CTE + lateral join (chính là skip scan thủ công):
 >
 > ```sql
-> -- Manual "skip scan" trên Postgres
+> -- Manual "skip scan" trên Postgres ≤ 17
 > WITH RECURSIVE distinct_a AS (
 >   (SELECT a FROM tbl ORDER BY a LIMIT 1)
 >   UNION ALL
@@ -852,6 +853,17 @@ Nếu cột đầu cardinality cao (vài nghìn distinct), skip scan nhanh chón
 > SELECT t.* FROM distinct_a d, tbl t
 > WHERE t.a = d.a AND t.b = 'X';
 > ```
+>
+> **Postgres 18+** đã có skip scan native — planner tự kích hoạt khi cột đầu cardinality thấp, không cần config. Đếm `Index Searches: N` trong EXPLAIN ANALYZE để biết planner đã "chẻ" thành mấy sub-seek:
+>
+> ```text
+> Index Only Scan using ix_four_unique1 on tbl
+>    Index Cond: ((four >= 1) AND (four <= 3) AND (unique1 = 42))
+>    Index Searches: 3                                ← 3 sub-seek, 1 cho mỗi giá trị four
+>    Heap Fetches: 0
+> ```
+>
+> Lưu ý: skip scan PG18 cần ít nhất một equality ở cột sau gap để hoạt động — không áp dụng cho query có toàn range/non-equality.
 
 ---
 
@@ -1389,7 +1401,7 @@ Optimizer MySQL **đôi khi chọn nhầm** — tốt nhất là không phụ th
 | Feature | Postgres | MySQL (InnoDB) | Oracle | SQL Server |
 |---------|----------|----------------|--------|------------|
 | Composite B-Tree | ✅ | ✅ | ✅ | ✅ |
-| Index Skip Scan (B-Tree) | ❌ | ⚠️ Loose Index Scan (hạn chế) | ✅ Từ 9i | ⚠️ Optimizer tự chọn |
+| Index Skip Scan (B-Tree) | ✅ 18+ (`Index Searches: N`) | ⚠️ Loose Index Scan (hạn chế) | ✅ Từ 9i | ⚠️ Optimizer tự chọn |
 | INCLUDE columns | ✅ 11+ | ❌ (phải nhồi vào key) | ✅ 18c+ | ✅ Lâu rồi |
 | Mixed direction (ASC/DESC) | ✅ | ✅ 8.0+ | ✅ | ✅ |
 | Function/Expression Index | ✅ | ✅ 8.0+ | ✅ | ✅ Computed column |
@@ -1481,16 +1493,26 @@ Postgres có tương đương: **Partial Index** (cùng cú pháp `WHERE`).
 --  B. WHERE customer_id=? AND status=? ORDER BY created_at DESC LIMIT 50
 --  C. WHERE customer_id=? AND created_at BETWEEN ? AND ?
 
--- ✅ 1 index phục vụ cả 3:
-CREATE INDEX ix_orders_user
+-- ✅ Index chính cho query B (filter theo status):
+CREATE INDEX ix_orders_user_status
   ON orders (customer_id, status, created_at DESC);
 
--- A: dùng prefix (customer_id) + ORDER BY (created_at DESC) — ✅
--- B: dùng cả 3 cột — ✅
--- C: dùng (customer_id, created_at) skip status? ⚠️ Không —
---     status thành filter. Nếu C chạy nhiều, thêm:
+-- ⚠️ Query A (không có status trong WHERE):
+--    Trong slice customer_id=X, leaf sort theo (status, created_at DESC).
+--    → created_at KHÔNG monotonic DESC trên toàn slice → cần Sort step / Incremental Sort.
+--    → ix_orders_user_status KHÔNG tránh được sort cho query A.
+--
+-- ⚠️ Query C (range trên created_at, không có status):
+--    status thành filter (Range Stop Rule không liên quan ở đây — chỉ là gap),
+--    nhưng cũng không thu hẹp seek bằng status.
+--
+-- ✅ Index thứ 2 chuyên cho A và C (tránh sort, scope chính xác):
 CREATE INDEX ix_orders_user_date
   ON orders (customer_id, created_at DESC);
+
+-- → A: Index Scan Backward, không Sort, dừng sau 50 rows.
+-- → C: Index Range Scan trên (customer_id, created_at).
+-- → B: vẫn dùng ix_orders_user_status (cả 3 cột access).
 -- Sometimes duplicating is the right call.
 ```
 
@@ -1510,7 +1532,15 @@ CREATE INDEX ix_inv_3 ON invoices (tenant_id, project_id, status);
 ```
 
 > [!TIP]
-> **Bonus**: Postgres **Row Level Security** (RLS) tự thêm `tenant_id = current_setting('app.tenant_id')` vào mọi query. Composite với tenant_id đầu giúp **mọi RLS query** tự nhiên dùng index.
+> **Bonus**: Postgres **Row Level Security** không tự thêm predicate — bạn phải viết policy. Pattern phổ biến:
+>
+> ```sql
+> ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
+> CREATE POLICY tenant_isolation ON invoices
+>   USING (tenant_id = current_setting('app.tenant_id')::bigint);
+> ```
+>
+> Khi policy đã viết, Postgres tự áp `tenant_id = ...` vào mọi query trên `invoices`. Đặt `tenant_id` đầu mỗi composite index → policy predicate **luôn** trùng prefix của index → không cần lo về kế hoạch query.
 
 ### 14.3. Log/Event table — Time-series
 
@@ -1694,19 +1724,20 @@ Index 8 cột chỉ dùng được khi query có 8 cột match prefix theo đún
 
 **Đúng**: chấp nhận tạo 2-3 composite cho 2-3 access pattern khác nhau, mỗi cái 2-4 cột.
 
-### 15.8. ❌ Dựa vào skip scan trên Postgres
+### 15.8. ❌ Dựa vào skip scan trên Postgres cũ
 
-Skip scan **không tồn tại** trên Postgres B-Tree.
+Trên **Postgres ≤ 17**, skip scan **không tồn tại** trên B-Tree. Postgres 18+ đã có nhưng chỉ kích hoạt khi cột đầu cardinality thấp **và** cột sau có equality — không phải mọi trường hợp.
 
 ```sql
 -- Postgres
 CREATE INDEX ix ON users (gender, salary);
 
 -- WHERE salary > 100000;
--- → Seq Scan (Postgres không skip scan)
+-- → Postgres ≤ 17: Seq Scan
+-- → Postgres 18: cũng Seq Scan, vì không có equality nào ở cột sau gap để skip scan kích hoạt
 ```
 
-**Đúng**: tạo riêng `CREATE INDEX ON users (salary)`.
+**Đúng**: tạo riêng `CREATE INDEX ON users (salary)` cho pattern này; chỉ pattern `WHERE a IS [NOT] specified AND b = ?` mới hưởng lợi từ skip scan PG18.
 
 ### 15.9. ❌ Function trong WHERE phá composite
 
@@ -2035,7 +2066,7 @@ Quay lại câu hỏi đầu doc: **Tại sao đổi thứ tự cột làm query
 > Một range column ở vị trí `k` biến tất cả cột `k+1..n` thành filter. Đặt range cuối → tối đa số cột access.
 >
 > **2. Leftmost Prefix — không có ngoại lệ trên B-Tree thường.**
-> Index `(a, b, c)` không phục vụ `WHERE b=?` hay `WHERE c=?`. Đừng kỳ vọng skip scan cứu được — chỉ Oracle (và một phần MySQL) có, và rẻ tiền hơn là tạo index đúng thứ tự.
+> Index `(a, b, c)` không phục vụ `WHERE b=?` hay `WHERE c=?` ở dạng tổng quát. Skip scan (Oracle 9i+, Postgres 18+, một phần MySQL) chỉ cứu khi cột đầu cardinality thấp **và** có equality ở cột sau — đừng dựa vào nó để thiết kế. Tạo index đúng thứ tự cột vẫn rẻ và nhanh hơn.
 >
 > **3. Mỗi access pattern nóng = một composite index riêng.**
 > Đừng cố nhồi 1 index phục vụ tất cả. 2-3 composite hẹp tốt hơn 1 composite siêu rộng. Nhưng cũng đừng tạo 10 single-column index — đó là cực đoan kia.
