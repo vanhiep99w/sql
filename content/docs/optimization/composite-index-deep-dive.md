@@ -161,7 +161,7 @@ Mỗi entry trên leaf node của B-Tree là một **key tuple** + một **point
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ Leaf page #4172 của idx_orders (customer_id, status, created_at)     │
+│ Leaf page #4172 của idx_orders (customer_id, status, created_at)   │
 ├──────────────────────────────────────────────────────────────────────┤
 │  (90340, 'paid',     '2024-12-29 10:01:55+07')  →  ctid (1234, 7)    │
 │  (90340, 'paid',     '2024-12-30 14:22:08+07')  →  ctid (1234, 8)    │
@@ -204,10 +204,10 @@ Key trên leaf không phải 3 ô tách rời, mà là **1 chuỗi byte concat l
 ```
 Encoded key của (90341, 'paid', '2025-01-15')
 
-  ┌──────────────────┬─────────────┬──────────────────────────┐
-  │ 0x00 00 01 60 95 │ 'paid' 0x00 │ 0x00 02 8D F0 E2 B4 ...  │
-  │ (bigint big-endian)│ (text + NULL)│ (timestamp 8 bytes)    │
-  └──────────────────┴─────────────┴──────────────────────────┘
+  ┌────────────────────┬──────────────┬──────────────────────────┐
+  │ 0x00 00 01 60 95   │ 'paid' 0x00  │ 0x00 02 8D F0 E2 B4 ...  │
+  │ (bigint big-endian)│ (text + NULL)│ (timestamp 8 bytes)      │
+  └────────────────────┴──────────────┴──────────────────────────┘
                       ↓
               Tất cả ghép thành 1 key byte string
               So sánh bằng memcmp() trên toàn chuỗi
@@ -447,7 +447,7 @@ Nói cách khác: trong **một khoảng range của `b`**, dữ liệu **không
 ╭───────────────────────────────────────────────────────────────╮
 │ a = 10 AND b BETWEEN 2 AND 4 AND c = 'X'                      │
 │                                                               │
-│  Access range:  (10, 2)  →  (10, 5)   ← chỉ dùng a và b      │
+│  Access range:  (10, 2)  →  (10, 5)   ← chỉ dùng a và b       │
 │  Filter:        c = 'X'                                       │
 │                                                               │
 │  Rows quét trên index: 7  (tất cả rows trong khoảng b ∈ [2,4])│

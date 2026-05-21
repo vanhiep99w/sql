@@ -4,6 +4,7 @@
     "index-sql",
     "index-sql-deep-dive",
     "like-query-deep-dive",
+    "dml-index-impact-deep-dive",
     "composite-index-deep-dive",
     "sql-partition-deep-dive",
     "primary-key-uuid-vs-integer-deep-dive"

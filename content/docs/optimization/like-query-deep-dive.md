@@ -1192,11 +1192,11 @@ Khi scale lên **hàng trăm triệu rows**, hoặc cần:
 ### 13.3. Pattern phổ biến: Postgres + Elasticsearch sync
 
 ```diagram
-╭───────────────╮     CDC      ╭──────────────╮
+╭───────────────╮     CDC      ╭───────────────╮
 │  Postgres     │─────────────▶│ Elasticsearch │
 │  (source of   │  Debezium /  │  (search +    │
 │   truth)      │  logical rep │   aggregation)│
-╰───────────────╯              ╰──────────────╯
+╰───────────────╯              ╰───────────────╯
        ▲                              ▲
        │ writes                       │ search queries
        │                              │
@@ -1295,10 +1295,10 @@ WHERE email_rev LIKE reverse(lower($1)) || '%';
 **Giải pháp**: Move khỏi Postgres → Elasticsearch / Loki / Clickhouse.
 
 ```diagram
-╭──────────╮  Fluent Bit   ╭──────────────╮  Kibana
+╭──────────╮  Fluent Bit   ╭───────────────╮  Kibana
 │   App    │──────────────▶│ Elasticsearch │ ◀──── User
 │  logs    │  / Vector     │  + index      │
-╰──────────╯               ╰──────────────╯
+╰──────────╯               ╰───────────────╯
 ```
 
 Postgres không phải tool cho log search ở scale này — write rate cao + cardinality lớn sẽ phá GIN index.
@@ -1571,15 +1571,15 @@ Quay lại câu hỏi đầu doc: **Tại sao index không hoạt động với 
 ╭───────────────────────────────────────────────────────────────╮
 │  Pattern               Status              Fix                │
 │  ─────────────────────────────────────────────────────────    │
-│  'abc%'                ✅ B-Tree           text_pattern_ops    │
+│  'abc%'                ✅ B-Tree           text_pattern_ops   │
 │  'abc%xyz'             ⚠️ Access='abc'    Dùng prefix dài hơn │
-│  '%abc'                ❌ Seq Scan         Reversed column     │
-│  '%abc%'               ❌ Seq Scan         GIN trigram         │
-│  ILIKE bất kỳ          ❌ Seq Scan         GIN trigram         │
-│  Natural language      ❌ Seq Scan         FTS tsvector + GIN  │
-│  Typo-tolerant         ❌ Seq Scan         pg_trgm similarity  │
-│  Multi-field, ranking  ❌ Seq Scan         FTS + setweight     │
-│  > 100M rows + facet   ❌ Postgres slow    Elasticsearch       │
+│  '%abc'                ❌ Seq Scan         Reversed column    │
+│  '%abc%'               ❌ Seq Scan         GIN trigram        │
+│  ILIKE bất kỳ          ❌ Seq Scan         GIN trigram        │
+│  Natural language      ❌ Seq Scan         FTS tsvector + GIN │
+│  Typo-tolerant         ❌ Seq Scan         pg_trgm similarity │
+│  Multi-field, ranking  ❌ Seq Scan         FTS + setweight    │
+│  > 100M rows + facet   ❌ Postgres slow    Elasticsearch      │
 ╰───────────────────────────────────────────────────────────────╯
 ```
 
