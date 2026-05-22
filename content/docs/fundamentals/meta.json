@@ -6,6 +6,7 @@
     "acid-transaction",
     "isolation-levels",
     "lock",
-    "mvcc"
+    "mvcc",
+    "subquery-vs-cte-vs-temp-table"
   ]
 }
