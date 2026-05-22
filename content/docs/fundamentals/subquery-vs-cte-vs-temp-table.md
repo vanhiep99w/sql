@@ -80,19 +80,19 @@ Trong doc này, ta sẽ:
 Trước khi đi sâu, hãy nhìn tổng quan:
 
 ```diagram
-╭──────────────────────────────────────────────────────────────╮
+╭───────────────────────────────────────────────────────────────╮
 │  Subquery                                                     │
 │  ─────────                                                    │
 │  • Là một SELECT lồng trong SELECT/WHERE/FROM khác            │
 │  • Không có tên riêng (trừ khi dùng alias trong FROM)         │
 │  • Optimizer có thể inline, flatten, hoặc materialize         │
-│  • Scope: chỉ tồn tại trong câu query chứa nó                │
+│  • Scope: chỉ tồn tại trong câu query chứa nó                 │
 │                                                               │
 │  CTE (Common Table Expression)                                │
 │  ─────────────────────────────                                │
 │  • WITH ... AS (...) — đặt tên cho một block logic            │
 │  • Có thể tham chiếu nhiều lần trong query chính              │
-│  • Có thể recursive (đệ quy)                                 │
+│  • Có thể recursive (đệ quy)                                  │
 │  • Scope: chỉ tồn tại trong câu query ngay sau WITH           │
 │                                                               │
 │  Temp Table                                                   │
@@ -101,7 +101,7 @@ Trước khi đi sâu, hãy nhìn tổng quan:
 │  • Data được ghi vào disk (hoặc memory) thật sự               │
 │  • Có thể đánh index, ANALYZE, dùng ở nhiều query             │
 │  • Scope: tồn tại đến hết session (hoặc transaction)          │
-╰──────────────────────────────────────────────────────────────╯
+╰───────────────────────────────────────────────────────────────╯
 ```
 
 | Tiêu chí | Subquery | CTE | Temp Table |
@@ -826,7 +826,7 @@ INSERT INTO categories VALUES
 ```
 
 ```diagram
-╭──────────────────────────────────────────────────╮
+╭───────────────────────────────────────────────────╮
 │  Electronics (1)                                  │
 │  ├── Computers (2)                                │
 │  │   ├── Laptops (3)                              │
@@ -840,7 +840,7 @@ INSERT INTO categories VALUES
 │  Clothing (10)                                    │
 │  └── Men (11)                                     │
 │      └── Shirts (12)                              │
-╰──────────────────────────────────────────────────╯
+╰───────────────────────────────────────────────────╯
 ```
 
 **Bài toán**: Lấy tất cả subcategories của "Electronics" (bao gồm chính nó) — bất kể sâu bao nhiêu level.
@@ -885,7 +885,7 @@ Kết quả:
 ### 8.3. Cách Recursive CTE hoạt động — Step by step
 
 ```diagram
-╭──────────────────────────────────────────────────────────────╮
+╭───────────────────────────────────────────────────────────────╮
 │  Iteration 0 (Base case):                                     │
 │    Working table: {Electronics}                               │
 │    Result: {Electronics}                                      │
@@ -911,7 +911,7 @@ Kết quả:
 │    Tìm con của {Gaming Laptops, Business Laptops}             │
 │    → {} (không có con)                                        │
 │    Working table: {} → DỪNG                                   │
-╰──────────────────────────────────────────────────────────────╯
+╰───────────────────────────────────────────────────────────────╯
 ```
 
 > [!IMPORTANT]
@@ -1518,28 +1518,28 @@ DROP TABLE IF EXISTS tmp_work;
 
 ```diagram
 ╭──────────────────────────────────────────────────────────────╮
-│  Bạn cần chia query phức tạp thành các phần nhỏ?            │
-│                                                               │
+│  Bạn cần chia query phức tạp thành các phần nhỏ?             │
+│                                                              │
 │  ┌─ Logic dùng bao nhiêu lần trong query?                    │
-│  │                                                            │
+│  │                                                           │
 │  ├─ 1 lần → Logic phức tạp không?                            │
-│  │  ├─ Đơn giản (1-2 bước) → SUBQUERY                       │
-│  │  └─ Phức tạp (3+ bước) → CTE                             │
-│  │                                                            │
-│  ├─ ≥ 2 lần trong CÙNG query → CTE                          │
-│  │                                                            │
-│  └─ ≥ 2 lần trong KHÁC query → TEMP TABLE                   │
-│                                                               │
-│  ┌─ Cần recursive / duyệt cây?                              │
-│  │  └─ Có → RECURSIVE CTE                                   │
-│  │                                                            │
+│  │  ├─ Đơn giản (1-2 bước) → SUBQUERY                        │
+│  │  └─ Phức tạp (3+ bước) → CTE                              │
+│  │                                                           │
+│  ├─ ≥ 2 lần trong CÙNG query → CTE                           │
+│  │                                                           │
+│  └─ ≥ 2 lần trong KHÁC query → TEMP TABLE                    │
+│                                                              │
+│  ┌─ Cần recursive / duyệt cây?                               │
+│  │  └─ Có → RECURSIVE CTE                                    │
+│  │                                                           │
 │  ┌─ Dataset trung gian lớn, cần index?                       │
 │  │  └─ Có → TEMP TABLE                                       │
-│  │                                                            │
+│  │                                                           │
 │  ┌─ Trong VIEW hoặc single statement?                        │
 │  │  └─ Có → CTE (temp table không dùng được)                 │
-│  │                                                            │
-│  ┌─ Stored procedure, cần dùng ở nhiều bước?                │
+│  │                                                           │
+│  ┌─ Stored procedure, cần dùng ở nhiều bước?                 │
 │  │  └─ Có → TEMP TABLE                                       │
 ╰──────────────────────────────────────────────────────────────╯
 ```
