@@ -217,10 +217,10 @@ SELECT * FROM users WHERE id = 1003;
 ### 3.2. Vấn đề cốt lõi
 
 ```diagram
-╭──────────────────────────────────────────────────────────────╮
+╭───────────────────────────────────────────────────────────────╮
 │  N+1 Problem:                                                 │
 │                                                               │
-│  App ──→ DB: "Lấy 50 orders"                    (1 query)    │
+│  App ──→ DB: "Lấy 50 orders"                    (1 query)     │
 │  App ←── DB: [order1, order2, ..., order50]                   │
 │  App ──→ DB: "User của order1?"                  (query 2)    │
 │  App ←── DB: [user_1001]                                      │
@@ -230,8 +230,8 @@ SELECT * FROM users WHERE id = 1003;
 │  App ──→ DB: "User của order50?"                 (query 51)   │
 │  App ←── DB: [user_1050]                                      │
 │                                                               │
-│  Tổng: 1 + N round-trips (N = số orders)                     │
-╰──────────────────────────────────────────────────────────────╯
+│  Tổng: 1 + N round-trips (N = số orders)                      │
+╰───────────────────────────────────────────────────────────────╯
 ```
 
 Vấn đề **scale tuyến tính**: 50 orders = 51 queries, 500 orders = 501 queries, 5000 orders = 5001 queries.
@@ -350,7 +350,7 @@ MySQL **cast toàn bộ cột `phone` thành số** để so sánh → **Seq Sca
 Khi kiểu dữ liệu không khớp, database phải **convert** một trong hai bên. Nếu nó convert **cột** (thay vì hằng số), mọi index trên cột đó trở nên **vô dụng**.
 
 ```diagram
-╭──────────────────────────────────────────────────────────────╮
+╭───────────────────────────────────────────────────────────────╮
 │  WHERE varchar_col = 123                                      │
 │                                                               │
 │  Database phải quyết:                                         │
@@ -359,7 +359,7 @@ Khi kiểu dữ liệu không khớp, database phải **convert** một trong ha
 │                                                               │
 │  MySQL chọn B → Full Table Scan                               │
 │  Postgres **báo lỗi** (strict typing — không implicit cast)   │
-╰──────────────────────────────────────────────────────────────╯
+╰───────────────────────────────────────────────────────────────╯
 ```
 
 ### 4.3. Các trường hợp implicit conversion thường gặp
@@ -453,13 +453,13 @@ Có index `idx_orders_created_at` trên cột `created_at`. Nhưng:
 
 ```diagram
 ╭──────────────────────────────────────────────────────────────╮
-│  B-Tree index trên created_at:                                │
-│                                                               │
-│  2023-11-15 → 2023-12-01 → 2024-01-01 → 2024-01-15 → ...   │
-│                                                               │
+│  B-Tree index trên created_at:                               │
+│                                                              │
+│  2023-11-15 → 2023-12-01 → 2024-01-01 → 2024-01-15 → ...     │
+│                                                              │
 │  EXTRACT(MONTH FROM created_at) = 1  →  index thấy gì?       │
-│  → Tháng 1 có thể ở BẤT KỲ đâu trên cây                    │
-│  → 2023-01-xx, 2024-01-xx, 2025-01-xx...                    │
+│  → Tháng 1 có thể ở BẤT KỲ đâu trên cây                      │
+│  → 2023-01-xx, 2024-01-xx, 2025-01-xx...                     │
 │  → Không có cách nào range scan → Full Scan                  │
 ╰──────────────────────────────────────────────────────────────╯
 ```
@@ -717,12 +717,12 @@ SELECT * FROM orders ORDER BY created_at DESC LIMIT 20 OFFSET 1999980; -- 28,500
 ```diagram
 ╭──────────────────────────────────────────────────────────────╮
 │  OFFSET 1,999,980 LIMIT 20:                                  │
-│                                                               │
+│                                                              │
 │  ┌─────────────────────────────────────────┐ ┌──┐            │
-│  │        1,999,980 rows bị vứt            │ │20│ ← lấy     │
+│  │        1,999,980 rows bị vứt            │ │20│ ← lấy      │
 │  └─────────────────────────────────────────┘ └──┘            │
-│  ↑                                                            │
-│  Database vẫn phải đọc TẤT CẢ rows này                      │
+│  ↑                                                           │
+│  Database vẫn phải đọc TẤT CẢ rows này                       │
 ╰──────────────────────────────────────────────────────────────╯
 ```
 
@@ -821,9 +821,9 @@ x != 1 AND x != 2 AND x != NULL
 
 ```diagram
 ╭──────────────────────────────────────────────────────────────╮
-│  NOT IN (1, 2, 3)     →  x!=1 AND x!=2 AND x!=3  → OK ✅   │
-│  NOT IN (1, 2, NULL)  →  x!=1 AND x!=2 AND x!=NULL          │
-│                        →  TRUE AND TRUE AND UNKNOWN           │
+│  NOT IN (1, 2, 3)     →  x!=1 AND x!=2 AND x!=3  → OK ✅     │
+│  NOT IN (1, 2, NULL)  →  x!=1 AND x!=2 AND x!=NULL           │
+│                        →  TRUE AND TRUE AND UNKNOWN          │
 │                        →  UNKNOWN → row bị loại  → BUG ❌    │
 ╰──────────────────────────────────────────────────────────────╯
 ```
@@ -959,10 +959,10 @@ Thứ tự thực thi SQL:
 │  2. WHERE           ← lọc rows TRƯỚC aggregation  │
 │  3. GROUP BY        ← gom nhóm                    │
 │  4. Aggregate       ← SUM, COUNT, AVG...          │
-│  5. HAVING          ← lọc SAU aggregation          │
+│  5. HAVING          ← lọc SAU aggregation         │
 │  6. SELECT          ← chọn cột                    │
-│  7. ORDER BY        ← sắp xếp                    │
-│  8. LIMIT/OFFSET    ← cắt                        │
+│  7. ORDER BY        ← sắp xếp                     │
+│  8. LIMIT/OFFSET    ← cắt                         │
 ╰───────────────────────────────────────────────────╯
 ```
 
@@ -1041,17 +1041,17 @@ CREATE INDEX idx_orders_status_total ON orders(status, total DESC);
 
 ```diagram
 ╭──────────────────────────────────────────────────────────────╮
-│  Composite Index = [equality cols] + [range/sort cols]        │
-│                                                               │
+│  Composite Index = [equality cols] + [range/sort cols]       │
+│                                                              │
 │  WHERE status = 'paid'  ORDER BY total DESC  LIMIT 20        │
 │        ↑ equality                  ↑ sort                    │
-│  →  INDEX(status, total DESC)                                 │
-│                                                               │
+│  →  INDEX(status, total DESC)                                │
+│                                                              │
 │  WHERE status = 'paid' AND created_at > '2024-01-01'         │
 │        ORDER BY total DESC                                   │
 │        ↑ equality          ↑ range         ↑ sort            │
 │  →  INDEX(status, created_at, total DESC)                    │
-│     ⚠️ Range column CHẶN sort optimization                  │
+│     ⚠️ Range column CHẶN sort optimization                   │
 │  →  Cân nhắc: INDEX(status, total DESC) + filter created_at  │
 ╰──────────────────────────────────────────────────────────────╯
 ```
@@ -1337,12 +1337,12 @@ COMMIT;
 │                  → Lock 500 rows                             │
 │                  → UPDATE 1 row                              │
 │                  → Giữ lock 499 rows THỪA cho đến COMMIT     │
-│                                                               │
-│  Transaction B:  UPDATE products SET stock=stock-1            │
-│                  WHERE id=5678 (cùng category)                │
-│                  → BLOCKED — đợi Transaction A commit         │
-│                                                               │
-│  Transaction C, D, E... → tất cả đợi → QUEUE BUILDUP        │
+│                                                              │
+│  Transaction B:  UPDATE products SET stock=stock-1           │
+│                  WHERE id=5678 (cùng category)               │
+│                  → BLOCKED — đợi Transaction A commit        │
+│                                                              │
+│  Transaction C, D, E... → tất cả đợi → QUEUE BUILDUP         │
 ╰──────────────────────────────────────────────────────────────╯
 ```
 
@@ -1468,21 +1468,21 @@ SELECT DBMS_SQLTUNE.REPORT_SQL_MONITOR(sql_id => 'abc123') FROM dual;
 
 ```diagram
 ╭──────────────────────────────────────────────────────────────╮
-│  □  Có SELECT * không? → Chỉ lấy cột cần                    │
-│  □  Có N+1 không? → Bật eager loading / JOIN                │
-│  □  Kiểu dữ liệu bind param đúng chưa? → Check type         │
-│  □  Có function trên cột WHERE không? → SARGable rewrite    │
+│  □  Có SELECT * không? → Chỉ lấy cột cần                     │
+│  □  Có N+1 không? → Bật eager loading / JOIN                 │
+│  □  Kiểu dữ liệu bind param đúng chưa? → Check type          │
+│  □  Có function trên cột WHERE không? → SARGable rewrite     │
 │  □  Có OR cross-column không? → UNION ALL                    │
-│  □  Correlated subquery trả nhiều rows? → JOIN              │
-│  □  Dùng OFFSET cho API? → Keyset pagination                │
+│  □  Correlated subquery trả nhiều rows? → JOIN               │
+│  □  Dùng OFFSET cho API? → Keyset pagination                 │
 │  □  Có NOT IN không? → NOT EXISTS                            │
 │  □  DISTINCT có cần không? → Xem lại JOIN                    │
-│  □  WHERE hay HAVING? → Non-aggregate filter ở WHERE        │
-│  □  ORDER BY có index hỗ trợ không? → Composite index       │
-│  □  Bao nhiêu JOIN? → >5 thì cân nhắc denormalize           │
-│  □  COUNT(*) full table? → Estimate hoặc cache              │
+│  □  WHERE hay HAVING? → Non-aggregate filter ở WHERE         │
+│  □  ORDER BY có index hỗ trợ không? → Composite index        │
+│  □  Bao nhiêu JOIN? → >5 thì cân nhắc denormalize            │
+│  □  COUNT(*) full table? → Estimate hoặc cache               │
 │  □  Loop INSERT? → Batch / COPY                              │
-│  □  FOR UPDATE scope đúng chưa? → Lock chỉ row cần          │
+│  □  FOR UPDATE scope đúng chưa? → Lock chỉ row cần           │
 ╰──────────────────────────────────────────────────────────────╯
 ```
 
@@ -1498,9 +1498,9 @@ Quay lại câu hỏi đầu doc: **Tại sao dashboard 200ms biến thành 12 g
 
 ```diagram
 ╭───────────────────────────────────────────────────────────────╮
-│  Anti-pattern                    Fix                           │
+│  Anti-pattern                    Fix                          │
 │  ─────────────────────────────────────────────────────────    │
-│  SELECT *                        Chỉ lấy cột cần + covering  │
+│  SELECT *                        Chỉ lấy cột cần + covering   │
 │  N+1 query                       JOIN / eager loading         │
 │  Implicit type conversion        Truyền đúng kiểu             │
 │  Function on column              SARGable rewrite / expr idx  │
@@ -1509,7 +1509,7 @@ Quay lại câu hỏi đầu doc: **Tại sao dashboard 200ms biến thành 12 g
 │  OFFSET pagination               Keyset / cursor-based        │
 │  NOT IN (có NULL)                NOT EXISTS                   │
 │  DISTINCT thừa                   EXISTS / fix JOIN            │
-│  HAVING thay WHERE              Đặt filter ở WHERE           │
+│  HAVING thay WHERE               Đặt filter ở WHERE           │
 │  ORDER BY without index          Composite index              │
 │  Quá nhiều JOIN                  Materialized View            │
 │  COUNT(*) full table             Estimate / cache             │
