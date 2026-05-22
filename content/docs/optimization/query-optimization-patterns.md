@@ -358,7 +358,7 @@ Khi kiểu dữ liệu không khớp, database phải **convert** một trong ha
 │    B) CAST(varchar_col AS INT) → so sánh số  → index DEAD ❌  │
 │                                                               │
 │  MySQL chọn B → Full Table Scan                               │
-│  Postgres chọn A → Index Scan                                 │
+│  Postgres **báo lỗi** (strict typing — không implicit cast)   │
 ╰──────────────────────────────────────────────────────────────╯
 ```
 
