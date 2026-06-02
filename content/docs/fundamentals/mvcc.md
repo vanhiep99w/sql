@@ -424,3 +424,11 @@ Table SAU UPDATE:
 - MySQL cần tránh **long-running transaction** gây purge lag.
 - Oracle cần **sizing Undo Tablespace** đúng và cấu hình `UNDO_RETENTION` phù hợp.
 - Cả ba đều implement MVCC nhưng với kiến trúc khác nhau — không có "tốt nhất tuyệt đối", chỉ có **phù hợp nhất** cho workload cụ thể.
+
+---
+
+> [!NOTE]
+> **Đọc thêm:**
+> - PostgreSQL VACUUM — cách xử lý dead tuple phát sinh từ MVCC: [PostgreSQL VACUUM](/docs/postgresql/vacuum)
+> - InnoDB architecture (Undo Log, Purge Thread): [InnoDB](/docs/mysql/innodb)
+> - So sánh MVCC giữa MySQL và PostgreSQL: [MySQL vs PostgreSQL](/docs/comparison/mysql-vs-postgresql)
