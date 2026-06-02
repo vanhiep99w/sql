@@ -5,28 +5,28 @@ description: "Deep dive vào SQL Index — B-Tree, Composite Index, EXPLAIN, Sel
 
 ## Mục lục
 
-- [Index Fundamentals](#1-index-fundamentals)
-- [Index Storage Structures](#2-index-storage-structures)
-- [B-Tree Index Deep Dive](#3-b-tree-index-deep-dive)
+- [Nền tảng Index](#1-nền-tảng-index)
+- [Cấu trúc lưu trữ Index](#2-cấu-trúc-lưu-trữ-index)
+- [B-Tree Index — Chi tiết](#3-b-tree-index--chi-tiết)
 - [Clustered vs Non-Clustered Index](#4-clustered-vs-non-clustered-index)
-- [Composite Index & Column Order](#5-composite-index--column-order)
-- [Index and Query Execution](#6-index-and-query-execution)
+- [Composite Index & Thứ tự cột](#5-composite-index--thứ-tự-cột)
+- [Index và Query Execution](#6-index-và-query-execution)
 - [Index Selectivity & Cardinality](#7-index-selectivity--cardinality)
-- [Common Mistakes & How to Prevent](#8-common-mistakes--how-to-prevent)
-- [Real-World Examples](#9-real-world-examples)
-- [Index Optimization Strategies](#10-index-optimization-strategies)
-- [Monitoring & Maintenance](#11-monitoring--maintenance)
-- [Why Index Is Not Used](#12-why-index-is-not-used-deep-dive-with-examples)
-- [How to Know Which Index Will Be Used](#13-how-to-know-which-index-will-be-used)
-- [Index Best Practices Summary](#14-index-best-practices-summary)
+- [Các lỗi thường gặp & Cách phòng tránh](#8-các-lỗi-thường-gặp--cách-phòng-tránh)
+- [Ví dụ thực tế](#9-ví-dụ-thực-tế)
+- [Chiến lược tối ưu Index](#10-chiến-lược-tối-ưu-index)
+- [Monitoring & Bảo trì](#11-monitoring--bảo-trì)
+- [Tại sao Index không được sử dụng](#12-tại-sao-index-không-được-sử-dụng--deep-dive-với-ví-dụ)
+- [Làm sao biết Index nào sẽ được dùng](#13-làm-sao-biết-index-nào-sẽ-được-dùng)
+- [Tóm tắt Best Practices](#14-tóm-tắt-best-practices)
 
 ---
 
-## 1. Index Fundamentals
+## 1. Nền tảng Index
 
-### What is an Index?
+### Index là gì?
 
-An **Index** is a separate data structure that maintains pointers to rows in a table, organized in a way that allows fast lookups. Think of it like a book's index - instead of reading every page to find a topic, you look up the index to find the exact page number.
+**Index** (chỉ mục) là cấu trúc dữ liệu riêng biệt lưu trữ con trỏ tới các row trong bảng, được tổ chức sao cho việc tra cứu diễn ra nhanh chóng. Hãy hình dung nó như mục lục của một cuốn sách — thay vì đọc từng trang để tìm chủ đề, bạn tra mục lục để biết ngay số trang.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -66,9 +66,9 @@ An **Index** is a separate data structure that maintains pointers to rows in a t
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Performance Comparison
+### So sánh hiệu năng
 
-| Rows in Table | Full Table Scan | B-Tree Index Lookup | Speed Improvement |
+| Số row trong bảng | Full Table Scan | B-Tree Index Lookup | Cải thiện tốc độ |
 |---------------|-----------------|---------------------|-------------------|
 | 1,000 | 1,000 comparisons | ~10 comparisons | **100x faster** |
 | 10,000 | 10,000 comparisons | ~14 comparisons | **714x faster** |
@@ -76,17 +76,17 @@ An **Index** is a separate data structure that maintains pointers to rows in a t
 | 1,000,000 | 1,000,000 comparisons | ~20 comparisons | **50,000x faster** |
 | 10,000,000 | 10,000,000 comparisons | ~24 comparisons | **416,667x faster** |
 
-### Index Benefits Summary
+### Tóm tắt lợi ích của Index
 
-| Benefit | Explanation | Example |
-|---------|-------------|---------|
-| **Speed up SELECT queries** | DB reads only relevant data blocks, not full table | `WHERE email = ?` uses index instead of scanning all rows |
-| **Optimize WHERE conditions** | Index provides direct path to matching rows | `WHERE status = 'active' AND created_at > '2024-01-01'` |
-| **Accelerate JOIN operations** | Index on foreign key speeds up table joins | `JOIN orders ON users.id = orders.user_id` |
-| **Improve ORDER BY / GROUP BY** | Data already sorted in index structure | `ORDER BY created_at DESC` uses index order |
-| **Enforce UNIQUE constraints** | UNIQUE index checks duplicates efficiently | Prevent duplicate emails in users table |
+| Lợi ích | Giải thích | Ví dụ |
+|---------|------------|-------|
+| **Tăng tốc SELECT** | DB chỉ đọc các block liên quan thay vì toàn bộ bảng | `WHERE email = ?` dùng index thay vì scan hết row |
+| **Tối ưu điều kiện WHERE** | Index cung cấp đường đi trực tiếp tới row khớp | `WHERE status = 'active' AND created_at > '2024-01-01'` |
+| **Tăng tốc JOIN** | Index trên foreign key giúp join nhanh hơn | `JOIN orders ON users.id = orders.user_id` |
+| **Cải thiện ORDER BY / GROUP BY** | Dữ liệu đã sắp xếp sẵn trong index | `ORDER BY created_at DESC` dùng thứ tự index |
+| **Đảm bảo UNIQUE constraint** | UNIQUE index kiểm tra trùng lặp hiệu quả | Ngăn email trùng trong bảng users |
 
-### When to Create Index
+### Khi nào nên tạo Index
 
 ```mermaid
 flowchart TD
@@ -112,23 +112,23 @@ flowchart TD
     K -->|No| M[B-Tree Index]
 ```
 
-### When NOT to Create Index
+### Khi nào KHÔNG nên tạo Index
 
-| Scenario | Reason | Example |
-|----------|--------|---------|
-| **Small tables** (< 1000 rows) | Full scan is faster than index lookup overhead | Configuration tables, lookup tables |
-| **Low selectivity columns** | Index scan still reads most of the table | `gender` (M/F), `is_active` (true/false) |
-| **Frequently updated columns** | Every UPDATE requires index update too | `view_count`, `last_login_at` |
-| **Columns with functions** | Index won't be used if column is wrapped in function | `WHERE YEAR(created_at) = 2024` |
-| **Write-heavy tables** | Index maintenance slows down INSERT/UPDATE/DELETE | High-frequency logging tables |
+| Trường hợp | Lý do | Ví dụ |
+|------------|-------|-------|
+| **Bảng nhỏ** (< 1000 rows) | Full scan nhanh hơn chi phí lookup index | Bảng cấu hình, bảng lookup |
+| **Cột selectivity thấp** | Index scan vẫn đọc phần lớn bảng | `gender` (M/F), `is_active` (true/false) |
+| **Cột cập nhật thường xuyên** | Mỗi UPDATE đều phải cập nhật index | `view_count`, `last_login_at` |
+| **Cột bọc trong hàm** | Index không được dùng nếu cột nằm trong function | `WHERE YEAR(created_at) = 2024` |
+| **Bảng write-heavy** | Bảo trì index làm chậm INSERT/UPDATE/DELETE | Bảng ghi log tần suất cao |
 
 ---
 
-## 2. Index Storage Structures
+## 2. Cấu trúc lưu trữ Index
 
-### Overview of Index Types
+### Tổng quan các loại Index
 
-| Index Type | Data Structure | Best For | Operators Supported | Database Support |
+| Loại Index | Cấu trúc dữ liệu | Phù hợp với | Toán tử hỗ trợ | Database hỗ trợ |
 |------------|---------------|----------|---------------------|------------------|
 | **B-Tree** | Balanced Tree | Range queries, equality, sorting | `=`, `<`, `>`, `<=`, `>=`, `BETWEEN`, `LIKE 'abc%'` | MySQL, PostgreSQL, Oracle, SQL Server |
 | **Hash** | Hash Table | Equality only | `=` | PostgreSQL, MySQL (Memory Engine) |
@@ -137,7 +137,7 @@ flowchart TD
 | **GIN** | Generalized Inverted Index | Arrays, JSONB, full-text | `@>`, `?`, `?&`, `?|` | PostgreSQL |
 | **BRIN** | Block Range Index | Large tables with natural ordering | Range queries on correlated data | PostgreSQL |
 
-### B-Tree vs Hash Index Comparison
+### So sánh B-Tree và Hash Index
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -177,7 +177,7 @@ flowchart TD
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Bitmap Index Deep Dive
+### Bitmap Index — Chi tiết
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -212,9 +212,9 @@ flowchart TD
 
 ---
 
-## 3. B-Tree Index Deep Dive
+## 3. B-Tree Index — Chi tiết
 
-### B-Tree Structure Explained
+### Cấu trúc B-Tree giải thích
 
 B-Tree (Balanced Tree) is the most common index structure. Most databases actually use **B+Tree** variant.
 
@@ -249,7 +249,7 @@ B-Tree (Balanced Tree) is the most common index structure. Most databases actual
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### B-Tree Search Process
+### Quy trình tìm kiếm trong B-Tree
 
 ```mermaid
 sequenceDiagram
@@ -271,7 +271,7 @@ sequenceDiagram
     Note over Q,D: Total: 3 node reads + 1 data read<br/>O(log n) complexity
 ```
 
-### B-Tree Operations Complexity
+### Độ phức tạp các thao tác B-Tree
 
 | Operation | Average Case | Worst Case | Description |
 |-----------|-------------|------------|-------------|
@@ -280,7 +280,7 @@ sequenceDiagram
 | **Delete** | O(log n) | O(log n) | May cause node merges |
 | **Range Scan** | O(log n + k) | O(log n + k) | k = number of matching rows |
 
-### Node Split Visualization
+### Minh họa Node Split
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -313,7 +313,7 @@ sequenceDiagram
 
 ## 4. Clustered vs Non-Clustered Index
 
-### Visual Comparison
+### So sánh trực quan
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -376,7 +376,7 @@ sequenceDiagram
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Detailed Comparison Table
+### Bảng so sánh chi tiết
 
 | Aspect | Clustered Index | Non-Clustered Index |
 |--------|----------------|---------------------|
@@ -390,7 +390,7 @@ sequenceDiagram
 | **Default in MySQL InnoDB** | Primary Key | Other indexes |
 | **Default in PostgreSQL** | None (heap table) | All indexes are non-clustered |
 
-### Bookmark Lookup Problem
+### Vấn đề Bookmark Lookup
 
 **Bookmark Lookup** (also called Key Lookup in SQL Server, or RID Lookup for heap tables) occurs when the database finds rows using a non-clustered index but must then go back to the base table (or clustered index) to retrieve additional columns not stored in the index.
 
@@ -433,7 +433,7 @@ sequenceDiagram
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Why Bookmark Lookup is Problematic
+### Tại sao Bookmark Lookup là vấn đề
 
 | Reason | Explanation | Impact |
 |--------|-------------|--------|
@@ -444,7 +444,7 @@ sequenceDiagram
 | **Tipping Point Problem** | Optimizer may abandon index entirely if too many lookups needed | Index becomes useless when selectivity drops below threshold (~1-5%) |
 | **Lock Contention** | More pages accessed means more locks held longer | Increases blocking in high-concurrency environments |
 
-### The Tipping Point: When Index Becomes Slower Than Full Scan
+### Điểm giới hạn: Khi Index chậm hơn Full Scan
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -476,7 +476,7 @@ sequenceDiagram
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Real-World Example: E-Commerce Product Search
+### Ví dụ thực tế: Tìm kiếm sản phẩm E-Commerce
 
 ```sql
 -- Scenario: E-commerce site with 5 million products
@@ -536,7 +536,7 @@ LIMIT 50;
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Solution: Covering Index
+### Giải pháp: Covering Index
 
 ```sql
 -- SOLUTION 1: Covering Index with INCLUDE (SQL Server/PostgreSQL)
@@ -578,7 +578,7 @@ ON products(category_id, rating DESC, name, price, image_url);
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### When to Solve Bookmark Lookup
+### Khi nào cần xử lý Bookmark Lookup
 
 | Factor | Create Covering Index | Keep Bookmark Lookup |
 |--------|----------------------|---------------------|
@@ -588,7 +588,7 @@ ON products(category_id, rating DESC, name, price, image_url);
 | **Write frequency** | Read-heavy table | Write-heavy table |
 | **Storage constraints** | Plenty of disk space | Limited storage |
 
-### Detecting Bookmark Lookups
+### Phát hiện Bookmark Lookup
 
 ```sql
 -- MySQL: Look for "Using index condition" vs "Using index"
@@ -609,9 +609,9 @@ EXPLAIN (ANALYZE, BUFFERS) SELECT id, name, price FROM products WHERE category_i
 
 ---
 
-## 5. Composite Index & Column Order
+## 5. Composite Index & Thứ tự cột
 
-### The Critical Importance of Column Order
+### Tầm quan trọng của thứ tự cột
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -638,7 +638,7 @@ EXPLAIN (ANALYZE, BUFFERS) SELECT id, name, price FROM products WHERE category_i
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Which Queries Use the Index?
+### Query nào sử dụng được Index?
 
 | Query | Uses Index? | Explanation |
 |-------|-------------|-------------|
@@ -650,7 +650,7 @@ EXPLAIN (ANALYZE, BUFFERS) SELECT id, name, price FROM products WHERE category_i
 | `WHERE customer_id = 100 AND created_at > '2024-01-01'` | ⚠️ Partial | Only uses customer_id, can't skip status |
 | `WHERE status = 'active' AND customer_id = 100` | ✅ Yes | Optimizer reorders (same as first two) |
 
-### Column Order Decision Guide
+### Hướng dẫn chọn thứ tự cột
 
 ```mermaid
 flowchart TD
@@ -676,7 +676,7 @@ flowchart TD
     M --> N["CREATE INDEX idx_optimal ON table(equality_col1, equality_col2, range_col)"]
 ```
 
-### Real Example: Optimizing a Slow Query
+### Ví dụ thực tế: Tối ưu query chậm
 
 ```sql
 -- Original slow query
@@ -706,9 +706,9 @@ CREATE INDEX idx_orders_optimal ON orders(customer_id, status, created_at);
 
 ---
 
-## 6. Index and Query Execution
+## 6. Index và Query Execution
 
-### How Database Chooses to Use Index
+### Database chọn Index như thế nào
 
 ```mermaid
 flowchart TD
@@ -738,7 +738,7 @@ flowchart TD
     end
 ```
 
-### Understanding EXPLAIN Output
+### Hiểu kết quả EXPLAIN
 
 ```sql
 -- MySQL EXPLAIN example
@@ -786,25 +786,25 @@ EXPLAIN SELECT * FROM users WHERE email = 'john@example.com';
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Common "Extra" Field Values
+### Các giá trị "Extra" thường gặp
 
-| Extra Value | Meaning | Good/Bad |
+| Giá trị Extra | Ý nghĩa | Đánh giá |
 |-------------|---------|----------|
-| `Using index` | Covering index - no table access needed | ✅ Excellent |
-| `Using where` | WHERE clause applied after index lookup | ⚠️ Normal |
-| `Using filesort` | Sorting done in memory/disk, not using index | ⚠️ Can be slow |
-| `Using temporary` | Temporary table created for GROUP BY/DISTINCT | ⚠️ Can be slow |
-| `Using index condition` | Index condition pushdown (ICP) | ✅ Good optimization |
-| `Full scan on NULL key` | Subquery requires full scan | ❌ Bad |
+| `Using index` | Covering index — không cần truy cập bảng | ✅ Xuất sắc |
+| `Using where` | Điều kiện WHERE được áp dụng sau khi lookup index | ⚠️ Bình thường |
+| `Using filesort` | Sắp xếp trên memory/disk, không dùng index | ⚠️ Có thể chậm |
+| `Using temporary` | Tạo bảng tạm cho GROUP BY/DISTINCT | ⚠️ Có thể chậm |
+| `Using index condition` | Index condition pushdown (ICP) | ✅ Tốt |
+| `Full scan on NULL key` | Subquery phải full scan | ❌ Xấu |
 
 ---
 
 ## 7. Index Selectivity & Cardinality
 
-### Understanding Selectivity
+### Hiểu về Selectivity
 
-**Selectivity** = How well an index can narrow down results
-**Cardinality** = Number of distinct values in a column
+**Selectivity** = Mức độ mà index có thể thu hẹp kết quả tìm kiếm
+**Cardinality** = Số lượng giá trị phân biệt (distinct) trong một cột
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -851,17 +851,17 @@ EXPLAIN SELECT * FROM users WHERE email = 'john@example.com';
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Selectivity Threshold Rule
+### Ngưỡng Selectivity
 
-| Selectivity | % of Table | Index Useful? | Recommendation |
-|-------------|------------|---------------|----------------|
-| < 1% | Very few rows | ✅ Definitely | Index will be used |
-| 1-5% | Small portion | ✅ Usually | Index typically used |
-| 5-15% | Moderate | ⚠️ Maybe | Depends on row size, optimizer choice |
-| 15-30% | Large portion | ⚠️ Unlikely | Full scan often faster |
-| > 30% | Most of table | ❌ No | Full scan is faster |
+| Selectivity | % bảng | Index hữu ích? | Khuyến nghị |
+|-------------|---------|---------------|----------------|
+| < 1% | Rất ít row | ✅ Chắc chắn | Index sẽ được dùng |
+| 1-5% | Phần nhỏ | ✅ Thường có | Index thường được dùng |
+| 5-15% | Vừa phải | ⚠️ Có thể | Tùy thuộc row size và optimizer |
+| 15-30% | Phần lớn | ⚠️ Khó | Full scan thường nhanh hơn |
+| > 30% | Hầu hết bảng | ❌ Không | Full scan nhanh hơn |
 
-### Checking Cardinality in Practice
+### Kiểm tra Cardinality trong thực tế
 
 ```sql
 -- MySQL: Check index cardinality
@@ -890,9 +890,9 @@ FROM users;
 
 ---
 
-## 8. Common Mistakes & How to Prevent
+## 8. Các lỗi thường gặp & Cách phòng tránh
 
-### Mistake #1: Function on Indexed Column
+### Lỗi #1: Dùng hàm trên cột đã đánh Index
 
 ```sql
 -- ❌ BAD: Index on created_at will NOT be used
@@ -906,7 +906,7 @@ SELECT * FROM orders
 WHERE created_at >= '2024-01-01' AND created_at < '2025-01-01';
 ```
 
-### Mistake #2: Implicit Type Conversion
+### Lỗi #2: Chuyển đổi kiểu ngầm định
 
 ```sql
 -- Table definition: phone_number VARCHAR(20)
@@ -919,7 +919,7 @@ SELECT * FROM users WHERE phone_number = 1234567890;
 SELECT * FROM users WHERE phone_number = '1234567890';
 ```
 
-### Mistake #3: LIKE with Leading Wildcard
+### Lỗi #3: LIKE với wildcard ở đầu
 
 ```sql
 -- ❌ BAD: Leading wildcard cannot use index
@@ -935,7 +935,7 @@ CREATE FULLTEXT INDEX idx_products_name ON products(name);
 SELECT * FROM products WHERE MATCH(name) AGAINST('phone');
 ```
 
-### Mistake #4: OR Conditions Breaking Index
+### Lỗi #4: Điều kiện OR làm mất Index
 
 ```sql
 -- ❌ BAD: OR can prevent index usage
@@ -950,7 +950,7 @@ SELECT * FROM orders WHERE status = 'pending';
 -- Each subquery can use appropriate index
 ```
 
-### Mistake #5: Wrong Column Order in Composite Index
+### Lỗi #5: Sai thứ tự cột trong Composite Index
 
 ```sql
 -- Index: (status, customer_id, created_at)
@@ -963,7 +963,7 @@ SELECT * FROM orders WHERE customer_id = 100;
 SELECT * FROM orders WHERE status = 'active' AND customer_id = 100;
 ```
 
-### Complete Mistakes Reference Table
+### Bảng tham chiếu đầy đủ các lỗi
 
 | Mistake | Example | Why Index Fails | Prevention |
 |---------|---------|-----------------|------------|
@@ -978,7 +978,7 @@ SELECT * FROM orders WHERE status = 'active' AND customer_id = 100;
 | **Too many indexes** | 10+ indexes on one table | Slows down writes significantly | Keep 3-5 well-designed indexes |
 | **Over-indexing** | Index every column | Storage waste, slow writes | Only index queried columns |
 
-### Visual: Index Killer Patterns
+### Minh họa: Các pattern "giết" Index
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -1026,9 +1026,9 @@ SELECT * FROM orders WHERE status = 'active' AND customer_id = 100;
 
 ---
 
-## 9. Real-World Examples
+## 9. Ví dụ thực tế
 
-### Example 1: E-Commerce Order Query Optimization
+### Ví dụ 1: Tối ưu query đơn hàng E-Commerce
 
 ```sql
 -- Scenario: Orders table with 10 million rows
@@ -1082,7 +1082,7 @@ LIMIT 20;
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Example 2: User Search with Partial Match
+### Ví dụ 2: Tìm kiếm user với Partial Match
 
 ```sql
 -- Scenario: Search users by name (millions of users)
@@ -1111,7 +1111,7 @@ CREATE FULLTEXT INDEX idx_users_fulltext ON users(first_name, last_name);
 SELECT * FROM users WHERE MATCH(first_name, last_name) AGAINST('John Doe');
 ```
 
-### Example 3: Covering Index to Eliminate Bookmark Lookups
+### Ví dụ 3: Covering Index loại bỏ Bookmark Lookup
 
 ```sql
 -- Scenario: Dashboard showing order summary
@@ -1160,9 +1160,9 @@ GROUP BY customer_id;
 
 ---
 
-## 10. Index Optimization Strategies
+## 10. Chiến lược tối ưu Index
 
-### Strategy 1: Analyze Query Patterns First
+### Chiến lược 1: Phân tích query pattern trước
 
 ```sql
 -- MySQL: Find slow queries
@@ -1177,7 +1177,7 @@ LIMIT 20;
 -- Focus on: High frequency + High execution time queries
 ```
 
-### Strategy 2: Use Partial Indexes (PostgreSQL)
+### Chiến lược 2: Dùng Partial Index (PostgreSQL)
 
 ```sql
 -- Full index: Indexes ALL 10 million rows
@@ -1194,7 +1194,7 @@ WHERE status = 'pending';
 -- • Uses less memory
 ```
 
-### Strategy 3: Index Maintenance Schedule
+### Chiến lược 3: Lịch bảo trì Index
 
 | Task | Frequency | MySQL Command | PostgreSQL Command |
 |------|-----------|---------------|-------------------|
@@ -1203,7 +1203,7 @@ WHERE status = 'pending';
 | **Rebuild index** | Monthly | `ALTER TABLE orders ENGINE=InnoDB;` | `REINDEX INDEX idx_name;` |
 | **Find unused indexes** | Monthly | Query performance_schema | Query pg_stat_user_indexes |
 
-### Strategy 4: Index Monitoring Queries
+### Chiến lược 4: Các query giám sát Index
 
 ```sql
 -- MySQL: Find unused indexes
@@ -1240,9 +1240,9 @@ ORDER BY pg_relation_size(i.indexrelid) DESC;
 
 ---
 
-## 11. Monitoring & Maintenance
+## 11. Monitoring & Bảo trì
 
-### Index Health Dashboard Metrics
+### Các chỉ số sức khỏe Index
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -1263,7 +1263,7 @@ ORDER BY pg_relation_size(i.indexrelid) DESC;
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### PostgreSQL: Index Bloat Detection
+### PostgreSQL: Phát hiện Index Bloat
 
 ```sql
 -- Check index bloat
@@ -1282,7 +1282,7 @@ LIMIT 20;
 REINDEX INDEX CONCURRENTLY idx_orders_customer;
 ```
 
-### MySQL: InnoDB Index Statistics
+### MySQL: Thống kê Index InnoDB
 
 ```sql
 -- Check index statistics
@@ -1300,7 +1300,7 @@ ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX;
 ANALYZE TABLE orders;
 ```
 
-### Index Maintenance Checklist
+### Checklist bảo trì Index
 
 ```mermaid
 flowchart TD
@@ -1333,9 +1333,9 @@ flowchart TD
 
 ---
 
-## Quick Reference Card
+## Thẻ tham chiếu nhanh
 
-### Index Creation Syntax
+### Cú pháp tạo Index
 
 ```sql
 -- Basic index
@@ -1364,7 +1364,7 @@ DROP INDEX idx_name ON table;  -- MySQL
 DROP INDEX idx_name;           -- PostgreSQL
 ```
 
-### Index Selection Decision Matrix
+### Ma trận quyết định chọn Index
 
 | Query Type | Recommended Index | Example |
 |------------|-------------------|---------|
@@ -1376,7 +1376,7 @@ DROP INDEX idx_name;           -- PostgreSQL
 | JSON/Array contains | GIN (PostgreSQL) | `WHERE tags @> '{java}'` → GIN on tags |
 | Geospatial | GiST (PostgreSQL) | `WHERE point @> box` → GiST on point |
 
-### Performance Impact Summary
+### Tóm tắt tác động hiệu năng
 
 | Operation | Without Index | With Index | Notes |
 |-----------|--------------|------------|-------|
@@ -1391,11 +1391,11 @@ DROP INDEX idx_name;           -- PostgreSQL
 
 ---
 
-## 12. Why Index Is Not Used (Deep Dive with Examples)
+## 12. Tại sao Index không được sử dụng — Deep Dive với ví dụ
 
-This section focuses specifically on scenarios where you CREATE an index but the database IGNORES it.
+Phần này tập trung vào các tình huống bạn TẠO index nhưng database LẠI Bỏ QUA nó.
 
-### Overview: Index Ignored Scenarios
+### Tổng quan: Các tình huống Index bị bỏ qua
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -1423,7 +1423,7 @@ This section focuses specifically on scenarios where you CREATE an index but the
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Mistake 1: Function on Indexed Column
+### Lỗi 1: Dùng hàm trên cột đã đánh Index
 
 ```sql
 -- Setup
@@ -1501,7 +1501,7 @@ SELECT * FROM orders
 WHERE created_at >= '2024-12-01' AND created_at < '2025-01-01';
 ```
 
-### Mistake 2: Implicit Type Conversion
+### Lỗi 2: Chuyển đổi kiểu ngầm định
 
 ```sql
 -- Setup
@@ -1563,7 +1563,7 @@ SELECT * FROM accounts WHERE phone = 1234567890;
 
 *MySQL converts string to int without function on column
 
-### Mistake 3: LIKE with Leading Wildcard
+### Lỗi 3: LIKE với Leading Wildcard
 
 ```sql
 CREATE INDEX idx_name ON products(name);
@@ -1622,7 +1622,7 @@ SELECT * FROM products WHERE name LIKE '%Phone 15';
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Mistake 4: OR Conditions
+### Lỗi 4: Điều kiện OR
 
 ```sql
 CREATE INDEX idx_customer ON orders(customer_id);
@@ -1678,7 +1678,7 @@ WHERE customer_id = 100 OR status = 'pending';
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Mistake 5: NOT, !=, <> Operators
+### Lỗi 5: Toán tử NOT, !=, <>
 
 ```sql
 CREATE INDEX idx_status ON orders(status);
@@ -1738,7 +1738,7 @@ SELECT * FROM orders WHERE NOT status = 'archived';
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Mistake 6: Low Selectivity / High Cardinality
+### Lỗi 6: Selectivity thấp / Cardinality thấp
 
 ```sql
 CREATE INDEX idx_gender ON users(gender);  -- Only 'M', 'F', 'Other'
@@ -1792,7 +1792,7 @@ SELECT * FROM users WHERE is_active = TRUE;  -- Returns 90% of table
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Mistake 7: Wrong Column Order in Composite Index
+### Lỗi 7: Sai thứ tự cột trong Composite Index
 
 ```sql
 CREATE INDEX idx_status_customer_date ON orders(status, customer_id, created_at);
@@ -1847,7 +1847,7 @@ SELECT * FROM orders WHERE status = 'active' AND created_at > '2024-01-01';
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Mistake 8: Outdated Statistics
+### Lỗi 8: Statistics lỗi thời
 
 ```sql
 -- After massive data changes (bulk insert/delete)
@@ -1874,9 +1874,9 @@ EXEC sp_updatestats;
 
 ---
 
-## 13. How to Know Which Index Will Be Used
+## 13. Làm sao biết Index nào sẽ được dùng
 
-### Using EXPLAIN (MySQL)
+### Sử dụng EXPLAIN (MySQL)
 
 ```sql
 -- Basic EXPLAIN
@@ -1935,7 +1935,7 @@ EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = 100;
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Using EXPLAIN (PostgreSQL)
+### Sử dụng EXPLAIN (PostgreSQL)
 
 ```sql
 -- Basic EXPLAIN
@@ -1988,7 +1988,7 @@ SELECT * FROM orders WHERE customer_id = 100;
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Reading EXPLAIN: Real Examples
+### Đọc EXPLAIN: Ví dụ thực tế
 
 ```sql
 -- Example 1: Good - Index is used
@@ -2031,7 +2031,7 @@ EXPLAIN SELECT email, name FROM users WHERE email = 'john@example.com';
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Quick Diagnosis Flowchart
+### Sơ đồ chẩn đoán nhanh
 
 ```mermaid
 flowchart TD
@@ -2064,24 +2064,24 @@ flowchart TD
 
 ---
 
-## 14. Index Best Practices Summary
+## 14. Tóm tắt Best Practices
 
-### Do's and Don'ts
+### Nên và Không nên
 
 | Category | ✅ DO | ❌ DON'T |
 |----------|-------|---------|
-| **Column Selection** | Index columns in WHERE, JOIN, ORDER BY | Index every column |
-| **Column Order** | Put equality columns first, range last | Random order in composite index |
-| **Selectivity** | Index high-selectivity columns | Index boolean/gender columns alone |
-| **Query Writing** | Use exact data types | Compare varchar with int |
-| **Query Writing** | Use range for dates | Use YEAR()/MONTH() functions |
-| **Query Writing** | Use trailing wildcard LIKE 'abc%' | Use leading wildcard LIKE '%abc' |
-| **Index Count** | 3-5 well-designed indexes | 10+ indexes per table |
-| **Maintenance** | Run ANALYZE regularly | Ignore stale statistics |
-| **Monitoring** | Check slow query log | Assume indexes are working |
-| **Covering** | Include frequently selected columns | Always SELECT * |
+| **Chọn cột** | Đánh index cột trong WHERE, JOIN, ORDER BY | Đánh index mọi cột |
+| **Thứ tự cột** | Đặt cột equality trước, range sau | Thứ tự ngẫu nhiên trong composite index |
+| **Selectivity** | Đánh index cột selectivity cao | Đánh index cột boolean/gender riêng |
+| **Viết query** | Dùng đúng data type | So sánh varchar với int |
+| **Viết query** | Dùng range cho ngày tháng | Dùng YEAR()/MONTH() |
+| **Viết query** | Dùng trailing wildcard LIKE 'abc%' | Dùng leading wildcard LIKE '%abc' |
+| **Số lượng index** | 3-5 index thiết kế tốt | 10+ index mỗi bảng |
+| **Bảo trì** | Chạy ANALYZE định kỳ | Bỏ qua statistics lỗi thời |
+| **Giám sát** | Kiểm tra slow query log | Giả định index đang hoạt động |
+| **Covering** | Bao gồm cột SELECT thường dùng | Luôn SELECT * |
 
-### Index Design Checklist
+### Checklist thiết kế Index
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐

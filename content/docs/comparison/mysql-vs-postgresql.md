@@ -15,6 +15,7 @@ description: "So sánh chi tiết MySQL và PostgreSQL — MVCC, JSON, Performan
 - [Performance](#performance)
 - [Maintenance](#maintenance)
 - [Extension Ecosystem](#extension-ecosystem)
+- [Cloud & Managed Services](#cloud--managed-services)
 - [Khi nào chọn MySQL, khi nào PostgreSQL](#khi-nào-chọn-mysql-khi-nào-postgresql)
 - [Bảng tổng kết](#bảng-tổng-kết)
 
@@ -179,15 +180,15 @@ PostgreSQL hỗ trợ nhiều kiểu dữ liệu phong phú hơn:
 ### MySQL Replication
 
 ```sql
--- Master-Slave cơ bản
--- Master:
-CHANGE MASTER TO
-  MASTER_HOST='master_ip',
-  MASTER_USER='repl_user',
-  MASTER_PASSWORD='password',
-  MASTER_LOG_FILE='mysql-bin.000001',
-  MASTER_LOG_POS=0;
-START SLAVE;
+-- Source-Replica cơ bản (syntax MySQL 8.0.23+)
+-- Source:
+CHANGE REPLICATION SOURCE TO
+  SOURCE_HOST='source_ip',
+  SOURCE_USER='repl_user',
+  SOURCE_PASSWORD='password',
+  SOURCE_LOG_FILE='mysql-bin.000001',
+  SOURCE_LOG_POS=0;
+START REPLICA;
 ```
 
 ### PostgreSQL Streaming Replication
@@ -259,6 +260,42 @@ PostgreSQL có hệ sinh thái extension phong phú hơn nhiều:
 | **pgcrypto** | Encryption functions | Built-in encryption |
 | **hstore** | Key-value storage | Không có |
 | **ltree** | Hierarchical data | Không có native |
+
+## Cloud & Managed Services
+
+Cả MySQL và PostgreSQL đều được hỗ trợ tốt trên các nền tảng cloud lớn, nhưng có sự khác biệt về tính năng và hệ sinh thái:
+
+| Dịch vụ | MySQL | PostgreSQL | Ghi chú |
+|---------|-------|------------|---------|
+| **AWS RDS** | ✅ RDS MySQL | ✅ RDS PostgreSQL | Cả hai đều managed đầy đủ |
+| **AWS Aurora** | ✅ Aurora MySQL | ✅ Aurora PostgreSQL | Storage engine riêng, throughput cao hơn RDS gốc ~5× |
+| **Google Cloud SQL** | ✅ Cloud SQL MySQL | ✅ Cloud SQL PostgreSQL | Managed, auto backup, HA |
+| **Google AlloyDB** | ❌ | ✅ AlloyDB (PostgreSQL compatible) | Tối ưu cho OLTP + analytics, tích hợp AI |
+| **Azure Database** | ✅ Azure MySQL Flexible Server | ✅ Azure PostgreSQL Flexible Server | Cả hai đều có Flexible Server |
+| **PlanetScale** | ✅ (Vitess-based MySQL) | ❌ | Serverless, branching schema migrations |
+| **Neon** | ❌ | ✅ Serverless PostgreSQL | Serverless, branching, scale-to-zero |
+| **Supabase** | ❌ | ✅ PostgreSQL + APIs | Backend-as-a-Service, tích hợp auth/storage |
+| **CockroachDB** | ❌ | ✅ (PostgreSQL wire protocol) | Distributed SQL, multi-region |
+| **TiDB** | ✅ (MySQL compatible) | ❌ | Distributed HTAP |
+
+### So sánh chi phí (tham khảo)
+
+| Tier | AWS RDS MySQL | AWS RDS PostgreSQL | Ghi chú |
+|------|--------------|-------------------|---------|
+| db.t3.micro (free tier) | ~$0/tháng (750h) | ~$0/tháng (750h) | Giống nhau |
+| db.r6g.large (production) | ~$175/tháng | ~$175/tháng | Giá tương đương |
+| Aurora (r6g.large) | ~$230/tháng | ~$230/tháng | Premium cho storage engine tốt hơn |
+| Storage (GP3) | $0.115/GB/tháng | $0.115/GB/tháng | Giống nhau |
+
+> [!TIP]
+> Chi phí managed service gần như tương đương giữa MySQL và PostgreSQL trên cùng provider. Quyết định chọn database nên dựa vào **yêu cầu kỹ thuật**, không phải giá.
+
+### Khi nào dùng Aurora thay RDS thường?
+
+- Cần **throughput cao** hơn RDS gốc (Aurora storage layer nhanh hơn đáng kể).
+- Cần **auto-scaling read replicas** — Aurora hỗ trợ lên đến 15 replicas với replica lag ~10ms.
+- Cần **serverless** — Aurora Serverless v2 tự scale theo workload, tốt cho traffic biến động.
+- **Không nên** nếu workload nhỏ, đơn giản — RDS thường rẻ hơn và đủ dùng.
 
 ## Khi nào chọn MySQL, khi nào PostgreSQL
 

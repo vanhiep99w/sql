@@ -5,28 +5,28 @@ description: "Deep dive vào SQL Partitioning — Range, List, Hash, Partition P
 
 ## Mục lục
 
-- [Partitioning Fundamentals](#1-partitioning-fundamentals)
-- [Partition Types](#2-partition-types)
-- [Range Partitioning Deep Dive](#3-range-partitioning-deep-dive)
-- [List Partitioning Deep Dive](#4-list-partitioning-deep-dive)
-- [Hash Partitioning Deep Dive](#5-hash-partitioning-deep-dive)
+- [Nền tảng Partitioning](#1-nền-tảng-partitioning)
+- [Các loại Partition](#2-các-loại-partition)
+- [Range Partitioning — Chi tiết](#3-range-partitioning--chi-tiết)
+- [List Partitioning — Chi tiết](#4-list-partitioning--chi-tiết)
+- [Hash Partitioning — Chi tiết](#5-hash-partitioning--chi-tiết)
 - [Key Partitioning](#6-key-partitioning)
 - [Composite (Sub) Partitioning](#7-composite-sub-partitioning)
 - [Partition Pruning](#8-partition-pruning)
 - [Partitioning vs Indexing](#9-partitioning-vs-indexing)
 - [Global vs Local Indexes](#10-global-vs-local-indexes)
-- [Common Mistakes & How to Prevent](#11-common-mistakes--how-to-prevent)
-- [Real-World Examples](#12-real-world-examples)
-- [Partition Maintenance Operations](#13-partition-maintenance-operations)
+- [Các lỗi thường gặp & Cách phòng tránh](#11-các-lỗi-thường-gặp--cách-phòng-tránh)
+- [Ví dụ thực tế](#12-ví-dụ-thực-tế)
+- [Thao tác bảo trì Partition](#13-thao-tác-bảo-trì-partition)
 - [Best Practices](#14-best-practices)
 
 ---
 
-## 1. Partitioning Fundamentals
+## 1. Nền tảng Partitioning
 
-### What is Table Partitioning?
+### Table Partitioning là gì?
 
-**Partitioning** is a database technique that divides a large table into smaller, more manageable pieces called **partitions**. Each partition is stored separately but appears as a single logical table to applications.
+**Partitioning** là kỹ thuật database chia một bảng lớn thành các phần nhỏ hơn, dễ quản lý hơn gọi là **partition**. Mỗi partition được lưu riêng biệt nhưng ứng dụng vẫn thấy như một bảng logic duy nhất.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -82,18 +82,18 @@ description: "Deep dive vào SQL Partitioning — Range, List, Hash, Partition P
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Why Use Partitioning?
+### Tại sao dùng Partitioning?
 
-| Benefit | Explanation | Example |
-|---------|-------------|---------|
-| **Query Performance** | Partition pruning skips irrelevant partitions | Query for 2024 data only scans 2024 partition |
-| **Faster Data Deletion** | DROP partition instead of DELETE millions of rows | Remove 2020 data: `DROP PARTITION p_2020` (instant) |
-| **Easier Maintenance** | Backup/restore individual partitions | Backup only current month's partition |
-| **Parallel Operations** | Multiple partitions can be processed simultaneously | Parallel index rebuild across partitions |
-| **Improved Availability** | Partition-level operations don't lock entire table | Add partition without blocking queries |
-| **Storage Optimization** | Different partitions can use different tablespaces | Archive partitions on cheaper storage |
+| Lợi ích | Giải thích | Ví dụ |
+|---------|------------|-------|
+| **Hiệu năng query** | Partition pruning bỏ qua partition không liên quan | Query dữ liệu 2024 chỉ scan partition 2024 |
+| **Xóa dữ liệu nhanh** | DROP partition thay vì DELETE hàng triệu row | Xóa dữ liệu 2020: `DROP PARTITION p_2020` (tức thì) |
+| **Bảo trì dễ hơn** | Backup/restore từng partition riêng | Chỉ backup partition tháng hiện tại |
+| **Thao tác song song** | Nhiều partition xử lý đồng thời | Rebuild index song song trên các partition |
+| **Tăng availability** | Thao tác cấp partition không lock toàn bộ bảng | Thêm partition mà không block query |
+| **Tối ưu storage** | Các partition khác nhau có thể dùng tablespace khác nhau | Archive partition lên storage rẻ hơn |
 
-### When to Use Partitioning
+### Khi nào nên dùng Partitioning
 
 ```mermaid
 flowchart TD
@@ -124,31 +124,31 @@ flowchart TD
     O -->|No| Q[HASH partition for distribution]
 ```
 
-### When NOT to Use Partitioning
+### Khi nào KHÔNG nên dùng Partitioning
 
-| Scenario | Reason | Alternative |
-|----------|--------|-------------|
-| **Small tables** (< 1GB) | Overhead not worth it | Use indexes |
-| **No clear partition key** | Can't effectively prune | Use indexes |
-| **Queries span all partitions** | No pruning benefit | Use indexes |
-| **Frequent cross-partition joins** | Performance degradation | Reconsider schema |
-| **High-frequency small transactions** | Partition overhead | Use indexes |
+| Trường hợp | Lý do | Thay thế |
+|------------|-------|----------|
+| **Bảng nhỏ** (< 1GB) | Chi phí không đáng | Dùng index |
+| **Không có partition key rõ ràng** | Không thể prune hiệu quả | Dùng index |
+| **Query trải tất cả partition** | Không có lợi ích pruning | Dùng index |
+| **Cross-partition join thường xuyên** | Giảm hiệu năng | Xem lại schema |
+| **Transaction nhỏ, tần suất cao** | Overhead partition | Dùng index |
 
 ---
 
-## 2. Partition Types
+## 2. Các loại Partition
 
-### Overview of Partition Types
+### Tổng quan các loại Partition
 
-| Type | How It Works | Best For | Example |
-|------|--------------|----------|---------|
-| **RANGE** | Rows assigned based on value ranges | Time-series data, sequential IDs | `order_date` by year/month |
-| **LIST** | Rows assigned based on discrete values | Categories, regions, status | `country` IN ('US', 'UK', 'JP') |
-| **HASH** | Rows distributed by hash function | Even distribution, no natural key | `user_id` MOD 4 |
-| **KEY** | Like HASH but uses MySQL's internal hash | Similar to HASH, MySQL-specific | `user_id` |
-| **COMPOSITE** | Combination of above types | Complex requirements | RANGE by date, then LIST by region |
+| Loại | Cách hoạt động | Phù hợp với | Ví dụ |
+|------|--------------|----------|--------|
+| **RANGE** | Row được gán theo khoảng giá trị | Dữ liệu time-series, ID tuần tự | `order_date` theo năm/tháng |
+| **LIST** | Row được gán theo giá trị rời rạc | Danh mục, khu vực, trạng thái | `country` IN ('US', 'UK', 'JP') |
+| **HASH** | Row phân bổ bằng hàm hash | Phân bổ đều, không có key tự nhiên | `user_id` MOD 4 |
+| **KEY** | Giống HASH nhưng dùng hash nội bộ MySQL | Tương tự HASH, chỉ MySQL | `user_id` |
+| **COMPOSITE** | Kết hợp các loại trên | Yêu cầu phức tạp | RANGE theo ngày, sau đó LIST theo khu vực |
 
-### Visual Comparison
+### So sánh trực quan
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -185,7 +185,7 @@ flowchart TD
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Partition Type Decision Matrix
+### Ma trận quyết định chọn loại Partition
 
 | Criteria | RANGE | LIST | HASH |
 |----------|-------|------|------|
@@ -199,9 +199,9 @@ flowchart TD
 
 ---
 
-## 3. Range Partitioning Deep Dive
+## 3. Range Partitioning — Chi tiết
 
-### How Range Partitioning Works
+### Range Partitioning hoạt động như thế nào
 
 Range partitioning divides data based on value ranges. Each partition holds rows where the partition key falls within a specified range.
 
@@ -239,7 +239,7 @@ Range partitioning divides data based on value ranges. Each partition holds rows
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Range Partition Syntax
+### Cú pháp Range Partition
 
 ```sql
 -- MySQL: Range Partition by Date
@@ -275,7 +275,7 @@ CREATE TABLE orders_2024 PARTITION OF orders
 CREATE TABLE orders_default PARTITION OF orders DEFAULT;
 ```
 
-### Range Partition by Month (Common Pattern)
+### Range Partition theo tháng (Pattern phổ biến)
 
 ```sql
 -- MySQL: Monthly partitions
@@ -307,7 +307,7 @@ CREATE TABLE logs_2024_02 PARTITION OF logs
 -- ... etc
 ```
 
-### Range Partition Query Examples
+### Ví dụ query với Range Partition
 
 ```sql
 -- This query ONLY scans p_2024 partition (partition pruning)
@@ -322,9 +322,9 @@ EXPLAIN SELECT * FROM orders WHERE order_date = '2024-03-15';
 
 ---
 
-## 4. List Partitioning Deep Dive
+## 4. List Partitioning — Chi tiết
 
-### How List Partitioning Works
+### List Partitioning hoạt động như thế nào
 
 List partitioning assigns rows to partitions based on discrete values. Each partition contains rows matching specific values in a list.
 
@@ -372,7 +372,7 @@ List partitioning assigns rows to partitions based on discrete values. Each part
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### List Partition Syntax
+### Cú pháp List Partition
 
 ```sql
 -- MySQL: List Partition by Region
@@ -404,7 +404,7 @@ CREATE TABLE customers_asia PARTITION OF customers
 CREATE TABLE customers_other PARTITION OF customers DEFAULT;
 ```
 
-### List Partition Use Cases
+### Các trường hợp dùng List Partition
 
 | Use Case | Partition Key | Partition Values |
 |----------|---------------|------------------|
@@ -416,9 +416,9 @@ CREATE TABLE customers_other PARTITION OF customers DEFAULT;
 
 ---
 
-## 5. Hash Partitioning Deep Dive
+## 5. Hash Partitioning — Chi tiết
 
-### How Hash Partitioning Works
+### Hash Partitioning hoạt động như thế nào
 
 Hash partitioning distributes rows across partitions using a hash function. This ensures even distribution when there's no natural range or list key.
 
@@ -460,7 +460,7 @@ Hash partitioning distributes rows across partitions using a hash function. This
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Hash Partition Syntax
+### Cú pháp Hash Partition
 
 ```sql
 -- MySQL: Hash Partition
@@ -512,7 +512,7 @@ CREATE TABLE user_sessions_p3 PARTITION OF user_sessions
 
 ## 6. Key Partitioning
 
-### Key Partitioning (MySQL Only)
+### Key Partitioning (chỉ MySQL)
 
 Key partitioning is similar to hash partitioning, but MySQL manages the hashing algorithm internally. It can use columns that aren't integers.
 
@@ -541,7 +541,7 @@ CREATE TABLE items (
 ) PARTITION BY KEY () PARTITIONS 4;  -- Uses PRIMARY KEY
 ```
 
-### Key vs Hash Partitioning
+### So sánh Key và Hash Partitioning
 
 | Aspect | KEY | HASH |
 |--------|-----|------|
@@ -555,7 +555,7 @@ CREATE TABLE items (
 
 ## 7. Composite (Sub) Partitioning
 
-### What is Composite Partitioning?
+### Composite Partitioning là gì?
 
 Composite partitioning combines two partitioning methods. The table is first partitioned by one method, then each partition is further divided (subpartitioned) by another method.
 
@@ -593,7 +593,7 @@ Composite partitioning combines two partitioning methods. The table is first par
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Composite Partition Syntax
+### Cú pháp Composite Partition
 
 ```sql
 -- MySQL: RANGE + HASH composite
@@ -636,7 +636,7 @@ SUBPARTITION BY LIST COLUMNS (region) (
 );
 ```
 
-### Composite Partition Use Cases
+### Các trường hợp dùng Composite Partition
 
 | Combination | Use Case | Example |
 |-------------|----------|---------|
@@ -648,7 +648,7 @@ SUBPARTITION BY LIST COLUMNS (region) (
 
 ## 8. Partition Pruning
 
-### What is Partition Pruning?
+### Partition Pruning là gì?
 
 **Partition pruning** is the database optimizer's ability to skip partitions that cannot contain matching rows. This is the PRIMARY performance benefit of partitioning.
 
@@ -699,7 +699,7 @@ SUBPARTITION BY LIST COLUMNS (region) (
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Conditions That Enable Pruning
+### Điều kiện để Pruning hoạt động
 
 | Condition Type | RANGE Partition | LIST Partition | HASH Partition |
 |----------------|-----------------|----------------|----------------|
@@ -712,7 +712,7 @@ SUBPARTITION BY LIST COLUMNS (region) (
 | `IS NULL` | ✅ Yes | ✅ Yes | ❌ No |
 | Function on column | ❌ Usually No | ❌ No | ❌ No |
 
-### Checking Partition Pruning
+### Kiểm tra Partition Pruning
 
 ```sql
 -- MySQL: Check which partitions will be scanned
@@ -731,7 +731,7 @@ SELECT * FROM orders WHERE order_date = '2024-06-15';
 SET enable_partition_pruning = on;
 ```
 
-### Pruning NOT Working - Common Causes
+### Pruning KHÔNG hoạt động - Nguyên nhân thường gặp
 
 ```sql
 -- ❌ Function on partition key prevents pruning
@@ -758,7 +758,7 @@ WHERE order_date IN (SELECT max_date FROM some_table);
 
 ## 9. Partitioning vs Indexing
 
-### When to Use Each
+### Khi nào dùng cái nào
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────┐
@@ -790,9 +790,9 @@ WHERE order_date IN (SELECT max_date FROM some_table);
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Comparison Table
+### Bảng so sánh
 
-| Aspect | Indexing | Partitioning |
+| Khía cạnh | Indexing | Partitioning |
 |--------|----------|--------------|
 | **Primary purpose** | Speed up queries | Manage large data sets |
 | **Data organization** | Separate structure | Divides table physically |
@@ -839,7 +839,7 @@ WHERE order_date >= '2024-01-01'   -- Partition pruning
 
 ## 10. Global vs Local Indexes
 
-### Understanding Global vs Local Indexes
+### Hiểu về Global vs Local Index
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -890,9 +890,9 @@ WHERE order_date >= '2024-01-01'   -- Partition pruning
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Comparison Table
+### Bảng so sánh
 
-| Aspect | Local Index | Global Index |
+| Khía cạnh | Local Index | Global Index |
 |--------|-------------|--------------|
 | **Scope** | Per partition | Entire table |
 | **Query without partition key** | Scans all partition indexes | Single index lookup |
@@ -903,7 +903,7 @@ WHERE order_date >= '2024-01-01'   -- Partition pruning
 | **PostgreSQL support** | ✅ Yes (default) | ⚠️ Limited |
 | **Oracle support** | ✅ Yes | ✅ Yes |
 
-### MySQL: All Indexes are Local
+### MySQL: Tất cả Index đều là Local
 
 ```sql
 -- MySQL only supports local (partition-wise) indexes
@@ -928,7 +928,7 @@ WHERE customer_id = 100 AND order_date >= '2024-01-01';
 -- Shows: partitions: p_2024 (only one scanned)
 ```
 
-### PostgreSQL: Creating Global-like Index
+### PostgreSQL: Tạo Index dạng Global
 
 ```sql
 -- PostgreSQL: Create index on parent table (behaves like local indexes)
@@ -953,9 +953,9 @@ CREATE UNIQUE INDEX idx_unique ON orders(id, order_date);
 
 ---
 
-## 11. Common Mistakes & How to Prevent
+## 11. Các lỗi thường gặp & Cách phòng tránh
 
-### Mistake 1: Wrong Partition Key Choice
+### Lỗi 1: Chọn sai Partition Key
 
 ```sql
 -- ❌ BAD: Partition by rarely-queried column
@@ -974,7 +974,7 @@ PARTITION BY RANGE (YEAR(order_date));
 SELECT * FROM orders WHERE order_date = '2024-01-15';  -- Prunes to p_2024!
 ```
 
-### Mistake 2: Too Many or Too Few Partitions
+### Lỗi 2: Quá nhiều hoặc quá ít Partition
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -1017,7 +1017,7 @@ SELECT * FROM orders WHERE order_date = '2024-01-15';  -- Prunes to p_2024!
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Mistake 3: Missing MAXVALUE/DEFAULT Partition
+### Lỗi 3: Thiếu MAXVALUE/DEFAULT Partition
 
 ```sql
 -- ❌ BAD: No catch-all partition
@@ -1043,7 +1043,7 @@ PARTITION BY RANGE (YEAR(order_date)) (
 CREATE TABLE orders_default PARTITION OF orders DEFAULT;
 ```
 
-### Mistake 4: Primary Key Not Including Partition Key (MySQL)
+### Lỗi 4: Primary Key không chứa Partition Key (MySQL)
 
 ```sql
 -- ❌ BAD: MySQL requires partition key in primary key
@@ -1070,7 +1070,7 @@ CREATE TABLE orders (
 -- ERROR: UNIQUE KEY must include partition key too
 ```
 
-### Mistake 5: Queries Not Using Partition Key
+### Lỗi 5: Query không dùng Partition Key
 
 ```sql
 -- Setup: orders partitioned by order_date
@@ -1097,7 +1097,7 @@ WHERE order_date >= '2024-01-01'
 -- Prunes to p_2024, then uses index on customer_id
 ```
 
-### Mistake 6: Not Planning for Partition Maintenance
+### Lỗi 6: Không lên kế hoạch bảo trì Partition
 
 ```sql
 -- ❌ BAD: No automation for new partitions
@@ -1125,7 +1125,7 @@ CREATE EXTENSION pg_partman;
 SELECT partman.create_parent('public.orders', 'order_date', 'native', 'monthly');
 ```
 
-### Complete Mistakes Summary Table
+### Bảng tóm tắt đầy đủ các lỗi
 
 | Mistake | Symptom | Solution |
 |---------|---------|----------|
@@ -1140,9 +1140,9 @@ SELECT partman.create_parent('public.orders', 'order_date', 'native', 'monthly')
 
 ---
 
-## 12. Real-World Examples
+## 12. Ví dụ thực tế
 
-### Example 1: E-Commerce Orders Table
+### Ví dụ 1: Bảng đơn hàng E-Commerce
 
 ```sql
 -- Scenario: 500M orders over 5 years
@@ -1191,7 +1191,7 @@ ALTER TABLE orders DROP PARTITION p_2022_q1;
 -- Instant! No DELETE needed
 ```
 
-### Example 2: Multi-Tenant SaaS Application
+### Ví dụ 2: Ứng dụng SaaS Multi-Tenant
 
 ```sql
 -- Scenario: SaaS with 100+ tenants
@@ -1226,7 +1226,7 @@ SELECT * FROM tenant_data WHERE tenant_id = 1;
 DROP TABLE tenant_data_t3;  -- Instantly removes tenant 3's data
 ```
 
-### Example 3: Time-Series Logs with Retention
+### Ví dụ 3: Log Time-Series với chính sách retention
 
 ```sql
 -- Scenario: Application logs, 10M rows/day
@@ -1270,7 +1270,7 @@ SET @old_part_name = CONCAT('p_', DATE_FORMAT(@old_date, '%Y%m%d'));
 -- ALTER TABLE app_logs DROP PARTITION {old_part_name};
 ```
 
-### Example 4: Geographic Data Distribution
+### Ví dụ 4: Phân bổ dữ liệu theo địa lý
 
 ```sql
 -- Scenario: Global company with regional compliance
@@ -1322,9 +1322,9 @@ WHERE region IN ('UK', 'DE', 'FR', 'ES')
 
 ---
 
-## 13. Partition Maintenance Operations
+## 13. Thao tác bảo trì Partition
 
-### Adding New Partitions
+### Thêm Partition mới
 
 ```sql
 -- MySQL: Add partition (requires MAXVALUE partition to reorganize)
@@ -1339,7 +1339,7 @@ CREATE TABLE orders_2025_q1 PARTITION OF orders
     FOR VALUES FROM ('2025-01-01') TO ('2025-04-01');
 ```
 
-### Dropping Old Partitions
+### Xóa Partition cũ
 
 ```sql
 -- MySQL: Drop partition (instant, no row-by-row delete)
@@ -1351,7 +1351,7 @@ DROP TABLE orders_2022_q1;
 ALTER TABLE orders DETACH PARTITION orders_2022_q1;
 ```
 
-### Merging Partitions
+### Gộp Partition
 
 ```sql
 -- MySQL: Merge adjacent partitions
@@ -1360,7 +1360,7 @@ ALTER TABLE orders REORGANIZE PARTITION p_2023_q1, p_2023_q2 INTO (
 );
 ```
 
-### Splitting Partitions
+### Tách Partition
 
 ```sql
 -- MySQL: Split a partition into smaller ones
@@ -1372,7 +1372,7 @@ ALTER TABLE orders REORGANIZE PARTITION p_2024 INTO (
 );
 ```
 
-### Exchanging Partitions (Advanced)
+### Exchange Partition (Nâng cao)
 
 ```sql
 -- MySQL: Exchange partition with non-partitioned table
@@ -1395,7 +1395,7 @@ ALTER TABLE orders ATTACH PARTITION orders_2024_q4
     FOR VALUES FROM ('2024-10-01') TO ('2025-01-01');
 ```
 
-### Maintenance Operations Summary
+### Tóm tắt thao tác bảo trì
 
 | Operation | MySQL Syntax | PostgreSQL Syntax | Notes |
 |-----------|--------------|-------------------|-------|
@@ -1411,7 +1411,7 @@ ALTER TABLE orders ATTACH PARTITION orders_2024_q4
 
 ## 14. Best Practices
 
-### Partition Design Checklist
+### Checklist thiết kế Partition
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -1451,7 +1451,7 @@ ALTER TABLE orders ATTACH PARTITION orders_2024_q4
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Performance Tips
+### Mẹo hiệu năng
 
 | Tip | Explanation |
 |-----|-------------|
@@ -1463,7 +1463,7 @@ ALTER TABLE orders ATTACH PARTITION orders_2024_q4
 | **Use covering indexes** | Avoid table access after index scan |
 | **Batch cross-partition operations** | Full scans are expensive |
 
-### Common SQL Patterns
+### Các pattern SQL thường dùng
 
 ```sql
 -- ✅ GOOD: Query with partition key
@@ -1499,9 +1499,9 @@ WHERE order_date < '2023-01-01' AND status = 'cancelled';
 
 ---
 
-## Quick Reference Card
+## Thẻ tham chiếu nhanh
 
-### Partition Type Selection
+### Chọn loại Partition
 
 ```mermaid
 flowchart TD
@@ -1514,7 +1514,7 @@ flowchart TD
     F -->|No| H[Reconsider partitioning]
 ```
 
-### Syntax Quick Reference
+### Cú pháp tham chiếu nhanh
 
 ```sql
 -- RANGE (MySQL)
@@ -1545,7 +1545,7 @@ PARTITION BY HASH (user_id);
 CREATE TABLE t_p0 PARTITION OF t FOR VALUES WITH (MODULUS 4, REMAINDER 0);
 ```
 
-### Partition Operations Cheat Sheet
+### Cheat Sheet thao tác Partition
 
 | Task | MySQL | PostgreSQL |
 |------|-------|------------|
@@ -1557,14 +1557,14 @@ CREATE TABLE t_p0 PARTITION OF t FOR VALUES WITH (MODULUS 4, REMAINDER 0);
 
 ---
 
-## Summary
+## Tổng kết
 
-> **Golden Rules of Partitioning:**
-> 1. Partition only large tables (>10GB) with clear partition key
-> 2. Choose partition key based on query patterns, not just data structure
-> 3. Always include MAXVALUE/DEFAULT partition for safety
-> 4. Include partition key in WHERE clauses for pruning
-> 5. Plan maintenance automation before going live
-> 6. Monitor partition sizes for balance
-> 7. Combine with indexes for best performance
-> 8. Use DROP PARTITION instead of DELETE for old data
+> **Nguyên tắc vàng của Partitioning:**
+> 1. Chỉ partition bảng lớn (>10GB) với partition key rõ ràng
+> 2. Chọn partition key dựa trên query pattern, không chỉ cấu trúc dữ liệu
+> 3. Luôn có MAXVALUE/DEFAULT partition để an toàn
+> 4. Bao gồm partition key trong WHERE để pruning hoạt động
+> 5. Lên kế hoạch automation bảo trì trước khi go live
+> 6. Giám sát kích thước partition để đảm bảo cân bằng
+> 7. Kết hợp với index để đạt hiệu năng tốt nhất
+> 8. Dùng DROP PARTITION thay vì DELETE cho dữ liệu cũ

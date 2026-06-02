@@ -185,7 +185,7 @@ BEGIN
   WHILE v_i <= 5 LOOP
     DBMS_OUTPUT.PUT_LINE('i = ' || v_i);
     v_i := v_i + 1;
-  END WHILE LOOP;
+  END LOOP;
 
   -- FOR LOOP (tự tăng i, không cần khai báo)
   FOR i IN 1..5 LOOP

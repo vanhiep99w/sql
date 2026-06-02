@@ -555,3 +555,8 @@ pg_repack -d mydb -t large_table
 - ✅ Tránh long-running transactions
 - ✅ Dùng `pg_repack` thay `VACUUM FULL` khi có thể
 - ✅ Chạy `VACUUM ANALYZE` sau bulk operations
+
+---
+
+> [!NOTE]
+> **Bài liên quan:** Để hiểu rõ hơn về cơ chế MVCC nền tảng (tại sao phát sinh dead tuple), xem bài [MVCC — Multi-Version Concurrency Control](/docs/fundamentals/mvcc).
