@@ -36,25 +36,25 @@ Tùy thuộc vào **thuật toán JOIN** mà database chọn, query này có th�
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    CÙNG MỘT QUERY — KHÁC THUẬT TOÁN                            │
+│                    CÙNG MỘT QUERY — KHÁC THUẬT TOÁN                             │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
-│   Nested Loop (không có index):  ~50 PHÚT  ❌                                  │
-│   ├── Với mỗi order (5M rows 2024), scan toàn bộ customers (1M rows)           │
-│   └── Tổng so sánh: 5M × 1M = 5 NGHÌN TỶ phép so sánh                        │
+│   Nested Loop (không có index):  ~50 PHÚT  ❌                                   │
+│   ├── Với mỗi order (5M rows 2024), scan toàn bộ customers (1M rows)            │
+│   └── Tổng so sánh: 5M × 1M = 5 NGHÌN TỶ phép so sánh                           │
 │                                                                                 │
-│   Nested Loop (có index trên customers.id):  ~200ms  ✅                        │
-│   ├── Với mỗi order, lookup index → O(log n) per row                           │
-│   └── Tổng: 5M × log(1M) ≈ 100M phép so sánh                                 │
+│   Nested Loop (có index trên customers.id):  ~200ms  ✅                         │
+│   ├── Với mỗi order, lookup index → O(log n) per row                            │
+│   └── Tổng: 5M × log(1M) ≈ 100M phép so sánh                                    │
 │                                                                                 │
-│   Hash Join:  ~800ms  ✅                                                       │
-│   ├── Build hash table từ customers (1M rows) → ~200ms                         │
-│   ├── Probe: mỗi order lookup hash table → O(1) per row                        │
-│   └── Tổng: 1M (build) + 5M (probe) = 6M operations                           │
+│   Hash Join:  ~800ms  ✅                                                        │
+│   ├── Build hash table từ customers (1M rows) → ~200ms                          │
+│   ├── Probe: mỗi order lookup hash table → O(1) per row                         │
+│   └── Tổng: 1M (build) + 5M (probe) = 6M operations                             │
 │                                                                                 │
-│   Merge Join (cả 2 bảng đã sort):  ~500ms  ✅                                  │
+│   Merge Join (cả 2 bảng đã sort):  ~500ms  ✅                                   │
 │   ├── Merge 2 sorted streams                                                    │
-│   └── Tổng: 5M + 1M = 6M operations (single pass)                             │
+│   └── Tổng: 5M + 1M = 6M operations (single pass)                               │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -87,36 +87,36 @@ Tùy thuộc vào **thuật toán JOIN** mà database chọn, query này có th�
 │   ───────────────────                                                           │
 │   Outer table    Inner table                                                    │
 │   ┌───┐          ┌───┐                                                          │
-│   │ A │────────→ │ 1 │ So sánh A với 1, 2, 3, 4                                │
+│   │ A │────────→ │ 1 │ So sánh A với 1, 2, 3, 4                                 │
 │   ├───┤          │ 2 │                                                          │
-│   │ B │────────→ │ 3 │ So sánh B với 1, 2, 3, 4                                │
+│   │ B │────────→ │ 3 │ So sánh B với 1, 2, 3, 4                                 │
 │   ├───┤          │ 4 │                                                          │
-│   │ C │────────→ └───┘ So sánh C với 1, 2, 3, 4                                │
+│   │ C │────────→ └───┘ So sánh C với 1, 2, 3, 4                                 │
 │   └───┘                                                                         │
-│   → Với index: mỗi lookup = O(log n) thay vì O(n)                              │
+│   → Với index: mỗi lookup = O(log n) thay vì O(n)                               │
 │                                                                                 │
 │   2. HASH JOIN                                                                  │
 │   ──────────────                                                                │
 │   Build phase:              Probe phase:                                        │
 │   Small table → Hash table  Large table → Probe hash                            │
-│   ┌───┐      ┌──────────┐   ┌───┐                                              │
-│   │ 1 │─────→│ h(1) → 1 │   │ A │──→ h(A.key) → lookup                        │
-│   │ 2 │─────→│ h(2) → 2 │   │ B │──→ h(B.key) → lookup                        │
-│   │ 3 │─────→│ h(3) → 3 │   │ C │──→ h(C.key) → lookup                        │
-│   └───┘      └──────────┘   └───┘                                              │
-│   → Mỗi probe = O(1) average                                                   │
+│   ┌───┐      ┌──────────┐   ┌───┐                                               │
+│   │ 1 │─────→│ h(1) → 1 │   │ A │──→ h(A.key) → lookup                          │
+│   │ 2 │─────→│ h(2) → 2 │   │ B │──→ h(B.key) → lookup                          │
+│   │ 3 │─────→│ h(3) → 3 │   │ C │──→ h(C.key) → lookup                          │
+│   └───┘      └──────────┘   └───┘                                               │
+│   → Mỗi probe = O(1) average                                                    │
 │                                                                                 │
 │   3. MERGE JOIN                                                                 │
 │   ──────────────                                                                │
 │   Sorted input 1    Sorted input 2                                              │
 │   ┌───┐              ┌───┐                                                      │
-│   │ 1 │◄────────────►│ 1 │ Match! → output                                     │
+│   │ 1 │◄────────────►│ 1 │ Match! → output                                      │
 │   │ 2 │              │ 2 │ Match! → output                                      │
-│   │ 3 │◄────────────►│ 3 │ Match! → output                                     │
+│   │ 3 │◄────────────►│ 3 │ Match! → output                                      │
 │   │ 5 │              │ 4 │ Advance right (4 < 5)                                │
 │   └───┘              │ 5 │ Match! → output                                      │
 │                      └───┘                                                      │
-│   → Single pass qua cả 2 inputs = O(N + M)                                     │
+│   → Single pass qua cả 2 inputs = O(N + M)                                      │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -131,28 +131,28 @@ Nested Loop Join là thuật toán đơn giản nhất: với mỗi row từ **o
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    NESTED LOOP JOIN — CƠ CHẾ                                   │
+│                    NESTED LOOP JOIN — CƠ CHẾ                                    │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
 │   Pseudocode:                                                                   │
 │   ┌─────────────────────────────────────────────────────────────────────────┐   │
 │   │ for each row r in outer_table:           -- Outer loop                  │   │
 │   │     for each row s in inner_table:       -- Inner loop                  │   │
-│   │         if r.join_key == s.join_key:     -- Join condition               │   │
-│   │             output (r, s)                -- Emit matched pair            │   │
+│   │         if r.join_key == s.join_key:     -- Join condition              │   │
+│   │             output (r, s)                -- Emit matched pair           │   │
 │   └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                 │
 │   Có 3 biến thể:                                                                │
 │                                                                                 │
 │   ┌──────────────────────┬───────────────────────────────────────────────────┐  │
-│   │ Simple Nested Loop   │ Full scan inner table cho mỗi outer row          │  │
-│   │                      │ Complexity: O(N × M)                             │  │
+│   │ Simple Nested Loop   │ Full scan inner table cho mỗi outer row           │  │
+│   │                      │ Complexity: O(N × M)                              │  │
 │   ├──────────────────────┼───────────────────────────────────────────────────┤  │
-│   │ Index Nested Loop    │ Dùng index trên inner table                      │  │
-│   │                      │ Complexity: O(N × log M)                         │  │
+│   │ Index Nested Loop    │ Dùng index trên inner table                       │  │
+│   │                      │ Complexity: O(N × log M)                          │  │
 │   ├──────────────────────┼───────────────────────────────────────────────────┤  │
-│   │ Block Nested Loop    │ Buffer nhiều outer rows, scan inner table 1 lần  │  │
-│   │ (BNL / BKA)         │ Giảm số lần đọc inner table                      │  │
+│   │ Block Nested Loop    │ Buffer nhiều outer rows, scan inner table 1 lần   │  │
+│   │ (BNL / BKA)          │ Giảm số lần đọc inner table                       │  │
 │   └──────────────────────┴───────────────────────────────────────────────────┘  │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -184,20 +184,20 @@ MySQL sử dụng **join buffer** để giảm số lần đọc inner table:
 │                    BLOCK NESTED LOOP (MySQL)                                    │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
-│   Thay vì: 1 outer row → scan inner table                                      │
-│   BNL:     N outer rows → scan inner table 1 lần                               │
+│   Thay vì: 1 outer row → scan inner table                                       │
+│   BNL:     N outer rows → scan inner table 1 lần                                │
 │                                                                                 │
 │   ┌────────────────────┐                                                        │
-│   │    Join Buffer      │                                                       │
-│   │  ┌──────────────┐  │     ┌────────────────┐                                │
-│   │  │ outer row 1  │  │     │  Inner table    │                                │
-│   │  │ outer row 2  │──┼────→│  (scan 1 lần)  │                                │
-│   │  │ outer row 3  │  │     │                 │                                │
-│   │  │ ...          │  │     │  So sánh từng   │                                │
-│   │  │ outer row N  │  │     │  inner row với  │                                │
-│   │  └──────────────┘  │     │  TẤT CẢ rows   │                                │
-│   └────────────────────┘     │  trong buffer   │                                │
-│                              └────────────────┘                                │
+│   │    Join Buffer     │                                                        │
+│   │  ┌──────────────┐  │     ┌────────────────┐                                 │
+│   │  │ outer row 1  │  │     │  Inner table   │                                 │
+│   │  │ outer row 2  │──┼────→│  (scan 1 lần)  │                                 │
+│   │  │ outer row 3  │  │     │                │                                 │
+│   │  │ ...          │  │     │  So sánh từng  │                                 │
+│   │  │ outer row N  │  │     │  inner row với │                                 │
+│   │  └──────────────┘  │     │  TẤT CẢ rows   │                                 │
+│   └────────────────────┘     │  trong buffer  │                                 │
+│                              └────────────────┘                                 │
 │   join_buffer_size = 256KB (default)                                            │
 │   Tăng lên 4-8MB cho JOIN lớn                                                   │
 │                                                                                 │
@@ -272,34 +272,34 @@ Hash Join gồm 2 giai đoạn: **Build** (xây hash table) và **Probe** (dò t
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    HASH JOIN — CƠ CHẾ                                          │
+│                    HASH JOIN — CƠ CHẾ                                           │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
 │   PHASE 1: BUILD                                                                │
 │   ─────────────────                                                             │
-│   Chọn bảng NHỎ hơn (build input) → xây hash table                             │
+│   Chọn bảng NHỎ hơn (build input) → xây hash table                              │
 │                                                                                 │
 │   customers (1M rows)                    Hash Table                             │
 │   ┌─────────────────┐                    ┌──────────────────────────┐           │
-│   │ id=1, name=An   │──→ h(1) = 0x3A ──→│ bucket[0x3A] → (1, An)  │           │
-│   │ id=2, name=Bình │──→ h(2) = 0x7F ──→│ bucket[0x7F] → (2, Bình)│           │
-│   │ id=3, name=Chi  │──→ h(3) = 0x12 ──→│ bucket[0x12] → (3, Chi) │           │
+│   │ id=1, name=An   │──→ h(1) = 0x3A ──→ │ bucket[0x3A] → (1, An)   │           │
+│   │ id=2, name=Bình │──→ h(2) = 0x7F ──→ │ bucket[0x7F] → (2, Bình) │           │
+│   │ id=3, name=Chi  │──→ h(3) = 0x12 ──→ │ bucket[0x12] → (3, Chi)  │           │
 │   │ ...             │                    │ ...                      │           │
 │   └─────────────────┘                    └──────────────────────────┘           │
 │                                                                                 │
 │   PHASE 2: PROBE                                                                │
 │   ──────────────────                                                            │
-│   Duyệt bảng LỚN (probe input) → hash join key → lookup hash table             │
+│   Duyệt bảng LỚN (probe input) → hash join key → lookup hash table              │
 │                                                                                 │
 │   orders (5M rows)                                                              │
-│   ┌─────────────────────────┐     ┌──────────────────────────┐                 │
-│   │ id=101, customer_id=2   │──→ h(2) = 0x7F ──→ bucket[0x7F]                  │
-│   │                         │     → Found! (2, Bình) → OUTPUT                  │
-│   │ id=102, customer_id=1   │──→ h(1) = 0x3A ──→ bucket[0x3A]                  │
-│   │                         │     → Found! (1, An) → OUTPUT                    │
-│   │ id=103, customer_id=5   │──→ h(5) = 0x91 ──→ bucket[0x91]                  │
-│   │                         │     → Not found → SKIP (inner join)              │
-│   └─────────────────────────┘     └──────────────────────────┘                 │
+│   ┌─────────────────────────┐     ┌───────────────────────────────┐             │
+│   │ id=101, customer_id=2   │──→  │h(2) = 0x7F ──→ bucket[0x7F]   │             │
+│   │                         │     │ → Found! (2, Bình) → OUTPUT   │             │
+│   │ id=102, customer_id=1   │──→  │h(1) = 0x3A ──→ bucket[0x3A]   │             │
+│   │                         │     │→ Found! (1, An) → OUTPUT      │             │
+│   │ id=103, customer_id=5   │──→  │h(5) = 0x91 ──→ bucket[0x91]   │             │
+│   │                         │     │→ Not found → SKIP (inner join)│             │
+│   └─────────────────────────┘     └───────────────────────────────┘             │
 │                                                                                 │
 │   Pseudocode:                                                                   │
 │   ┌─────────────────────────────────────────────────────────────────────────┐   │
@@ -313,7 +313,7 @@ Hash Join gồm 2 giai đoạn: **Build** (xây hash table) và **Probe** (dò t
 │   │ for each row r in probe_table:          -- Bảng lớn                     │   │
 │   │     bucket = hash(r.join_key)                                           │   │
 │   │     for each row s in hash_table[bucket]:                               │   │
-│   │         if r.join_key == s.join_key:    -- Verify (handle collision)     │   │
+│   │         if r.join_key == s.join_key:    -- Verify (handle collision)    │   │
 │   │             output (r, s)                                               │   │
 │   └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                 │
@@ -338,12 +338,12 @@ Khi bảng build quá lớn, hash table không vừa `work_mem` (PostgreSQL) ho�
 │      Chia cả 2 bảng thành N partitions dùng hash function                       │
 │                                                                                 │
 │      Build table          Probe table                                           │
-│      ┌──────────┐         ┌──────────┐                                         │
-│      │ Part 0   │─────────│ Part 0   │  ← Cùng hash range                      │
-│      │ Part 1   │─────────│ Part 1   │  ← Cùng hash range                      │
-│      │ Part 2   │─────────│ Part 2   │  ← Cùng hash range                      │
-│      │ Part 3   │─────────│ Part 3   │  ← Cùng hash range                      │
-│      └──────────┘         └──────────┘                                         │
+│      ┌──────────┐         ┌──────────┐                                          │
+│      │ Part 0   │─────────│ Part 0   │  ← Cùng hash range                       │
+│      │ Part 1   │─────────│ Part 1   │  ← Cùng hash range                       │
+│      │ Part 2   │─────────│ Part 2   │  ← Cùng hash range                       │
+│      │ Part 3   │─────────│ Part 3   │  ← Cùng hash range                       │
+│      └──────────┘         └──────────┘                                          │
 │           │                    │                                                │
 │           └── Write to disk ───┘                                                │
 │                                                                                 │
@@ -352,7 +352,7 @@ Khi bảng build quá lớn, hash table không vừa `work_mem` (PostgreSQL) ho�
 │      - Build hash table từ build partition (giờ vừa memory)                     │
 │      - Probe với probe partition tương ứng                                      │
 │                                                                                 │
-│   ⚠️ Chậm hơn vì disk I/O, nhưng vẫn O(N + M) comparisons                     │
+│   ⚠️ Chậm hơn vì disk I/O, nhưng vẫn O(N + M) comparisons                       │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -435,10 +435,10 @@ Merge Join (Sort-Merge Join) yêu cầu cả 2 input đã được **sort theo j
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    MERGE JOIN — CƠ CHẾ                                         │
+│                    MERGE JOIN — CƠ CHẾ                                          │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
-│   Yêu cầu: Cả 2 input PHẢI sorted theo join key                                │
+│   Yêu cầu: Cả 2 input PHẢI sorted theo join key                                 │
 │                                                                                 │
 │   Sorted Input A          Sorted Input B                                        │
 │   (orders by customer_id) (customers by id)                                     │
@@ -470,8 +470,8 @@ Merge Join (Sort-Merge Join) yêu cầu cả 2 input đã được **sort theo j
 │   └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                 │
 │   Complexity:                                                                   │
-│   - Nếu đã sort: O(N + M) — chỉ 1 pass qua mỗi input                          │
-│   - Nếu chưa sort: O(N log N + M log M + N + M) — phải sort trước              │
+│   - Nếu đã sort: O(N + M) — chỉ 1 pass qua mỗi input                            │
+│   - Nếu chưa sort: O(N log N + M log M + N + M) — phải sort trước               │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -487,17 +487,17 @@ Database có thể có sorted input từ nhiều nguồn:
 │                                                                                 │
 │   1. INDEX SCAN (miễn phí sort)                                                 │
 │   ─────────────────────────────                                                 │
-│   B-Tree index trả dữ liệu THEO THỨ TỰ                                        │
+│   B-Tree index trả dữ liệu THEO THỨ TỰ                                          │
 │   → Merge Join không cần sort thêm ✅                                           │
 │                                                                                 │
 │   2. EXPLICIT SORT                                                              │
 │   ─────────────────                                                             │
-│   DB sort trong memory (nếu vừa work_mem) hoặc external sort (disk)            │
-│   → Tốn thêm O(N log N) nhưng merge vẫn nhanh                                 │
+│   DB sort trong memory (nếu vừa work_mem) hoặc external sort (disk)             │
+│   → Tốn thêm O(N log N) nhưng merge vẫn nhanh                                   │
 │                                                                                 │
 │   3. MATERIALIZE từ subquery đã sort                                            │
 │   ──────────────────────────────────                                            │
-│   Subquery có ORDER BY → kết quả đã sort sẵn                                   │
+│   Subquery có ORDER BY → kết quả đã sort sẵn                                    │
 │                                                                                 │
 │   Optimizer quyết định:                                                         │
 │   ┌──────────────────────────────────────────────────────────────────────────┐  │
@@ -505,7 +505,7 @@ Database có thể có sorted input từ nhiều nguồn:
 │   │   → Merge Join rất rẻ (2 index scans + merge)                            │  │
 │   │ ELIF 1 bảng có index, bảng kia nhỏ:                                      │  │
 │   │   → Sort bảng nhỏ + index scan bảng lớn + merge                          │  │
-│   │ ELSE:                                                                     │  │
+│   │ ELSE:                                                                    │  │
 │   │   → Sort cả 2 bảng + merge (thường thua Hash Join)                       │  │
 │   └──────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                 │
@@ -658,25 +658,25 @@ Database optimizer KHÔNG chọn thuật toán JOIN cố định. Thay vào đó
 │                                                                                 │
 │   1. Thu thập statistics:                                                       │
 │      ┌────────────────────────────────────────────────────────────────────┐     │
-│      │ • Số rows mỗi bảng (pg_class.reltuples)                           │     │
-│      │ • Số distinct values mỗi cột (pg_stats.n_distinct)                │     │
-│      │ • Histogram phân phối giá trị (pg_stats.histogram_bounds)         │     │
-│      │ • Correlation (mức độ sort vật lý) (pg_stats.correlation)         │     │
-│      │ • Index availability và selectivity                               │     │
+│      │ • Số rows mỗi bảng (pg_class.reltuples)                            │     │
+│      │ • Số distinct values mỗi cột (pg_stats.n_distinct)                 │     │
+│      │ • Histogram phân phối giá trị (pg_stats.histogram_bounds)          │     │
+│      │ • Correlation (mức độ sort vật lý) (pg_stats.correlation)          │     │
+│      │ • Index availability và selectivity                                │     │
 │      └────────────────────────────────────────────────────────────────────┘     │
 │                                                                                 │
 │   2. Ước tính cost cho mỗi phương án:                                           │
 │      ┌──────────────────┬──────────┬──────────┬──────────────────────────┐      │
 │      │ Phương án        │ CPU cost │ I/O cost │ Memory cost              │      │
 │      ├──────────────────┼──────────┼──────────┼──────────────────────────┤      │
-│      │ NL + Index Scan  │   500K   │   200K   │ Thấp                    │      │
-│      │ NL + Seq Scan    │   5000M  │   2000M  │ Thấp                    │      │
-│      │ Hash Join        │   6M     │   500K   │ 55MB (hash table)       │      │
-│      │ Merge Join       │   6M     │   800K   │ 0 (index scan)          │      │
-│      │ Merge + Sort     │   60M    │   1500K  │ 128MB (sort buffer)     │      │
+│      │ NL + Index Scan  │   500K   │   200K   │ Thấp                     │      │
+│      │ NL + Seq Scan    │   5000M  │   2000M  │ Thấp                     │      │
+│      │ Hash Join        │   6M     │   500K   │ 55MB (hash table)        │      │
+│      │ Merge Join       │   6M     │   800K   │ 0 (index scan)           │      │
+│      │ Merge + Sort     │   60M    │   1500K  │ 128MB (sort buffer)      │      │
 │      └──────────────────┴──────────┴──────────┴──────────────────────────┘      │
 │                                                                                 │
-│   3. Chọn phương án có TỔNG COST thấp nhất                                     │
+│   3. Chọn phương án có TỔNG COST thấp nhất                                      │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1075,11 +1075,11 @@ CREATE INDEX idx_events_time ON events(event_time);
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    JOIN OPTIMIZATION CHECKLIST                                   │
+│                    JOIN OPTIMIZATION CHECKLIST                                  │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
 │   □ 1. INDEX                                                                    │
-│     ├── Tạo index trên TẤT CẢ join columns (cả 2 phía)                         │
+│     ├── Tạo index trên TẤT CẢ join columns (cả 2 phía)                          │
 │     ├── Join column trong inner table (NL) là quan trọng nhất                   │
 │     └── Composite index nếu WHERE + JOIN dùng nhiều cột                         │
 │                                                                                 │
@@ -1095,15 +1095,15 @@ CREATE INDEX idx_events_time ON events(event_time);
 │                                                                                 │
 │   □ 4. QUERY                                                                    │
 │     ├── Chỉ SELECT cột cần thiết (tránh SELECT *)                               │
-│     ├── Filter sớm (WHERE trước JOIN nếu có thể)                               │
-│     ├── Dùng LIMIT khi chỉ cần N rows đầu                                      │
+│     ├── Filter sớm (WHERE trước JOIN nếu có thể)                                │
+│     ├── Dùng LIMIT khi chỉ cần N rows đầu                                       │
 │     └── Tránh function trên join columns                                        │
 │                                                                                 │
 │   □ 5. EXPLAIN                                                                  │
 │     ├── Luôn EXPLAIN ANALYZE trước khi deploy                                   │
 │     ├── Kiểm tra actual rows vs estimated rows                                  │
 │     ├── Kiểm tra loops count cho Nested Loop                                    │
-│     └── Kiểm tra Batches cho Hash Join (1 = tốt)                               │
+│     └── Kiểm tra Batches cho Hash Join (1 = tốt)                                │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1183,18 +1183,18 @@ SET enable_partitionwise_join = on;
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                                                                                 │
 │   🔄 Nested Loop = "Tra từ điển"                                                │
-│      Với MỖI từ cần tra (outer), mở từ điển tìm (inner)                        │
-│      → Nhanh nếu từ điển có MỤC LỤC (index)                                   │
-│      → Chậm nếu phải lật từng trang                                            │
+│      Với MỖI từ cần tra (outer), mở từ điển tìm (inner)                         │
+│      → Nhanh nếu từ điển có MỤC LỤC (index)                                     │
+│      → Chậm nếu phải lật từng trang                                             │
 │                                                                                 │
 │   #️⃣ Hash Join = "Bảng phân loại"                                               │
-│      Bước 1: Phân loại items nhỏ vào các ngăn (build hash table)               │
-│      Bước 2: Với mỗi item lớn, xem ngăn tương ứng (probe)                     │
+│      Bước 1: Phân loại items nhỏ vào các ngăn (build hash table)                │
+│      Bước 2: Với mỗi item lớn, xem ngăn tương ứng (probe)                       │
 │      → Nhanh cho equality, cần memory                                           │
 │                                                                                 │
 │   ↕️ Merge Join = "Merge 2 danh sách đã sort"                                   │
-│      Cả 2 danh sách đã sắp xếp → duyệt song song                              │
-│      → Nhanh nhất nếu đã sort, hỗ trợ range                                   │
+│      Cả 2 danh sách đã sắp xếp → duyệt song song                                │
+│      → Nhanh nhất nếu đã sort, hỗ trợ range                                     │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
