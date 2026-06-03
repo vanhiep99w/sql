@@ -1708,32 +1708,32 @@ SELECT * FROM orders WHERE NOT status = 'archived';
 │   Returns: 990,000 rows (99% of table!)                                         │
 │                                                                                 │
 │   Using Index:                                                                  │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │ 1. Scan index for all NON-'deleted' entries                             │  │
-│   │ 2. For each entry (990,000), do random I/O to fetch row                 │  │
-│   │ 3. Total: 990,000 random disk reads! VERY SLOW                          │  │
-│   └─────────────────────────────────────────────────────────────────────────┘  │
+│   ┌─────────────────────────────────────────────────────────────────────────┐   │
+│   │ 1. Scan index for all NON-'deleted' entries                             │   │
+│   │ 2. For each entry (990,000), do random I/O to fetch row                 │   │
+│   │ 3. Total: 990,000 random disk reads! VERY SLOW                          │   │
+│   └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                 │
 │   Using Full Scan:                                                              │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │ 1. Sequential read of entire table                                      │  │
-│   │ 2. Filter out 'deleted' rows                                            │  │
-│   │ 3. Sequential I/O is MUCH faster than random I/O                        │  │
-│   └─────────────────────────────────────────────────────────────────────────┘  │
+│   ┌─────────────────────────────────────────────────────────────────────────┐   │
+│   │ 1. Sequential read of entire table                                      │   │
+│   │ 2. Filter out 'deleted' rows                                            │   │
+│   │ 3. Sequential I/O is MUCH faster than random I/O                        │   │
+│   └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                 │
 │   ✅ SOLUTIONS:                                                                 │
 │                                                                                 │
-│   Solution 1: Rewrite as positive condition                                    │
-│   SELECT * FROM orders WHERE status IN ('active', 'completed', 'pending');     │
+│   Solution 1: Rewrite as positive condition                                     │
+│   SELECT * FROM orders WHERE status IN ('active', 'completed', 'pending');      │
 │                                                                                 │
-│   Solution 2: Partial index (PostgreSQL)                                       │
-│   CREATE INDEX idx_not_deleted ON orders(created_at)                           │
-│   WHERE status != 'deleted';                                                   │
-│   -- Index only contains non-deleted rows!                                     │
+│   Solution 2: Partial index (PostgreSQL)                                        │
+│   CREATE INDEX idx_not_deleted ON orders(created_at)                            │
+│   WHERE status != 'deleted';                                                    │
+│   -- Index only contains non-deleted rows!                                      │
 │                                                                                 │
-│   Solution 3: Soft delete with boolean + partial index                         │
-│   ALTER TABLE orders ADD is_deleted BOOLEAN DEFAULT FALSE;                     │
-│   CREATE INDEX idx_active ON orders(created_at) WHERE is_deleted = FALSE;      │
+│   Solution 3: Soft delete with boolean + partial index                          │
+│   ALTER TABLE orders ADD is_deleted BOOLEAN DEFAULT FALSE;                      │
+│   CREATE INDEX idx_active ON orders(created_at) WHERE is_deleted = FALSE;       │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1758,10 +1758,10 @@ SELECT * FROM users WHERE is_active = TRUE;  -- Returns 90% of table
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
 │   The 15-30% Rule:                                                              │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │ If query returns MORE than 15-30% of table rows,                        │  │
-│   │ optimizer usually prefers FULL TABLE SCAN over INDEX SCAN               │  │
-│   └─────────────────────────────────────────────────────────────────────────┘  │
+│   ┌─────────────────────────────────────────────────────────────────────────┐   │
+│   │ If query returns MORE than 15-30% of table rows,                        │   │
+│   │ optimizer usually prefers FULL TABLE SCAN over INDEX SCAN               │   │
+│   └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                 │
 │   Why?                                                                          │
 │   Index Scan Cost:                                                              │
@@ -1776,18 +1776,18 @@ SELECT * FROM users WHERE is_active = TRUE;  -- Returns 90% of table
 │                                                                                 │
 │   ✅ SOLUTIONS:                                                                 │
 │                                                                                 │
-│   Solution 1: Combine with high-selectivity column                             │
-│   CREATE INDEX idx_gender_created ON users(gender, created_at);                │
-│   SELECT * FROM users WHERE gender = 'M' AND created_at > '2024-01-01';        │
-│   -- created_at adds selectivity                                               │
+│   Solution 1: Combine with high-selectivity column                              │
+│   CREATE INDEX idx_gender_created ON users(gender, created_at);                 │
+│   SELECT * FROM users WHERE gender = 'M' AND created_at > '2024-01-01';         │
+│   -- created_at adds selectivity                                                │
 │                                                                                 │
-│   Solution 2: Covering index (avoid row lookup)                                │
-│   CREATE INDEX idx_gender_cover ON users(gender) INCLUDE (name, email);        │
-│   SELECT name, email FROM users WHERE gender = 'M';                            │
-│   -- No bookmark lookup needed!                                                │
+│   Solution 2: Covering index (avoid row lookup)                                 │
+│   CREATE INDEX idx_gender_cover ON users(gender) INCLUDE (name, email);         │
+│   SELECT name, email FROM users WHERE gender = 'M';                             │
+│   -- No bookmark lookup needed!                                                 │
 │                                                                                 │
-│   Solution 3: Accept it (sometimes full scan is correct choice)                │
-│   -- If you need 50% of table, full scan might truly be best                   │
+│   Solution 3: Accept it (sometimes full scan is correct choice)                 │
+│   -- If you need 50% of table, full scan might truly be best                    │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1822,16 +1822,16 @@ SELECT * FROM orders WHERE status = 'active' AND created_at > '2024-01-01';
 │   Think of it as a phone book sorted by:                                        │
 │   Last Name → First Name → City                                                 │
 │                                                                                 │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │ status   │ customer_id │ created_at  │ Row Pointer                      │  │
-│   ├──────────┼─────────────┼─────────────┼──────────────────────────────────┤  │
-│   │ active   │ 100         │ 2024-01-01  │ → Row 5                          │  │
-│   │ active   │ 100         │ 2024-01-15  │ → Row 12                         │  │
-│   │ active   │ 101         │ 2024-01-05  │ → Row 3                          │  │
-│   │ active   │ 102         │ 2024-01-10  │ → Row 8                          │  │
-│   │ pending  │ 100         │ 2024-01-20  │ → Row 15                         │  │
-│   │ pending  │ 103         │ 2024-01-02  │ → Row 1                          │  │
-│   └──────────┴─────────────┴─────────────┴──────────────────────────────────┘  │
+│   ┌─────────────────────────────────────────────────────────────────────────┐   │
+│   │ status   │ customer_id │ created_at  │ Row Pointer                      │   │
+│   ├──────────┼─────────────┼─────────────┼──────────────────────────────────┤   │
+│   │ active   │ 100         │ 2024-01-01  │ → Row 5                          │   │
+│   │ active   │ 100         │ 2024-01-15  │ → Row 12                         │   │
+│   │ active   │ 101         │ 2024-01-05  │ → Row 3                          │   │
+│   │ active   │ 102         │ 2024-01-10  │ → Row 8                          │   │
+│   │ pending  │ 100         │ 2024-01-20  │ → Row 15                         │   │
+│   │ pending  │ 103         │ 2024-01-02  │ → Row 1                          │   │
+│   └──────────┴─────────────┴─────────────┴──────────────────────────────────┘   │
 │                                                                                 │
 │   Query: WHERE customer_id = 100 (without status)                               │
 │   ❌ Can't use index! Data for customer 100 is SCATTERED:                       │
@@ -1840,9 +1840,9 @@ SELECT * FROM orders WHERE status = 'active' AND created_at > '2024-01-01';
 │   Index is sorted by STATUS first, not customer_id                              │
 │                                                                                 │
 │   ✅ SOLUTION: Create index with right column order                             │
-│   For query WHERE customer_id = ? → CREATE INDEX idx_customer(customer_id)     │
-│   For query WHERE customer_id = ? AND status = ? AND created_at > ?            │
-│   → CREATE INDEX idx_optimal(customer_id, status, created_at)                  │
+│   For query WHERE customer_id = ? → CREATE INDEX idx_customer(customer_id)      │
+│   For query WHERE customer_id = ? AND status = ? AND created_at > ?             │
+│   → CREATE INDEX idx_optimal(customer_id, status, created_at)                   │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1894,43 +1894,43 @@ EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = 100;
 │                         EXPLAIN OUTPUT - MYSQL                                  │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
-│ +----+-------------+--------+------+---------------+---------+---------+-------+
-│ | id | select_type | table  | type | possible_keys | key     | key_len | rows  |
-│ +----+-------------+--------+------+---------------+---------+---------+-------+
-│ | 1  | SIMPLE      | orders | ref  | idx_customer  | idx_cust| 4       | 150   |
-│ +----+-------------+--------+------+---------------+---------+---------+-------+
+│ +----+-------------+--------+------+---------------+---------+---------+-------+│
+│ | id | select_type | table  | type | possible_keys | key     | key_len | rows  |│
+│ +----+-------------+--------+------+---------------+---------+---------+-------+│
+│ | 1  | SIMPLE      | orders | ref  | idx_customer  | idx_cust| 4       | 150   |│
+│ +----+-------------+--------+------+---------------+---------+---------+-------+│
 │                                                                                 │
 │   KEY COLUMNS:                                                                  │
-│   ┌────────────────┬────────────────────────────────────────────────────────┐  │
-│   │ possible_keys  │ Indexes AVAILABLE for this query                       │  │
-│   │ key            │ Index ACTUALLY CHOSEN by optimizer                     │  │
-│   │ key_len        │ Bytes of index used (more = more columns used)        │  │
-│   │ rows           │ ESTIMATED rows to examine                              │  │
-│   │ type           │ Access method used                                     │  │
-│   │ Extra          │ Additional execution info                              │  │
-│   └────────────────┴────────────────────────────────────────────────────────┘  │
+│   ┌────────────────┬────────────────────────────────────────────────────────┐   │
+│   │ possible_keys  │ Indexes AVAILABLE for this query                       │   │
+│   │ key            │ Index ACTUALLY CHOSEN by optimizer                     │   │
+│   │ key_len        │ Bytes of index used (more = more columns used)         │   │
+│   │ rows           │ ESTIMATED rows to examine                              │   │
+│   │ type           │ Access method used                                     │   │
+│   │ Extra          │ Additional execution info                              │   │
+│   └────────────────┴────────────────────────────────────────────────────────┘   │
 │                                                                                 │
 │   TYPE VALUES (Best to Worst):                                                  │
-│   ┌──────────┬──────────────────────────────────────────────┬───────────────┐  │
-│   │ Type     │ Meaning                                      │ Performance   │  │
-│   ├──────────┼──────────────────────────────────────────────┼───────────────┤  │
-│   │ system   │ Table has only 1 row                         │ ⭐⭐⭐⭐⭐       │  │
-│   │ const    │ At most 1 row (PRIMARY/UNIQUE lookup)        │ ⭐⭐⭐⭐⭐       │  │
-│   │ eq_ref   │ 1 row per join (UNIQUE index)                │ ⭐⭐⭐⭐⭐       │  │
-│   │ ref      │ Multiple rows (non-unique index)             │ ⭐⭐⭐⭐        │  │
-│   │ range    │ Index range scan                             │ ⭐⭐⭐         │  │
-│   │ index    │ Full INDEX scan (reads entire index)         │ ⭐⭐          │  │
-│   │ ALL      │ Full TABLE scan (worst!)                     │ ⭐ BAD!       │  │
-│   └──────────┴──────────────────────────────────────────────┴───────────────┘  │
+│   ┌──────────┬──────────────────────────────────────────────┬───────────────┐   │
+│   │ Type     │ Meaning                                      │ Performance   │   │
+│   ├──────────┼──────────────────────────────────────────────┼───────────────┤   │
+│   │ system   │ Table has only 1 row                         │ ⭐⭐⭐⭐⭐    │   │
+│   │ const    │ At most 1 row (PRIMARY/UNIQUE lookup)        │ ⭐⭐⭐⭐⭐    │   │
+│   │ eq_ref   │ 1 row per join (UNIQUE index)                │ ⭐⭐⭐⭐⭐    │   │
+│   │ ref      │ Multiple rows (non-unique index)             │ ⭐⭐⭐⭐      │   │
+│   │ range    │ Index range scan                             │ ⭐⭐⭐        │   │
+│   │ index    │ Full INDEX scan (reads entire index)         │ ⭐⭐          │   │
+│   │ ALL      │ Full TABLE scan (worst!)                     │ ⭐ BAD!       │   │
+│   └──────────┴──────────────────────────────────────────────┴───────────────┘   │
 │                                                                                 │
 │   EXTRA VALUES TO WATCH:                                                        │
-│   ┌─────────────────────────┬───────────────────────────────────────────────┐  │
-│   │ Using index             │ ✅ Covering index - no table access!         │  │
-│   │ Using where             │ ⚠️ Filter applied after index (normal)        │  │
-│   │ Using filesort          │ ⚠️ Extra sort operation needed               │  │
-│   │ Using temporary         │ ⚠️ Temp table created                        │  │
-│   │ Using index condition   │ ✅ Index condition pushdown (optimization)   │  │
-│   └─────────────────────────┴───────────────────────────────────────────────┘  │
+│   ┌─────────────────────────┬───────────────────────────────────────────────┐   │
+│   │ Using index             │ ✅ Covering index - no table access!          │   │
+│   │ Using where             │ ⚠️ Filter applied after index (normal)        │   │
+│   │ Using filesort          │ ⚠️ Extra sort operation needed                │   │
+│   │ Using temporary         │ ⚠️ Temp table created                         │   │
+│   │ Using index condition   │ ✅ Index condition pushdown (optimization)    │   │
+│   └─────────────────────────┴───────────────────────────────────────────────┘   │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1956,34 +1956,34 @@ SELECT * FROM orders WHERE customer_id = 100;
 │                                                                                 │
 │ EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = 100;                   │
 │                                                                                 │
-│ ┌─────────────────────────────────────────────────────────────────────────────┐│
-│ │ Index Scan using idx_customer on orders                                     ││
-│ │   (cost=0.43..8.45 rows=1 width=100)                                        ││
-│ │   (actual time=0.025..0.026 rows=1 loops=1)                                 ││
-│ │   Index Cond: (customer_id = 100)                                           ││
-│ │ Planning Time: 0.085 ms                                                     ││
-│ │ Execution Time: 0.045 ms                                                    ││
-│ └─────────────────────────────────────────────────────────────────────────────┘│
+│ ┌─────────────────────────────────────────────────────────────────────────────┐ │
+│ │ Index Scan using idx_customer on orders                                     │ │
+│ │   (cost=0.43..8.45 rows=1 width=100)                                        │ │
+│ │   (actual time=0.025..0.026 rows=1 loops=1)                                 │ │
+│ │   Index Cond: (customer_id = 100)                                           │ │
+│ │ Planning Time: 0.085 ms                                                     │ │
+│ │ Execution Time: 0.045 ms                                                    │ │
+│ └─────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                 │
 │   SCAN TYPES:                                                                   │
-│   ┌─────────────────────────┬───────────────────────────────────────────────┐  │
-│   │ Seq Scan                │ Full table scan (no index)                    │  │
-│   │ Index Scan              │ Uses index, then fetches rows from table      │  │
-│   │ Index Only Scan         │ ✅ Covering index - no table access!          │  │
-│   │ Bitmap Index Scan       │ Builds bitmap of row locations, then fetches  │  │
-│   │ Bitmap Heap Scan        │ Fetches rows from bitmap                      │  │
-│   └─────────────────────────┴───────────────────────────────────────────────┘  │
+│   ┌─────────────────────────┬───────────────────────────────────────────────┐   │
+│   │ Seq Scan                │ Full table scan (no index)                    │   │
+│   │ Index Scan              │ Uses index, then fetches rows from table      │   │
+│   │ Index Only Scan         │ ✅ Covering index - no table access!          │   │
+│   │ Bitmap Index Scan       │ Builds bitmap of row locations, then fetches  │   │
+│   │ Bitmap Heap Scan        │ Fetches rows from bitmap                      │   │
+│   └─────────────────────────┴───────────────────────────────────────────────┘   │
 │                                                                                 │
 │   COST FORMAT: (startup_cost..total_cost rows=X width=Y)                        │
-│   • startup_cost: Cost before first row returned                               │
-│   • total_cost: Cost to return all rows                                        │
-│   • rows: Estimated number of rows                                             │
-│   • width: Average row size in bytes                                           │
+│   • startup_cost: Cost before first row returned                                │
+│   • total_cost: Cost to return all rows                                         │
+│   • rows: Estimated number of rows                                              │
+│   • width: Average row size in bytes                                            │
 │                                                                                 │
-│   ACTUAL FORMAT: (actual time=X..Y rows=Z loops=N)                             │
-│   • time: Milliseconds to first row..last row                                  │
-│   • rows: Actual rows returned                                                 │
-│   • loops: Number of times this node executed                                  │
+│   ACTUAL FORMAT: (actual time=X..Y rows=Z loops=N)                              │
+│   • time: Milliseconds to first row..last row                                   │
+│   • rows: Actual rows returned                                                  │
+│   • loops: Number of times this node executed                                   │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
