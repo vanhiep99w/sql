@@ -1,6 +1,12 @@
 {
   "title": "Câu hỏi phỏng vấn",
   "pages": [
-    "first-query-slow-cold-cache"
+    "first-query-slow-cold-cache",
+    "select-count-slow",
+    "offset-pagination-slow",
+    "index-not-used-seq-scan",
+    "select-star-vs-columns",
+    "fast-staging-slow-production",
+    "in-vs-exists-vs-join"
   ]
 }
