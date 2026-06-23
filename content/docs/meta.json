@@ -5,6 +5,7 @@
     "postgresql",
     "oracle",
     "comparison",
-    "optimization"
+    "optimization",
+    "interview"
   ]
 }
