@@ -9,6 +9,9 @@
     "primary-key-uuid-vs-integer-deep-dive",
     "join-algorithms-deep-dive",
     "query-optimization-patterns",
-    "sql-partition-deep-dive"
+    "sql-partition-deep-dive",
+    "explain-analyze-deep-dive",
+    "statistics-query-planner-deep-dive",
+    "monitoring-slow-query-deep-dive"
   ]
 }
