@@ -7,6 +7,7 @@
     "index-not-used-seq-scan",
     "select-star-vs-columns",
     "fast-staging-slow-production",
+    "add-column-large-table-zero-downtime",
     "in-vs-exists-vs-join"
   ]
 }
