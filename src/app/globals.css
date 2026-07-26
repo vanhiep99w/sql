@@ -6,9 +6,35 @@
   --fd-font-mono: 'JetBrains Mono', monospace;
 }
 
-/* Wider content area */
-#nd-page article {
+/* Keep the desktop layout close to the viewport edges. */
+@media (min-width: 1024px) {
+  #nd-docs-layout {
+    --fd-layout-width: calc(100vw - 1rem);
+    --fd-layout-offset: 0.5rem;
+  }
+
+  #nd-sidebar :where(.px-4, .p-4) {
+    padding-inline: 0.75rem;
+  }
+
+  #nd-toc > div {
+    padding-inline-end: 0.75rem;
+  }
+}
+
+/* Use the available middle column instead of centering a narrow article. */
+#nd-page:is(article),
+#nd-page > article {
   max-width: none;
+  margin-inline: 0;
+  padding-inline: 1rem;
+}
+
+@media (min-width: 1024px) {
+  #nd-page:is(article),
+  #nd-page > article {
+    padding-inline: 1.25rem;
+  }
 }
 
 /* Vietnamese text readability */
