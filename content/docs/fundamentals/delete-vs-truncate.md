@@ -1,5 +1,5 @@
 ---
-title: "DELETE vs TRUNCATE — Deep Dive"
+title: "DELETE vs TRUNCATE"
 description: "Mổ xẻ chi tiết sự khác nhau giữa DELETE và TRUNCATE trong SQL — không chỉ syntax, mà là cách database thực thi từng lệnh ở tầng heap, page, WAL, MVCC, dead tuple, sequence, lock, trigger, FK. Kèm execution plan, benchmark, rollback, ON DELETE, và decision framework."
 ---
 

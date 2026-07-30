@@ -1,5 +1,5 @@
 ---
-title: "Composite Index & Leftmost Prefix — Deep Dive"
+title: "Composite Index & Leftmost Prefix"
 description: "Mổ xẻ chi tiết Concatenated/Composite Index — tuple sort order, Leftmost Prefix Rule, access vs filter predicate, range column blocking, Index Skip Scan, ORDER BY trên composite, covering index, INCLUDE columns. Kèm benchmark, EXPLAIN ANALYZE và playbook thiết kế thứ tự cột."
 ---
 

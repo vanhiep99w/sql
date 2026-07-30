@@ -1,5 +1,5 @@
 ---
-title: "Thêm cột vào bảng 300 triệu dòng không downtime — Deep Dive"
+title: "Thêm cột vào bảng 300 triệu dòng không downtime"
 description: "Câu hỏi phỏng vấn database: thiết kế zero-downtime schema migration bằng expand-and-contract, dual-write, backfill theo batch, validation, constraint và rollback an toàn."
 ---
 

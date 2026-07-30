@@ -1,5 +1,5 @@
 ---
-title: "LIKE, Pattern Search & B-Tree — Deep Dive"
+title: "LIKE, Pattern Search & B-Tree"
 description: "Mổ xẻ chi tiết tại sao LIKE '%keyword%' bỏ qua index — character set, collation, B-Tree internals, access vs filter predicate, bind parameter trap, trigram GIN, full-text search, suffix index. Kèm benchmark và EXPLAIN ANALYZE."
 ---
 

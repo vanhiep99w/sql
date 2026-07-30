@@ -1,5 +1,5 @@
 ---
-title: "Vì sao query đầu tiên mất 2s, các query sau chỉ 50ms? — Deep Dive"
+title: "Vì sao query đầu tiên mất 2s, các query sau chỉ 50ms?"
 description: "Một câu hỏi phỏng vấn kinh điển: index tốt, execution plan tốt, nhưng lần chạy ĐẦU TIÊN mất 2 giây trong khi các lần sau chỉ 50ms. Mổ xẻ chi tiết cold cache vs warm cache: buffer pool, OS page cache, random I/O, hint bits, JIT warmup, prepared statement, và cách dùng EXPLAIN (ANALYZE, BUFFERS) để chứng minh."
 ---
 

@@ -1,5 +1,5 @@
 ---
-title: "PostgreSQL hết connection khi flash sale — Too Many Clients Deep Dive"
+title: "PostgreSQL hết connection khi flash sale — Too Many Clients"
 description: "Câu hỏi phỏng vấn thực chiến về max_connections, connection pool, idle in transaction, pg_stat_activity, PgBouncer, autoscaling, timeout và thiết kế payment an toàn."
 ---
 

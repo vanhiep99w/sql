@@ -1,5 +1,5 @@
 ---
-title: "Query Optimization Patterns — Deep Dive"
+title: "Query Optimization Patterns"
 description: "Mổ xẻ 15+ anti-pattern SQL phổ biến nhất — SELECT *, N+1, implicit conversion, correlated subquery, OFFSET pagination, OR trap, function-on-column. Kèm benchmark, EXPLAIN ANALYZE và cách fix từng cái."
 ---
 

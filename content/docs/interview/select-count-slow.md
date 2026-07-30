@@ -1,5 +1,5 @@
 ---
-title: "Vì sao SELECT count(*) lại chậm? — Deep Dive"
+title: "Vì sao SELECT count(*) lại chậm?"
 description: "Câu hỏi phỏng vấn kinh điển: vì sao đếm số dòng một bảng trong PostgreSQL lại chậm dù có index, trong khi MySQL MyISAM trả về tức thì? Mổ xẻ MVCC visibility, heap scan, visibility map, index-only scan, vì sao DB không lưu sẵn row count, và các cách đếm nhanh (ước lượng, bảng đếm, trigger)."
 ---
 

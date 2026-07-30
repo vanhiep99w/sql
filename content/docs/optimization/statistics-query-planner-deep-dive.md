@@ -1,5 +1,5 @@
 ---
-title: "Statistics & Query Planner — Deep Dive"
+title: "Statistics & Query Planner"
 description: "Optimizer chọn plan bằng cách nào — cost-based optimization, statistics (histogram, n_distinct, MCV, correlation), cardinality estimation, vì sao planner đoán sai, extended statistics, ANALYZE, và cách ép plan đúng. Kèm ví dụ Postgres & MySQL."
 ---
 

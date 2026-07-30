@@ -1,5 +1,5 @@
 ---
-title: "JOIN Algorithms — Deep Dive"
+title: "JOIN Algorithms"
 description: "Mổ xẻ chi tiết 3 thuật toán JOIN cốt lõi — Nested Loop Join, Hash Join, Merge Join. Kèm EXPLAIN ANALYZE, so sánh hiệu năng, cách optimizer chọn thuật toán, và best practices."
 ---
 

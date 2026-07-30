@@ -1,5 +1,5 @@
 ---
-title: "Primary Key: Integer vs UUIDv4 vs UUIDv7 — Deep Dive"
+title: "Primary Key: Integer vs UUIDv4 vs UUIDv7"
 description: "Mổ xẻ cách database lưu primary key dưới B+Tree, vì sao UUIDv4 gây page split và index fragmentation, UUIDv7 hoạt động ra sao, cùng benchmark và playbook migration cho Postgres/MySQL/SQL Server."
 ---
 

@@ -1,5 +1,5 @@
 ---
-title: "JOIN & Join Algorithms — Deep Dive"
+title: "JOIN & Join Algorithms"
 description: "Mổ xẻ chi tiết JOIN trong SQL — INNER/LEFT/RIGHT/FULL/CROSS, và 3 thuật toán vật lý Nested Loop / Hash Join / Merge Join. Optimizer chọn thuật toán nào và tại sao, join order, driving table, kèm EXPLAIN ANALYZE và benchmark."
 ---
 

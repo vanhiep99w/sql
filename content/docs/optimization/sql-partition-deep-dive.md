@@ -1,5 +1,5 @@
 ---
-title: "SQL Partitioning — Deep Dive"
+title: "SQL Partitioning"
 description: "Deep dive vào SQL Partitioning — Range, List, Hash, Partition Pruning, Global vs Local Index"
 ---
 

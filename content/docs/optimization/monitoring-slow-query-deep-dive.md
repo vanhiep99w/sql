@@ -1,5 +1,5 @@
 ---
-title: "Monitoring & Slow Query — Deep Dive"
+title: "Monitoring & Slow Query"
 description: "Phát hiện, đo lường và xử lý query chậm trong production — pg_stat_statements, slow query log, MySQL performance_schema, active session monitoring, lock & wait events, cache hit ratio, index không dùng, và quy trình điều tra sự cố. Kèm truy vấn thực chiến."
 ---
 

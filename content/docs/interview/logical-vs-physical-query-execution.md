@@ -1,5 +1,5 @@
 ---
-title: "SQL có thực thi theo thứ tự viết? WHERE, HAVING và JOIN filter — Deep Dive"
+title: "SQL có thực thi theo thứ tự viết? WHERE, HAVING và JOIN filter"
 description: "Câu hỏi phỏng vấn về thứ tự xử lý logic và execution plan vật lý của SQL: WHERE vs HAVING, ON vs WHERE, predicate pushdown, outer join, PostgreSQL, MySQL và distributed query."
 ---
 

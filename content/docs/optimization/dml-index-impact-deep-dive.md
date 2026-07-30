@@ -1,5 +1,5 @@
 ---
-title: "Insert, Update, Delete & Index — Deep Dive"
+title: "Insert, Update, Delete & Index"
 description: "Mổ xẻ chi tiết tác động của Index lên DML: tại sao càng nhiều index, write càng chậm. Cấu trúc B-Tree, page split, WAL, HOT update, MVCC dead tuple, index bloat, FILLFACTOR, bulk load, partial/expression index, deferred maintenance, monitoring & benchmark thực tế."
 ---
 
