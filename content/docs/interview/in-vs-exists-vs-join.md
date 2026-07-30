@@ -1,290 +1,526 @@
 ---
-title: "IN vs EXISTS vs JOIN — khi nào khác nhau? — Deep Dive"
-description: "Câu hỏi phỏng vấn: IN (subquery), EXISTS, và JOIN có cho cùng kết quả không, và cái nào nhanh hơn? Mổ xẻ semi-join, cách optimizer biến đổi, cái bẫy NOT IN với NULL, anti-join (NOT EXISTS), nhân bản dòng khi JOIN, và khi nào thật sự khác nhau."
+title: "IN vs EXISTS — câu hỏi phỏng vấn không trả lời bằng mẹo"
+description: "Cách trả lời câu hỏi IN hay EXISTS nhanh hơn: phân biệt ngữ nghĩa, semi-join, optimizer, index, NOT IN với NULL và cách đọc execution plan."
 ---
+
+> [!IMPORTANT]
+> Đây là một câu hỏi phỏng vấn về **cách suy luận**, không chỉ về việc nhớ câu “`EXISTS` nhanh hơn `IN`”. Câu trả lời tốt phải tách ba chuyện: **kết quả**, **kế hoạch thực thi**, và **dữ liệu thực tế**.
 
 ## Mục lục
 
-- [Câu hỏi phỏng vấn](#1-câu-hỏi-phỏng-vấn)
-- [Câu trả lời 30 giây](#2-câu-trả-lời-30-giây)
-- [Semi-Join: chìa khóa hiểu IN và EXISTS](#3-semi-join-chìa-khóa-hiểu-in-và-exists)
-- [IN (subquery) — optimizer thường biến thành semi-join](#4-in-subquery--optimizer-thường-biến-thành-semi-join)
-- [EXISTS — semi-join tường minh, dừng ở dòng đầu](#5-exists--semi-join-tường-minh-dừng-ở-dòng-đầu)
-- [JOIN — khác biệt chí mạng: NHÂN BẢN dòng](#6-join--khác-biệt-chí-mạng-nhân-bản-dòng)
-- [Cái bẫy lớn nhất: NOT IN + NULL](#7-cái-bẫy-lớn-nhất-not-in--null)
-- [NOT EXISTS vs NOT IN vs LEFT JOIN ... IS NULL (anti-join)](#8-not-exists-vs-not-in-vs-left-join--is-null-anti-join)
-- [Bảng quyết định & hiệu năng](#9-bảng-quyết-định--hiệu-năng)
-- [Câu hỏi đào sâu](#10-câu-hỏi-đào-sâu)
-- [Tóm tắt — Cheat sheet & 3 nguyên tắc](#11-tóm-tắt--cheat-sheet--3-nguyên-tắc)
+- [Câu hỏi phỏng vấn](#câu-hỏi-phỏng-vấn)
+- [Câu trả lời 30 giây](#câu-trả-lời-30-giây)
+- [Bài toán mẫu](#bài-toán-mẫu)
+- [IN và EXISTS khác nhau ở ngữ nghĩa nào](#in-và-exists-khác-nhau-ở-ngữ-nghĩa-nào)
+  - [IN với subquery](#in-với-subquery)
+  - [EXISTS với subquery tương quan](#exists-với-subquery-tương-quan)
+  - [JOIN không phải là phép thay thế mặc định](#join-không-phải-là-phép-thay-thế-mặc-định)
+- [Semi-join: vì sao hai câu có thể thành cùng một plan](#semi-join-vì-sao-hai-câu-có-thể-thành-cùng-một-plan)
+- [Khi nào hiệu năng thật sự khác nhau](#khi-nào-hiệu-năng-thật-sự-khác-nhau)
+  - [Optimizer không decorrelate được subquery](#optimizer-không-decorrelate-được-subquery)
+  - [Index trên cột nối](#index-trên-cột-nối)
+  - [Danh sách lớn và dữ liệu tràn bộ nhớ](#danh-sách-lớn-và-dữ-liệu-tràn-bộ-nhớ)
+- [Cái bẫy NOT IN và NULL](#cái-bẫy-not-in-và-null)
+- [Cách kiểm chứng thay vì đoán](#cách-kiểm-chứng-thay-vì-đoán)
+  - [Xác nhận hai query có cùng ngữ nghĩa](#xác-nhận-hai-query-có-cùng-ngữ-nghĩa)
+  - [Xem execution plan](#xem-execution-plan)
+  - [So các dấu hiệu quan trọng](#so-các-dấu-hiệu-quan-trọng)
+  - [Benchmark công bằng](#benchmark-công-bằng)
+- [Câu hỏi đào sâu](#câu-hỏi-đào-sâu)
+  - [Có nên luôn dùng EXISTS không?](#có-nên-luôn-dùng-exists-không)
+  - [SELECT 1 hay SELECT * trong EXISTS?](#select-1-hay-select--trong-exists)
+  - [JOIN có thể được optimizer biến thành semi-join không?](#join-có-thể-được-optimizer-biến-thành-semi-join-không)
+  - [Khi nào IN chậm hơn EXISTS?](#khi-nào-in-chậm-hơn-exists)
+  - [Vì sao query chạy 4,2 giây lại còn 0,4 giây?](#vì-sao-query-chạy-42-giây-lại-còn-04-giây)
+- [Tóm tắt và checklist](#tóm-tắt-và-checklist)
+  - [Cheat sheet](#cheat-sheet)
+  - [Ba nguyên tắc trả lời phỏng vấn](#ba-nguyên-tắc-trả-lời-phỏng-vấn)
+  - [Câu kết nên nhớ](#câu-kết-nên-nhớ)
 
----
+## Câu hỏi phỏng vấn
 
-## 1. Câu hỏi phỏng vấn
+> *“`IN` và `EXISTS` khác nhau thế nào? Cái nào nhanh hơn? Nếu query production chạy 4,2 giây nhưng đổi `IN` thành `EXISTS` còn 0,4 giây thì bạn kết luận gì?”*
 
-> *"`WHERE id IN (SELECT ...)`, `WHERE EXISTS (SELECT ...)`, và `JOIN` — ba cách này có cho cùng kết quả không? Cái nào nhanh nhất? Khi nào chúng thật sự khác nhau?"*
+Người phỏng vấn không chỉ chờ tên của một từ khóa. Họ muốn biết bạn có làm được bốn việc không:
 
-> [!IMPORTANT]
-> Hai ý cần tách bạch: **(1) Kết quả** — `IN` và `EXISTS` (dạng semi-join) thường tương đương nhau; còn `JOIN` có thể cho kết quả **khác** vì nó **nhân bản dòng**. **(2) Hiệu năng** — với optimizer hiện đại, `IN` và `EXISTS` thường được biến đổi thành **cùng một semi-join plan** → tốc độ ngang nhau. Khác biệt thật sự nằm ở các trường hợp biên: **NULL**, **nhân bản dòng**, và **anti-join**.
+1. Nói rõ query đang cần **lọc theo sự tồn tại** hay **lấy dữ liệu từ bảng khác**.
+2. Phân biệt kết quả của `IN`/`EXISTS` với kết quả của `JOIN`.
+3. Nhận ra optimizer có thể viết lại hai câu thành cùng một kế hoạch.
+4. Biết kiểm chứng bằng execution plan và benchmark có kiểm soát.
 
----
+> [!WARNING]
+> Câu “`EXISTS` luôn nhanh hơn `IN`” là một câu trả lời thiếu. Nó có thể đúng trong một engine hoặc một kế hoạch cụ thể, nhưng không phải quy luật chung cho mọi database, phiên bản, dữ liệu và index.
 
-## 2. Câu trả lời 30 giây
+## Câu trả lời 30 giây
 
-> - **`IN (subquery)` và `EXISTS`**: thường cho **cùng kết quả** và optimizer thường biến cả hai thành **semi-join** (mỗi dòng bên trái chỉ cần tìm 1 match bên phải là đủ) → **tốc độ tương đương**. Đừng tin câu "EXISTS luôn nhanh hơn IN" — điều đó đã lỗi thời với optimizer hiện đại.
-> - **`JOIN`**: cho kết quả **khác** nếu bảng bên phải có nhiều dòng match — nó **nhân bản** dòng bên trái. Muốn giống IN/EXISTS phải thêm `DISTINCT` (và lúc đó thường chậm hơn semi-join).
-> - **Cái bẫy**: `NOT IN (subquery)` mà subquery trả về **NULL** → toàn bộ kết quả thành **rỗng/sai** một cách âm thầm. Dùng `NOT EXISTS` thay thế — nó an toàn với NULL.
+> Nếu chỉ cần biết mỗi user **có ít nhất một** order phù hợp, `IN (subquery)` và `EXISTS` thường có cùng ngữ nghĩa lọc. Optimizer hiện đại có thể biến cả hai thành **semi-join**, nên execution plan và thời gian thường gần như nhau.
 >
-> Quy tắc: kiểm tra tồn tại → `EXISTS`/`IN`; loại trừ → `NOT EXISTS`; cần cột từ bảng kia → `JOIN`.
+> `JOIN` khác ở chỗ nó có thể nhân bản một user nếu user đó có nhiều order phù hợp. Vì vậy không nên dùng `JOIN` chỉ để kiểm tra tồn tại.
+>
+> Hiệu năng thật sự phụ thuộc vào dữ liệu, index, statistics, phiên bản optimizer và kế hoạch đã chọn. Nếu thấy chênh lệch 4,2 giây so với 0,4 giây, tôi sẽ mở `EXPLAIN` hoặc execution plan để xem database đang làm gì, thay vì kết luận từ chữ `IN` hay `EXISTS`.
+>
+> Với bài toán phủ định, tôi đặc biệt tránh `NOT IN` nếu subquery có thể chứa `NULL`; khi đó `NOT EXISTS` thường là lựa chọn an toàn hơn.
 
----
+## Bài toán mẫu
 
-## 3. Semi-Join: chìa khóa hiểu IN và EXISTS
-
-**Semi-join** là phép: *"trả về các dòng bên trái mà **tồn tại ít nhất một** dòng match bên phải"* — và **không** lấy cột nào của bên phải, **không** nhân bản.
-
-```diagram
-users                 orders (user_id)
-┌────┐                ┌──────────┐
-│ 1  │ ──match──►     │ uid=1    │   (3 đơn)
-│ 2  │ ──match──►     │ uid=2    │   (1 đơn)
-│ 3  │   (no match)   │ uid=1    │
-└────┘                │ uid=1    │
-                      └──────────┘
-
-SEMI-JOIN (users có ít nhất 1 đơn):
-   → trả về user 1, user 2   ← MỖI user 1 LẦN, dù user 1 có 3 đơn
-   → user 3 bị loại (không có đơn)
-```
-
-Mấu chốt: semi-join trả **mỗi dòng trái tối đa một lần**, và **dừng tìm ngay khi gặp match đầu tiên** bên phải. Đây chính là ngữ nghĩa của `IN` và `EXISTS`.
-
----
-
-## 4. IN (subquery) — optimizer thường biến thành semi-join
+Giả sử có hai bảng:
 
 ```sql
-SELECT * FROM users u
-WHERE u.id IN (SELECT user_id FROM orders WHERE status = 'paid');
+CREATE TABLE users (
+    id bigint PRIMARY KEY,
+    email text NOT NULL
+);
+
+CREATE TABLE orders (
+    id bigint PRIMARY KEY,
+    user_id bigint,
+    status text NOT NULL
+);
 ```
 
-```text
- Hash Semi Join
-   Hash Cond: (u.id = orders.user_id)
-   ->  Seq Scan on users u
-   ->  Hash
-         ->  Seq Scan on orders
-               Filter: (status = 'paid')
+Ta cần lấy những user đã có ít nhất một order đã thanh toán.
+
+```mermaid
+flowchart LR
+    U[users] --> Q{Có order paid phù hợp?}
+    O[orders] --> Q
+    Q -->|Có| R[Trả user một lần]
+    Q -->|Không| X[Loại user]
 ```
 
-Optimizer **không** chạy subquery lặp đi lặp lại cho mỗi user. Nó nhận ra đây là semi-join và chọn **Hash Semi Join** (hoặc Merge/Nested Loop Semi Join tùy data) — duyệt một lần, mỗi user chỉ cần biết "có/không".
-
-> [!NOTE]
-> `IN (subquery)` **khác** `IN (danh sách hằng)`. `IN (1,2,3)` chỉ là chuỗi `OR`. `IN (SELECT ...)` là semi-join. Bài này nói về dạng subquery.
-
----
-
-## 5. EXISTS — semi-join tường minh, dừng ở dòng đầu
+Có thể viết bằng `IN`:
 
 ```sql
-SELECT * FROM users u
-WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.status = 'paid');
-```
-
-`EXISTS` diễn đạt **chính xác** ngữ nghĩa semi-join: "có tồn tại dòng nào thỏa không?". Nó **dừng ngay** khi tìm thấy dòng đầu tiên (short-circuit). `SELECT 1` hay `SELECT *` bên trong **không quan trọng** — optimizer chỉ quan tâm "có hay không", không đọc cột.
-
-```text
- Hash Semi Join          ← cùng plan với IN ở trên!
-   Hash Cond: (u.id = o.user_id)
-   ...
-```
-
-> [!IMPORTANT]
-> Với Postgres/optimizer hiện đại, `IN (subquery)` và `EXISTS` thường cho **cùng một plan semi-join** → **hiệu năng như nhau**. Câu thần chú cũ "EXISTS nhanh hơn IN" xuất phát từ các DB/engine đời cũ không biết biến đổi IN thành semi-join (chạy subquery lặp lại). Đừng áp dụng máy móc — hãy `EXPLAIN` để kiểm chứng.
-
----
-
-## 6. JOIN — khác biệt chí mạng: NHÂN BẢN dòng
-
-Đây là chỗ `JOIN` **thật sự khác** IN/EXISTS về **kết quả**.
-
-```sql
--- JOIN thường (inner join)
 SELECT u.*
-FROM users u
-JOIN orders o ON o.user_id = u.id AND o.status = 'paid';
+FROM users AS u
+WHERE u.id IN (
+    SELECT o.user_id
+    FROM orders AS o
+    WHERE o.status = 'paid'
+);
 ```
 
-```diagram
-user 1 có 3 đơn 'paid':
-   JOIN → user 1 xuất hiện 3 LẦN trong kết quả (mỗi đơn 1 dòng)
-   IN/EXISTS → user 1 xuất hiện 1 LẦN
+Hoặc bằng `EXISTS`:
 
-→ Kết quả KHÁC NHAU về số dòng!
+```sql
+SELECT u.*
+FROM users AS u
+WHERE EXISTS (
+    SELECT 1
+    FROM orders AS o
+    WHERE o.user_id = u.id
+      AND o.status = 'paid'
+);
 ```
 
-Muốn `JOIN` cho kết quả giống IN/EXISTS, phải khử trùng lặp:
+Trong bài toán này, cả hai câu đều diễn đạt ý định: **giữ lại user nếu tồn tại ít nhất một order phù hợp**.
+
+## IN và EXISTS khác nhau ở ngữ nghĩa nào
+
+### IN với subquery
+
+`IN` so sánh một giá trị với tập giá trị do subquery trả về:
+
+```sql
+u.id IN (1, 2, 3)
+```
+
+có thể đọc là:
+
+> “`u.id` có thuộc tập này không?”
+
+Với `IN (subquery)`, tập giá trị có thể được materialize, hash, sort hoặc biến đổi thành một semi-join. Cách làm cụ thể là quyết định của optimizer, không được đảm bảo chỉ từ cú pháp SQL.
+
+Cần phân biệt hai dạng sau:
+
+```sql
+-- Danh sách hằng
+WHERE u.id IN (1, 2, 3)
+
+-- Subquery
+WHERE u.id IN (SELECT o.user_id FROM orders AS o)
+```
+
+Danh sách hằng rất ngắn thường được xử lý khác với subquery lớn. Không nên áp dụng một ngưỡng cố định như “1.000 phần tử dùng `IN`, trên 10.000 phần tử phải dùng bảng tạm”. Ngưỡng đó phụ thuộc database và workload.
+
+### EXISTS với subquery tương quan
+
+`EXISTS` chỉ hỏi một câu:
+
+> “Có ít nhất một dòng thỏa điều kiện không?”
+
+```sql
+WHERE EXISTS (
+    SELECT 1
+    FROM orders AS o
+    WHERE o.user_id = u.id
+      AND o.status = 'paid'
+)
+```
+
+Subquery ở đây là **subquery tương quan** vì nó dùng `u.id` từ query bên ngoài. Về mặt logic, database không cần đếm tất cả order. Nó chỉ cần biết câu trả lời là có hay không.
+
+Tuy nhiên, “có thể dừng ở match đầu tiên” là mô tả về ngữ nghĩa và khả năng tối ưu. Nó không có nghĩa mọi execution plan đều quét bảng rồi dừng ngay. Ví dụ, với hash semi-join, database có thể xây hash table trước, sau đó kiểm tra các dòng bên ngoài.
+
+### JOIN không phải là phép thay thế mặc định
+
+Nếu dùng `JOIN` để giải bài toán trên:
+
+```sql
+SELECT u.*
+FROM users AS u
+JOIN orders AS o
+  ON o.user_id = u.id
+ AND o.status = 'paid';
+```
+
+một user có ba order `paid` sẽ xuất hiện ba lần:
+
+```text
+users:   user 1
+orders:  user 1 có 3 order paid
+
+JOIN:    user 1, user 1, user 1
+EXISTS:  user 1
+```
+
+`JOIN` trả về các cặp dòng phù hợp. `EXISTS` chỉ trả về dòng bên trái khi có match. Đây là khác biệt về **kết quả**, không chỉ là khác biệt hiệu năng.
+
+Nếu thật sự cần dùng `JOIN` nhưng chỉ muốn mỗi user xuất hiện một lần, có thể thêm `DISTINCT`:
 
 ```sql
 SELECT DISTINCT u.*
-FROM users u
-JOIN orders o ON o.user_id = u.id AND o.status = 'paid';
+FROM users AS u
+JOIN orders AS o
+  ON o.user_id = u.id
+ AND o.status = 'paid';
 ```
 
-Nhưng `DISTINCT` trên toàn bộ cột của `u` thường **đắt** (phải sort/hash khử trùng) — chậm hơn semi-join vốn không bao giờ tạo ra trùng lặp ngay từ đầu.
+Nhưng `DISTINCT` phải khử các dòng trùng bằng sort hoặc hash. Nếu mục tiêu ban đầu chỉ là kiểm tra tồn tại, `EXISTS` thể hiện đúng ý định hơn và tránh tạo bản sao ngay từ đầu.
 
-> [!WARNING]
-> Lỗi kinh điển: dùng `JOIN` để "lọc users có đơn paid", quên rằng nó nhân bản → `COUNT(*)` bị thổi phồng, hoặc `SUM` bị tính trùng. Nếu bạn **chỉ cần lọc** (không lấy cột từ orders) → dùng `EXISTS`/`IN`, **không** dùng JOIN. Chỉ dùng JOIN khi bạn **thật sự cần cột** từ bảng kia.
+## Semi-join: vì sao hai câu có thể thành cùng một plan
 
-| Mục đích | Nên dùng |
-|----------|----------|
-| Lọc dòng trái theo "có tồn tại match" | `EXISTS` / `IN` (semi-join, không nhân bản) |
-| Cần lấy cột từ bảng phải | `JOIN` (chấp nhận nhân bản, hoặc xử lý phù hợp) |
-| Lọc + cần đúng 1 dòng/match | `JOIN` + `DISTINCT` hoặc `LATERAL ... LIMIT 1` |
+**Semi-join** là phép nối chỉ trả về dòng bên trái nếu có ít nhất một dòng match bên phải. Nó không lấy cột bên phải và không nhân bản dòng bên trái.
 
----
+```mermaid
+flowchart TD
+    A[SQL: IN hoặc EXISTS] --> B[Parser]
+    B --> C[Optimizer]
+    C --> D{Có thể viết lại không?}
+    D -->|Có| E[Semi-join]
+    D -->|Không| F[Plan riêng theo cú pháp]
+    E --> G{Chọn thuật toán}
+    G --> H[Hash semi-join]
+    G --> I[Nested-loop semi-join]
+    G --> J[Merge semi-join]
+    F --> K[Đo và kiểm tra plan]
+    H --> K
+    I --> K
+    J --> K
+```
 
-## 7. Cái bẫy lớn nhất: NOT IN + NULL
-
-Đây là câu "bẫy" yêu thích của người phỏng vấn — và là bug thật trong production.
+Với hai câu sau:
 
 ```sql
--- Muốn: users CHƯA có đơn nào
-SELECT * FROM users u
-WHERE u.id NOT IN (SELECT user_id FROM orders);
+-- IN
+SELECT u.id
+FROM users AS u
+WHERE u.id IN (
+    SELECT o.user_id
+    FROM orders AS o
+    WHERE o.status = 'paid'
+);
+
+-- EXISTS
+SELECT u.id
+FROM users AS u
+WHERE EXISTS (
+    SELECT 1
+    FROM orders AS o
+    WHERE o.user_id = u.id
+      AND o.status = 'paid'
+);
 ```
 
-Nếu cột `orders.user_id` có **bất kỳ giá trị NULL nào**, query trên trả về **0 dòng** (hoặc thiếu dòng) — **âm thầm sai**.
-
-```diagram
-NOT IN (1, 2, NULL)  được hiểu là:
-   id != 1  AND  id != 2  AND  id != NULL
-                                 └─────────┘
-                          id != NULL  →  UNKNOWN (không phải TRUE)
-
-→ Với MỌI id, biểu thức không bao giờ TRUE chắc chắn → loại hết → KẾT QUẢ RỖNG
-```
-
-Logic ba trạng thái (3-valued logic) của SQL: so sánh với NULL cho `UNKNOWN`, và `... AND UNKNOWN` không bao giờ thành `TRUE`. Vì vậy chỉ **một** NULL trong tập con là đủ phá hỏng toàn bộ `NOT IN`.
-
-> [!IMPORTANT]
-> **`NOT IN (subquery)` là nguy hiểm** nếu cột con có thể NULL. Nó không báo lỗi — chỉ **lặng lẽ trả sai**. Đây là một trong những bug khó phát hiện nhất. **Quy tắc an toàn: luôn ưu tiên `NOT EXISTS` thay cho `NOT IN`** khi loại trừ theo subquery.
-
----
-
-## 8. NOT EXISTS vs NOT IN vs LEFT JOIN ... IS NULL (anti-join)
-
-Ba cách diễn đạt "anti-join" (lấy dòng trái **không** có match):
-
-```sql
--- ✅ An toàn với NULL, optimizer biến thành Anti-Join
-SELECT * FROM users u
-WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id);
-
--- ⚠️ Bẫy NULL (mục 7) — tránh trừ khi chắc chắn cột con NOT NULL
-SELECT * FROM users u
-WHERE u.id NOT IN (SELECT user_id FROM orders);
-
--- ✅ An toàn, cũng thành Anti-Join (nhưng dài dòng hơn)
-SELECT u.* FROM users u
-LEFT JOIN orders o ON o.user_id = u.id
-WHERE o.user_id IS NULL;
-```
+optimizer có thể nhận ra rằng cả hai chỉ cần kiểm tra sự tồn tại. Kế hoạch có thể trở thành dạng tương đương với:
 
 ```text
--- NOT EXISTS → plan:
- Hash Anti Join
-   Hash Cond: (u.id = o.user_id)
+Hash Semi Join
+  Hash Cond: (u.id = o.user_id)
+  -> Scan users
+  -> Hash
+       -> Scan orders
+          Filter: status = 'paid'
 ```
 
-**Anti-join** là phép đối của semi-join: "trả dòng trái mà **không tồn tại** match bên phải". `NOT EXISTS` và `LEFT JOIN ... IS NULL` đều được optimizer biến thành Anti Join → an toàn NULL + hiệu quả.
-
-| Cách | An toàn NULL | Plan | Ghi chú |
-|------|:-:|------|---------|
-| `NOT EXISTS` | ✅ | Anti Join | **Khuyến nghị** — an toàn + rõ ràng |
-| `NOT IN` | ❌ | Anti Join chỉ khi cột con NOT NULL | Bẫy NULL, tránh |
-| `LEFT JOIN ... IS NULL` | ✅ | Anti Join | OK, nhưng verbose; cẩn thận cột IS NULL phải là cột join NOT NULL |
-
-> [!TIP]
-> Khi dùng `LEFT JOIN ... WHERE x IS NULL`, chọn `x` là cột **không thể NULL tự nhiên** ở bảng phải (thường là khóa join hoặc PK của bảng phải) — nếu chọn cột mà bản thân nó có thể NULL ngay cả khi match, bạn sẽ lọc sai.
-
----
-
-## 9. Bảng quyết định & hiệu năng
-
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│  Mục đích                          → Dùng                     │
-│  ─────────────────────────────────────────────────────────    │
-│  "Có tồn tại match?" (lọc)         → EXISTS hoặc IN (≈ nhau)   │
-│  "Không có match?" (loại trừ)      → NOT EXISTS (KHÔNG NOT IN) │
-│  "Cần cột từ bảng kia"             → JOIN                      │
-│  "Lọc nhưng JOIN nhân bản"         → EXISTS (tránh DISTINCT)   │
-│  "Mỗi match lấy 1 dòng + cột kia"  → LATERAL / DISTINCT ON     │
-╰──────────────────────────────────────────────────────────────╯
-```
-
-Về hiệu năng (Postgres hiện đại):
-
-| So sánh | Kết luận |
-|---------|----------|
-| `IN (subquery)` vs `EXISTS` | Thường **cùng plan semi-join** → tương đương. `EXPLAIN` để chắc |
-| `EXISTS` vs `JOIN+DISTINCT` (chỉ lọc) | `EXISTS` thường **nhanh hơn** (không tạo trùng rồi khử) |
-| `NOT EXISTS` vs `NOT IN` | `NOT EXISTS` **an toàn + thường nhanh hơn**; `NOT IN` có bẫy NULL |
-| `JOIN` (cần cột phải) | Không thay được bằng IN/EXISTS — khác mục đích |
+Khi đó đổi từ `IN` sang `EXISTS` không nhất thiết tạo ra cải thiện nào. Nếu benchmark cho thấy hai câu lần lượt chạy 118 ms và 121 ms, chênh lệch 3 ms có thể chỉ là nhiễu đo.
 
 > [!NOTE]
-> Hiệu năng thực tế vẫn phụ thuộc **index** và **data**. Semi-join/anti-join có thể chạy bằng Nested Loop (tốt khi bảng trái nhỏ + index bên phải), Hash (bảng lớn), hoặc Merge. `EXPLAIN ANALYZE` là trọng tài cuối cùng — đừng chọn theo niềm tin.
+> Tên node trong execution plan khác nhau giữa PostgreSQL, SQL Server, Oracle và MySQL. Ý tưởng chung vẫn là: optimizer có thể biến phép kiểm tra tồn tại thành semi-join, nhưng bạn phải xem plan của engine đang dùng.
 
----
+## Khi nào hiệu năng thật sự khác nhau
 
-## 10. Câu hỏi đào sâu
+### Optimizer không decorrelate được subquery
 
-> **"Có khi nào IN thật sự chậm hơn EXISTS không?"**
-> Có, ở các DB/optimizer cũ không biến IN thành semi-join (chạy subquery lặp), hoặc khi subquery trả tập **rất lớn** mà bị materialize. Trên Postgres hiện đại thì hiếm. Với **correlated** subquery, EXISTS thường tự nhiên hơn.
+**Decorrelation** là việc optimizer biến subquery tương quan thành một phép join có thể thực hiện hiệu quả hơn.
 
-> **"`IN` với danh sách hằng cực dài (10,000 phần tử) thì sao?"**
-> Có thể chậm/parse lâu. Cân nhắc đưa các giá trị vào `VALUES`/temp table rồi `JOIN`/`EXISTS`, hoặc `= ANY(ARRAY[...])`.
+Ở database hoặc phiên bản cũ, optimizer có thể không decorrelate được câu lệnh. Khi đó subquery có thể bị chạy lại cho từng dòng bên ngoài:
 
-> **"`= ANY(array)` vs `IN`?"**
-> `IN (a,b,c)` tương đương `= ANY(ARRAY[a,b,c])` trong Postgres. `ANY` tiện khi truyền một mảng tham số từ ứng dụng (tránh dựng chuỗi IN động).
-
-> **"LATERAL join liên quan gì?"**
-> Khi cần "với mỗi dòng trái, lấy **vài** dòng liên quan bên phải" (top-N per group), `LATERAL` + `LIMIT` mạnh hơn IN/EXISTS/JOIN thường. Ví dụ: lấy 3 đơn mới nhất của mỗi user.
-
----
-
-## 11. Tóm tắt — Cheat sheet & 3 nguyên tắc
-
-### 11.1. Cheat sheet
-
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  IN (subquery) ≈ EXISTS  → semi-join, KHÔNG nhân bản, ≈ tốc độ │
-│  JOIN                    → NHÂN BẢN dòng nếu nhiều match        │
-│                            (cần DISTINCT để giống IN/EXISTS)    │
-│  ─────────────────────────────────────────────────────────     │
-│  Loại trừ (anti-join):                                         │
-│    NOT EXISTS   → ✅ an toàn NULL, khuyến nghị                  │
-│    NOT IN       → ❌ BẪY NULL: 1 NULL → kết quả rỗng/sai        │
-│    LEFT JOIN .. IS NULL → ✅ an toàn, verbose                   │
-│  ─────────────────────────────────────────────────────────     │
-│  Chỉ lọc → EXISTS/IN ; cần cột bảng kia → JOIN                 │
-│  EXPLAIN để xác nhận plan, đừng tin "EXISTS luôn nhanh hơn IN"  │
-╰───────────────────────────────────────────────────────────────╯
+```text
+users có 210.000 dòng
+→ subquery chạy lại 210.000 lần
+→ mỗi lần quét orders
+→ tổng thời gian tăng rất mạnh
 ```
 
-### 11.2. 3 nguyên tắc áp dụng ngay
+Đây là một nguyên nhân hợp lý cho tình huống “đổi một từ khóa thì từ 4,2 giây còn 0,4 giây”. Nhưng kết luận chính xác không phải là “`EXISTS` nhanh hơn mọi lúc”. Kết luận là **hai câu đã nhận hai execution plan khác nhau**.
+
+Các cấu trúc có thể khiến việc viết lại khó hơn gồm:
+
+- `LIMIT` hoặc `OFFSET` nằm bên trong subquery.
+- `ORDER BY` có ý nghĩa với kết quả của subquery.
+- Hàm hoặc biểu thức có side effect.
+- Điều kiện phức tạp khiến optimizer không chứng minh được hai cách viết tương đương.
+- Khác biệt về `NULL` hoặc kiểu dữ liệu.
+
+Nói ngắn gọn: nếu một mẹo chỉ đúng khi optimizer không đủ thông minh, hãy xem đó là đặc tính của môi trường cụ thể, không phải luật SQL.
+
+### Index trên cột nối
+
+Với `EXISTS`, index trên cột dùng để tìm match thường rất quan trọng:
+
+```sql
+CREATE INDEX orders_user_id_status_idx
+    ON orders (user_id, status);
+```
+
+Index này có thể giúp database tìm order của từng user nhanh hơn trong nested-loop semi-join. Nhưng không có một index duy nhất tốt cho mọi query. Nếu query thường lọc `status` trước rồi mới nối theo `user_id`, thứ tự cột có thể cần đánh giá lại.
+
+Optimizer cũng có thể chọn hash join hoặc sequential scan nếu:
+
+- Phần lớn bảng đều khớp điều kiện.
+- Bảng đủ nhỏ để quét toàn bộ rẻ hơn đi qua index.
+- Statistics không phản ánh đúng dữ liệu.
+- Chi phí random I/O cao.
+
+```mermaid
+flowchart LR
+    A[Query có EXISTS] --> B{Có index phù hợp?}
+    B -->|Có| C[Nested loop + index lookup có thể phù hợp]
+    B -->|Không| D[Quét bảng hoặc hash join có thể được chọn]
+    C --> E[Kiểm tra EXPLAIN]
+    D --> E
+    E --> F[Đo trên data và workload thật]
+```
+
+Index là nhân vật quan trọng, nhưng không nên nói “thiếu index thì `EXISTS` luôn vô dụng”. Một hash semi-join vẫn có thể là lựa chọn tốt khi bảng lớn và tỷ lệ match cao.
+
+### Danh sách lớn và dữ liệu tràn bộ nhớ
+
+Nếu `IN (subquery)` tạo ra một tập kết quả rất lớn, database có thể cần materialize hoặc xây hash table. Nếu bộ nhớ không đủ, thao tác có thể tràn sang đĩa tạm. Đọc đĩa thường đắt hơn xử lý trong RAM nhiều lần.
+
+Khi danh sách đến từ ứng dụng và rất lớn, thay vì ghép hàng nghìn giá trị vào SQL, hãy cân nhắc:
+
+- Bảng tạm.
+- Bảng staging có index.
+- `VALUES` rồi join nếu tập nhỏ và cố định.
+- Cơ chế truyền mảng hoặc table-valued parameter tùy database.
+
+Không chọn giải pháp theo ngưỡng cứng. Hãy đo parse time, memory, I/O và execution plan trên dữ liệu gần production.
+
+## Cái bẫy NOT IN và NULL
+
+Đây là follow-up thường dùng để phân biệt người hiểu bản chất với người chỉ nhớ benchmark.
+
+Giả sử muốn tìm user chưa từng đặt order:
+
+```sql
+SELECT u.*
+FROM users AS u
+WHERE u.id NOT IN (
+    SELECT o.user_id
+    FROM orders AS o
+);
+```
+
+Nếu subquery trả về:
+
+```text
+(10, 20, NULL)
+```
+
+thì với một `u.id` không phải 10 hoặc 20, SQL phải đánh giá tương đương với:
+
+```text
+u.id <> 10
+AND u.id <> 20
+AND u.id <> NULL
+```
+
+So sánh bất kỳ giá trị nào với `NULL` cho kết quả `UNKNOWN`, không phải `TRUE` hay `FALSE`. Điều kiện `WHERE` chỉ giữ lại biểu thức có giá trị `TRUE`, nên các user không match có thể bị loại hết. Query không báo lỗi; nó chỉ trả kết quả thiếu hoặc rỗng.
+
+Cách an toàn hơn là dùng `NOT EXISTS`:
+
+```sql
+SELECT u.*
+FROM users AS u
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM orders AS o
+    WHERE o.user_id = u.id
+);
+```
+
+`NOT EXISTS` hỏi trực tiếp “không có dòng match nào phải không?”. Một giá trị `NULL` không tự biến thành điều kiện phủ định nguy hiểm như `NOT IN`.
+
+Có thể dùng `NOT IN` nếu chứng minh được cột trong subquery không bao giờ có `NULL`:
+
+```sql
+SELECT u.*
+FROM users AS u
+WHERE u.id NOT IN (
+    SELECT o.user_id
+    FROM orders AS o
+    WHERE o.user_id IS NOT NULL
+);
+```
+
+Tuy vậy, khi ý định là anti-join — lấy dòng bên trái **không có** match — `NOT EXISTS` thường dễ đọc và ít rủi ro hơn.
+
+## Cách kiểm chứng thay vì đoán
+
+Khi được hỏi “cái nào nhanh hơn?”, câu trả lời nên chuyển từ lý thuyết sang quy trình kiểm chứng.
+
+<Steps>
+<Step>
+
+### Xác nhận hai query có cùng ngữ nghĩa
+
+Kiểm tra điều kiện nối, `NULL`, kiểu dữ liệu và việc có lấy cột từ bảng bên phải hay không. Nếu dùng `JOIN`, kiểm tra khả năng nhân bản dòng.
+
+</Step>
+<Step>
+
+### Xem execution plan
+
+Dùng công cụ phù hợp với database:
+
+```sql
+-- PostgreSQL
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT ...;
+```
+
+Ở production, ưu tiên read replica hoặc môi trường an toàn. `EXPLAIN ANALYZE` thực sự chạy query, vì vậy không dùng tùy tiện với `UPDATE` hoặc `DELETE`.
+
+</Step>
+<Step>
+
+### So các dấu hiệu quan trọng
+
+Tập trung vào:
+
+- Loại join: nested loop, hash, merge, semi-join hoặc anti-join.
+- Estimated rows so với actual rows.
+- Index scan hay sequential scan.
+- Số page đọc từ disk và số page lấy từ cache.
+- Sort hoặc hash có tràn ra disk hay không.
+- Thời gian chờ lock, connection hoặc tài nguyên khác.
+
+</Step>
+<Step>
+
+### Benchmark công bằng
+
+Chạy mỗi query nhiều lần. Tách cold cache và warm cache. Dùng cùng tham số, cùng transaction isolation, cùng dữ liệu và workload tương đương.
+
+Một lần chạy nhanh hơn chưa đủ để chứng minh một cú pháp tốt hơn.
+
+</Step>
+</Steps>
+
+> [!TIP]
+> Câu trả lời có điểm trong phỏng vấn thường là: “Em chưa thể kết luận chỉ từ cú pháp. Em sẽ xem execution plan, so estimated rows với actual rows, kiểm tra index và đo lại trên dữ liệu thực tế.” Đây là cách thể hiện năng lực chẩn đoán thay vì đoán bừa.
+
+## Câu hỏi đào sâu
+
+### Có nên luôn dùng EXISTS không?
+
+Không. Hãy chọn cú pháp thể hiện đúng ý định:
+
+| Ý định | Cú pháp thường phù hợp |
+|---|---|
+| Kiểm tra có match | `EXISTS` hoặc `IN (subquery)` |
+| Kiểm tra không có match | `NOT EXISTS` |
+| Lấy cột từ bảng bên phải | `JOIN` |
+| Xử lý một danh sách hằng nhỏ | `IN (value1, value2, ...)` |
+
+Sau đó kiểm tra plan nếu query quan trọng về hiệu năng.
+
+### SELECT 1 hay SELECT * trong EXISTS?
+
+Thông thường không. Với `EXISTS`, database chỉ cần biết subquery có trả về dòng hay không. `SELECT 1` được dùng vì nó truyền đạt rõ ý định và tránh làm người đọc nghĩ rằng ta cần dữ liệu từ bảng bên trong.
+
+Không nên dùng ví dụ như `SELECT 1 / 0` để chứng minh mọi biểu thức trong select list luôn bị bỏ qua. Cách optimizer xử lý biểu thức không phải lúc nào cũng giống nhau giữa các engine và phiên bản.
+
+### JOIN có thể được optimizer biến thành semi-join không?
+
+Có thể, nếu optimizer chứng minh rằng việc loại bỏ cột và duplicate không làm thay đổi kết quả. Nhưng bạn không nên dựa vào việc optimizer luôn làm được điều đó. Nếu ý định chỉ là kiểm tra tồn tại, viết `EXISTS` sẽ rõ ràng hơn.
+
+### Khi nào IN chậm hơn EXISTS?
+
+Một số trường hợp có thể xảy ra:
+
+- Engine cũ không decorrelate hoặc không chuyển `IN` thành semi-join.
+- Tập kết quả của subquery rất lớn và bị materialize hoặc spill ra disk.
+- Hai câu có điều kiện hoặc kiểu dữ liệu khác nhau nên nhận plan khác.
+- Statistics, index hoặc tham số khiến optimizer chọn thuật toán không phù hợp.
+
+Câu trả lời cuối cùng vẫn phải đến từ execution plan và benchmark. Không có ngưỡng chung áp dụng cho mọi hệ quản trị.
+
+### Vì sao query chạy 4,2 giây lại còn 0,4 giây?
+
+Có ít nhất bốn khả năng:
+
+1. Hai câu nhận hai execution plan khác nhau.
+2. Một plan lặp subquery theo từng dòng bên ngoài.
+3. Một plan dùng index phù hợp còn plan kia quét toàn bộ bảng.
+4. Một phép hash hoặc sort bị tràn ra disk.
+
+Con số 100 lần là bằng chứng để điều tra, không phải bằng chứng rằng `EXISTS` luôn nhanh hơn `IN`.
+
+## Tóm tắt và checklist
+
+### Cheat sheet
+
+```text
+Cần biết “có match không?”
+    → EXISTS hoặc IN (subquery)
+    → thường có thể trở thành semi-join
+
+Cần biết “không có match không?”
+    → NOT EXISTS
+    → tránh NOT IN nếu subquery có thể chứa NULL
+
+Cần lấy cột từ bảng bên phải
+    → JOIN
+    → kiểm tra duplicate nếu quan hệ là one-to-many
+
+Thấy chênh lệch hiệu năng
+    → EXPLAIN / execution plan
+    → kiểm tra index, statistics, data và I/O
+    → benchmark nhiều lần trên môi trường tương đương
+```
+
+### Ba nguyên tắc trả lời phỏng vấn
 
 > [!IMPORTANT]
-> **1. Chỉ lọc thì dùng EXISTS/IN, đừng JOIN.**
-> JOIN nhân bản dòng → sai `COUNT`/`SUM` và phải `DISTINCT` tốn kém. Dùng JOIN **chỉ khi** cần cột từ bảng kia.
+> **1. Đừng bắt đầu bằng “cái nào nhanh hơn”.** Hãy bắt đầu bằng mục tiêu của query và sự tương đương về kết quả.
 >
-> **2. Loại trừ thì dùng NOT EXISTS, đừng NOT IN.**
-> `NOT IN` với cột con có NULL trả kết quả **rỗng/sai âm thầm**. `NOT EXISTS` an toàn với NULL và thường nhanh hơn.
+> **2. `EXISTS` không phải từ khóa thần kỳ.** Optimizer hiện đại có thể biến `IN` và `EXISTS` thành cùng một semi-join.
 >
-> **3. Đừng tin câu "EXISTS luôn nhanh hơn IN".**
-> Optimizer hiện đại biến cả hai thành semi-join như nhau. `EXPLAIN` mới là sự thật. Chọn theo **ngữ nghĩa rõ ràng**, để tối ưu cho optimizer lo.
+> **3. `NOT IN` + `NULL` là lỗi logic, không chỉ là lỗi hiệu năng.** Khi loại trừ theo subquery, ưu tiên `NOT EXISTS`.
 
-### 11.3. Quote cuối
+### Câu kết nên nhớ
 
-> `IN`, `EXISTS`, `JOIN` không phải ba cách viết của cùng một thứ — chúng diễn đạt ba **ý định** khác nhau: *"có tồn tại không"*, *"có tồn tại không (tường minh)"*, và *"ghép dữ liệu lại"*. Khi bạn chọn đúng theo ý định, kết quả đúng và optimizer thường tự lo phần tốc độ. Khi bạn chọn theo lời đồn ("cái này nhanh hơn"), bạn dễ rơi vào bẫy NULL hoặc nhân bản dòng — những lỗi không báo, chỉ âm thầm cho ra số sai.
+> `IN` và `EXISTS` có thể cùng tạo ra một kế hoạch. `JOIN` có thể tạo ra số dòng khác. `NOT IN` có thể cho kết quả sai âm thầm khi gặp `NULL`. Vì vậy, câu trả lời trưởng thành không phải là thuộc một mẹo tốc độ, mà là biết đọc execution plan và kiểm chứng trên dữ liệu thật.
