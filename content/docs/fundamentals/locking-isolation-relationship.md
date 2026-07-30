@@ -8,6 +8,14 @@ Ba khái niệm này thường xuất hiện cạnh nhau nhưng không nằm cù
 ## Mục lục
 
 - [Mô hình tổng quát](#mô-hình-tổng-quát)
+- [Bức tranh toàn cảnh](#bức-tranh-toàn-cảnh)
+  - [Tầng 1 — Application đưa ra yêu cầu](#tầng-1--application-đưa-ra-yêu-cầu)
+  - [Tầng 2 — Isolation Level đặt ra cam kết](#tầng-2--isolation-level-đặt-ra-cam-kết)
+  - [Tầng 3 — Database phối hợp các cơ chế](#tầng-3--database-phối-hợp-các-cơ-chế)
+  - [Tầng 4 — Kết quả quan sát được](#tầng-4--kết-quả-quan-sát-được)
+  - [Hai luồng cần tách biệt](#hai-luồng-cần-tách-biệt)
+  - [Theo dõi toàn bộ vòng đời một transaction](#theo-dõi-toàn-bộ-vòng-đời-một-transaction)
+  - [Bảng định vị các khái niệm](#bảng-định-vị-các-khái-niệm)
 - [Ba thành phần trả lời ba câu hỏi khác nhau](#ba-thành-phần-trả-lời-ba-câu-hỏi-khác-nhau)
   - [Isolation Level — cần bảo vệ đến mức nào](#isolation-level--cần-bảo-vệ-đến-mức-nào)
   - [Locking Type — khóa theo chế độ nào](#locking-type--khóa-theo-chế-độ-nào)
@@ -59,6 +67,245 @@ SERIALIZABLE   = Table Lock
 ```
 
 Cùng một Isolation Level có thể được database A thực hiện bằng lock, nhưng database B lại dùng MVCC snapshot và conflict detection.
+
+## Bức tranh toàn cảnh
+
+Để không trộn lẫn các khái niệm, hãy đi từ **yêu cầu của application** xuống **cách storage engine thực thi**. Isolation Level, MVCC và locking nằm ở các tầng khác nhau:
+
+```mermaid
+flowchart TD
+    A["Application / ORM"] -->|"BEGIN, SQL, isolation, FOR UPDATE"| B["Transaction của database"]
+    B --> C["Isolation contract<br/>Kết quả phải an toàn đến mức nào?"]
+    B --> O{"Loại thao tác"}
+
+    O -->|"Plain SELECT"| R["Luồng đọc / visibility"]
+    O -->|"SELECT FOR UPDATE"| LR["Luồng đọc có khóa"]
+    O -->|"INSERT / UPDATE / DELETE"| W["Luồng ghi"]
+
+    C --> S["Snapshot policy<br/>mỗi statement hay cả transaction"]
+    C --> D["Conflict policy<br/>cho chạy, block hay abort"]
+
+    R --> S
+    S --> M["MVCC visibility<br/>chọn row version phù hợp"]
+    M --> V[("Row versions<br/>heap hoặc undo")]
+
+    LR --> L["Lock manager"]
+    W --> L
+    W --> V
+    L --> LM["Mode + Granularity + Duration"]
+
+    D --> X["Conflict detection<br/>deadlock, SSI, write conflict"]
+    LM --> X
+    X --> K{"Kết quả"}
+    K -->|"Không xung đột"| OK["Tiếp tục / COMMIT"]
+    K -->|"Phải chờ"| WAIT["BLOCK rồi tiếp tục"]
+    K -->|"Không thể an toàn"| ABORT["ROLLBACK / app retry"]
+
+    V --> CLEAN["VACUUM / purge / undo retention"]
+```
+
+Sơ đồ trên có thể rút gọn thành một công thức:
+
+```text
+Yêu cầu nghiệp vụ
+      ↓
+Isolation Level                         ← cam kết về hành vi
+      ↓
+Snapshot + MVCC + Lock + Conflict Check ← công cụ thực thi
+      ↓
+COMMIT, BLOCK hoặc ABORT/RETRY           ← kết quả quan sát được
+```
+
+### Tầng 1 — Application đưa ra yêu cầu
+
+Application không trực tiếp tạo lock hay chọn row version trong storage. Nó chỉ gửi các tín hiệu như:
+
+```sql
+BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+
+SELECT balance FROM accounts WHERE id = 1;
+
+SELECT * FROM orders WHERE id = 10 FOR UPDATE;
+
+UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+COMMIT;
+```
+
+Các tín hiệu này mang ý nghĩa khác nhau:
+
+- `ISOLATION LEVEL` chọn mức đảm bảo cho **toàn transaction**.
+- Plain `SELECT` yêu cầu đọc dữ liệu visible theo snapshot hiện tại.
+- `FOR UPDATE` yêu cầu một **locking read** vì application chuẩn bị sửa dữ liệu.
+- `UPDATE` là thao tác ghi; database tự đặt lock cần thiết dù application không viết từ khóa `LOCK`.
+
+### Tầng 2 — Isolation Level đặt ra cam kết
+
+Isolation Level mô tả **hành vi được phép quan sát**, không mô tả cấu trúc lưu trữ cụ thể.
+
+Ví dụ với hai lần đọc trong cùng transaction:
+
+```text
+READ COMMITTED:
+SELECT lần 1 → 100
+transaction khác UPDATE + COMMIT
+SELECT lần 2 → có thể thấy 200
+
+REPEATABLE READ:
+SELECT lần 1 → 100
+transaction khác UPDATE + COMMIT
+SELECT lần 2 → vẫn thấy 100
+
+SERIALIZABLE:
+Ngoài góc nhìn ổn định, kết quả còn phải tương đương
+với một thứ tự chạy tuần tự hợp lệ.
+```
+
+Isolation Level không bắt buộc database phải đạt cam kết bằng lock hay bằng MVCC. Hai engine có thể cung cấp cùng một cam kết bằng hai chiến lược khác nhau.
+
+### Tầng 3 — Database phối hợp các cơ chế
+
+Database thường không chọn đúng **một** cơ chế. Nó phối hợp nhiều cơ chế cùng lúc:
+
+1. **Snapshot policy** quyết định snapshot được tạo cho từng statement hay giữ cho cả transaction.
+2. **MVCC visibility** chọn row version nào được phép xuất hiện trong snapshot đó.
+3. **Lock manager** bảo vệ thao tác ghi, locking read, DDL và các invariant nội bộ.
+4. **Lock mode** quyết định quyền đọc/ghi nào tương thích với nhau.
+5. **Lock granularity** xác định tài nguyên là row, page, table hay key range.
+6. **Lock duration** xác định lock được giữ đến hết statement hay hết transaction.
+7. **Conflict detection** quyết định cho transaction chờ, chọn deadlock victim hoặc báo serialization failure.
+8. **Version cleanup** dọn version cũ khi không còn snapshot nào cần chúng.
+
+Vì vậy, nói “PostgreSQL dùng MVCC” không có nghĩa PostgreSQL không dùng lock. PostgreSQL có thể đồng thời:
+
+```text
+Plain SELECT       → dùng MVCC snapshot, thường không lấy row lock
+UPDATE             → tạo row version mới + lấy row lock
+SELECT FOR UPDATE  → đọc theo visibility rule + lấy row lock
+SERIALIZABLE       → snapshot + SSI dependency tracking + có thể abort
+VACUUM             → dọn version cũ khi không transaction nào còn cần
+```
+
+### Tầng 4 — Kết quả quan sát được
+
+Sau khi phối hợp các cơ chế, một thao tác thường rơi vào một trong ba kết quả:
+
+| Kết quả | Ý nghĩa | Ví dụ |
+|---|---|---|
+| **Tiếp tục** | Có version visible và không có conflict nguy hiểm | Plain `SELECT` đọc version cũ trong MVCC |
+| **Block** | Phải chờ transaction đang giữ lock không tương thích | Hai transaction cùng `UPDATE` một row |
+| **Abort** | Không thể đảm bảo tính đúng đắn hoặc xảy ra deadlock | Serialization failure, deadlock victim |
+
+Application phải chuẩn bị cho cả ba. Đặc biệt, `SERIALIZABLE` theo hướng optimistic có thể không block từ đầu nhưng báo lỗi ở cuối; application phải retry **toàn bộ transaction**.
+
+### Hai luồng cần tách biệt
+
+Điểm dễ nhầm nhất là gộp việc **đọc version nào** với việc **ai được sửa tài nguyên**. Trong thực tế đây là hai luồng liên quan nhưng khác nhau.
+
+#### Luồng visibility — “Tôi nhìn thấy version nào?”
+
+```text
+Isolation Level
+      ↓
+Snapshot lifetime
+      ↓
+MVCC visibility rules
+      ↓
+Row version visible cho câu SELECT
+```
+
+Ví dụ PostgreSQL:
+
+- `READ COMMITTED`: mỗi statement lấy snapshot mới.
+- `REPEATABLE READ`: giữ snapshot từ statement đầu tiên của transaction.
+- `SERIALIZABLE`: giữ snapshot ổn định và theo dõi thêm read/write dependency.
+
+MVCC cung cấp các version để lựa chọn. Isolation Level quyết định quy tắc và vòng đời của lựa chọn đó.
+
+#### Luồng conflict — “Tôi có được sửa tài nguyên không?”
+
+```text
+Loại câu lệnh
+      ↓
+Tài nguyên cần bảo vệ
+      ↓
+Lock mode + granularity + duration
+      ↓
+Chạy ngay, block, deadlock hoặc abort
+```
+
+Ví dụ:
+
+```text
+TX1: UPDATE accounts SET balance = 90 WHERE id = 1;
+     → giữ write lock trên row id=1
+
+TX2: SELECT balance FROM accounts WHERE id = 1;
+     → plain MVCC read có thể đọc version cũ, không chờ TX1
+
+TX3: UPDATE accounts SET balance = 80 WHERE id = 1;
+     → muốn ghi cùng row nên phải chờ TX1
+```
+
+Do đó, câu “reader không block writer” trong MVCC chỉ đúng chủ yếu với **plain consistent read**. Writer vẫn block writer; locking read và DDL vẫn có thể tạo blocking.
+
+### Theo dõi toàn bộ vòng đời một transaction
+
+Xét PostgreSQL ở `READ COMMITTED`:
+
+```sql
+BEGIN;
+SELECT balance FROM accounts WHERE id = 1;
+UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+COMMIT;
+```
+
+Toàn bộ quá trình có thể được đọc theo thứ tự sau:
+
+```text
+1. BEGIN
+   └── Database tạo transaction context.
+
+2. SELECT bắt đầu
+   ├── READ COMMITTED yêu cầu snapshot cho statement này.
+   ├── MVCC kiểm tra xmin/xmax và trạng thái transaction.
+   └── Chọn row version đã commit và visible.
+
+3. UPDATE bắt đầu
+   ├── Statement có snapshot riêng để tìm row mục tiêu.
+   ├── Database lấy row-level write lock.
+   ├── Nếu writer khác đang giữ lock: chờ hoặc deadlock handling.
+   └── Khi được phép ghi: row cũ bị supersede, row version mới được tạo.
+
+4. COMMIT
+   ├── Version mới trở thành visible cho snapshot phù hợp trong tương lai.
+   ├── Write lock được giải phóng.
+   └── Transaction khác đang chờ được đánh thức.
+
+5. Sau transaction
+   └── Version cũ chưa bị xóa ngay; VACUUM chỉ dọn khi không snapshot nào cần nó.
+```
+
+Nếu đổi sang MySQL InnoDB, cam kết isolation có thể tương tự nhưng chi tiết vật lý thay đổi: bản hiện tại nằm trong clustered index, before-image nằm trong Undo Log và purge thread dọn undo cũ. Đó là khác biệt của **MVCC implementation**, không phải bản thân định nghĩa Isolation Level.
+
+### Bảng định vị các khái niệm
+
+| Khái niệm | Nó quyết định điều gì? | Ví dụ |
+|---|---|---|
+| **Transaction** | Biên atomic của một nhóm thao tác | `BEGIN ... COMMIT` |
+| **Isolation Level** | Anomaly và hành vi quan sát nào được phép | `READ COMMITTED`, `SERIALIZABLE` |
+| **Snapshot** | Tập trạng thái transaction dùng để xét visibility | Snapshot theo statement hoặc transaction |
+| **MVCC** | Cách duy trì và tìm nhiều row version | PostgreSQL heap, InnoDB Undo Log |
+| **Visibility Rule** | Version cụ thể nào hiện ra cho reader | Kiểm tra transaction tạo/xóa version đã commit chưa |
+| **Locking Type** | Quyền nào tương thích trên tài nguyên | Shared, Exclusive, Intent |
+| **Locking Level** | Tài nguyên được bảo vệ lớn đến đâu | Row, page, table, key range |
+| **Lock Duration** | Bảo vệ kéo dài đến khi nào | Hết statement hoặc đến `COMMIT` |
+| **Conflict Detection** | Khi nào phải chờ hoặc hủy transaction | Deadlock detection, PostgreSQL SSI |
+| **Cleanup** | Khi nào version cũ được thu hồi | VACUUM, purge, undo retention |
+| **Application Retry** | Cách phục hồi sau conflict có chủ đích | Chạy lại toàn bộ transaction |
+
+Cách nhớ toàn cảnh:
+
+> **Isolation nói database phải đảm bảo điều gì. Snapshot và MVCC quyết định transaction nhìn thấy gì. Lock quyết định ai được đụng vào tài nguyên. Conflict detection quyết định ai phải chờ hoặc làm lại. Cleanup thu hồi các version không còn cần thiết.**
 
 ## Ba thành phần trả lời ba câu hỏi khác nhau
 
