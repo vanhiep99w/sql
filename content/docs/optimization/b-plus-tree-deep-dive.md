@@ -1,233 +1,56 @@
 ---
 title: "B+Tree hoạt động như thế nào?"
-description: "Mổ xẻ cách B+Tree tổ chức page, tìm kiếm, range scan, split, merge và trỏ từ index về row thật trong PostgreSQL, MySQL InnoDB và các hệ quản trị phổ biến."
+description: "Giải thích B+Tree theo trình tự đơn giản: tìm kiếm, range scan, page split, xóa, cập nhật và cách index trỏ tới row thật."
 ---
 
-<Callout type="info" title="Phạm vi">
-  Tài liệu này giải thích B+Tree từ góc nhìn của một database index trên đĩa. Các con số về kích thước page, ngưỡng split và cách dọn entry đã xóa phụ thuộc từng hệ quản trị, nhưng mô hình tìm kiếm và sắp xếp là giống nhau.
+<Callout type="info" title="Cách đọc tài liệu này">
+  Các phần được sắp xếp từ cơ bản đến nâng cao và tiếp tục dùng cùng một ví dụ với bảng `users`.
 </Callout>
 
 ## Mục lục
 
-- [Mô hình B Plus Tree](#mô-hình-b-plus-tree)
-  - [B Tree và B Plus Tree khác gì](#b-tree-và-b-plus-tree-khác-gì)
-  - [Bốn bất biến quan trọng](#bốn-bất-biến-quan-trọng)
-- [Cấu trúc một node trên đĩa](#cấu-trúc-một-node-trên-đĩa)
-  - [Internal page dùng để điều hướng](#internal-page-dùng-để-điều-hướng)
-  - [Leaf page giữ index entry](#leaf-page-giữ-index-entry)
-  - [Leaf page liên kết với nhau](#leaf-page-liên-kết-với-nhau)
-- [Vì sao cây rất nông](#vì-sao-cây-rất-nông)
-  - [Fanout quyết định chiều cao](#fanout-quyết-định-chiều-cao)
-  - [Độ phức tạp phải tính theo page](#độ-phức-tạp-phải-tính-theo-page)
-- [Tra cứu một khóa chính xác](#tra-cứu-một-khóa-chính-xác)
-  - [Ví dụ tìm khóa 42](#ví-dụ-tìm-khóa-42)
-  - [Chi phí fetch row sau khi tìm thấy leaf](#chi-phí-fetch-row-sau-khi-tìm-thấy-leaf)
-- [Quét theo khoảng](#quét-theo-khoảng)
-  - [Range scan diễn ra như thế nào](#range-scan-diễn-ra-như-thế-nào)
-  - [Vì sao ORDER BY và LIMIT có thể rất nhanh](#vì-sao-order-by-và-limit-có-thể-rất-nhanh)
-- [Chèn và tách page](#chèn-và-tách-page)
-  - [Chèn khi leaf còn chỗ](#chèn-khi-leaf-còn-chỗ)
-  - [Leaf split khi page đầy](#leaf-split-khi-page-đầy)
-  - [Split lan lên root](#split-lan-lên-root)
-- [Xóa và cập nhật](#xóa-và-cập-nhật)
-  - [Xóa trong sách giáo khoa và trong database](#xóa-trong-sách-giáo-khoa-và-trong-database)
-  - [Cập nhật cột có index](#cập-nhật-cột-có-index)
-- [Từ leaf entry đến row thật](#từ-leaf-entry-đến-row-thật)
-  - [PostgreSQL heap table](#postgresql-heap-table)
-  - [MySQL InnoDB clustered index](#mysql-innodb-clustered-index)
-  - [Các hệ quản trị khác](#các-hệ-quản-trị-khác)
-- [Composite index được sắp xếp ra sao](#composite-index-được-sắp-xếp-ra-sao)
-  - [Thứ tự từ điển của tuple](#thứ-tự-từ-điển-của-tuple)
-  - [Leftmost prefix xuất hiện từ đâu](#leftmost-prefix-xuất-hiện-từ-đâu)
-- [Khi B Plus Tree nhanh và chậm](#khi-b-plus-tree-nhanh-và-chậm)
-  - [Những truy vấn phù hợp](#những-truy-vấn-phù-hợp)
-  - [Những trường hợp index không mang lại lợi ích](#những-trường-hợp-index-không-mang-lại-lợi-ích)
-  - [Ảnh hưởng của key rộng và kiểu chèn](#ảnh-hưởng-của-key-rộng-và-kiểu-chèn)
-- [Quan sát B Plus Tree qua execution plan](#quan-sát-b-plus-tree-qua-execution-plan)
-  - [PostgreSQL](#postgresql)
-  - [MySQL](#mysql)
-- [Các hiểu lầm thường gặp](#các-hiểu-lầm-thường-gặp)
-- [Tóm tắt](#tóm-tắt)
+- [Vấn đề khi không có index](#vấn-đề-khi-không-có-index)
+- [Toàn cảnh B Plus Tree](#toàn-cảnh-b-plus-tree)
+- [Root internal và leaf](#root-internal-và-leaf)
+  - [Root và internal node giữ gì](#root-và-internal-node-giữ-gì)
+  - [Leaf node giữ gì](#leaf-node-giữ-gì)
+- [Tìm một giá trị cụ thể](#tìm-một-giá-trị-cụ-thể)
+- [Vì sao cây luôn thấp](#vì-sao-cây-luôn-thấp)
+- [Quét dữ liệu theo khoảng](#quét-dữ-liệu-theo-khoảng)
+- [Chèn dữ liệu khi page còn chỗ](#chèn-dữ-liệu-khi-page-còn-chỗ)
+- [Chia page khi page đã đầy](#chia-page-khi-page-đã-đầy)
+- [Xóa và cập nhật dữ liệu](#xóa-và-cập-nhật-dữ-liệu)
+  - [Khi xóa một row](#khi-xóa-một-row)
+  - [Khi cập nhật indexed key](#khi-cập-nhật-indexed-key)
+- [Đi từ index tới row thật](#đi-từ-index-tới-row-thật)
+  - [PostgreSQL lưu row locator như thế nào](#postgresql-lưu-row-locator-như-thế-nào)
+  - [MySQL InnoDB lưu row locator như thế nào](#mysql-innodb-lưu-row-locator-như-thế-nào)
+- [Composite index](#composite-index)
+- [Khi nào B Plus Tree không hiệu quả](#khi-nào-b-plus-tree-không-hiệu-quả)
+  - [Trường hợp query trả quá nhiều row](#trường-hợp-query-trả-quá-nhiều-row)
+  - [Trường hợp không có điểm bắt đầu rõ ràng](#trường-hợp-không-có-điểm-bắt-đầu-rõ-ràng)
+  - [Trường hợp key quá rộng](#trường-hợp-key-quá-rộng)
+  - [Trường hợp có quá nhiều index](#trường-hợp-có-quá-nhiều-index)
+- [Theo dõi B Plus Tree bằng EXPLAIN](#theo-dõi-b-plus-tree-bằng-explain)
+  - [Đọc plan PostgreSQL](#đọc-plan-postgresql)
+  - [Đọc plan MySQL](#đọc-plan-mysql)
+- [Các câu hỏi thường gặp](#các-câu-hỏi-thường-gặp)
+- [Tóm tắt bằng một ví dụ hoàn chỉnh](#tóm-tắt-bằng-một-ví-dụ-hoàn-chỉnh)
 
-## Mô hình B Plus Tree
+## Vấn đề khi không có index
 
-B+Tree là một cây tìm kiếm **cân bằng** và **nhiều nhánh**. “Cân bằng” nghĩa là mọi đường đi từ root xuống leaf có cùng số tầng. “Nhiều nhánh” nghĩa là mỗi node có thể trỏ tới hàng trăm node con, thay vì chỉ hai nhánh như binary search tree.
+Giả sử bảng `users` có một triệu row:
 
-Trong database, một node thường tương ứng với một **page** — đơn vị dữ liệu mà storage engine đọc, ghi và cache. Vì mỗi lần đọc page có thể đắt hơn hàng nghìn phép so sánh trong CPU, B+Tree cố giữ cây thấp bằng cách nhét nhiều key vào mỗi page.
-
-```text
-                              Root page
-                         [ 30 | 60 | 90 ]
-                         /      |      \
-                        /       |       \
-               Internal page    ...    Internal page
-                 [10 | 20]                [110 | 130]
-                  /  |  \                  /   |   \
-                 ▼   ▼   ▼                ▼    ▼    ▼
-              Leaf pages được sắp xếp và nối với nhau
-             [1..9] ⇄ [10..19] ⇄ [20..29] ⇄ ... ⇄ [130..]
+```sql
+CREATE TABLE users (
+    id         BIGINT PRIMARY KEY,
+    name       VARCHAR(100) NOT NULL,
+    email      VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP NOT NULL
+);
 ```
 
-### B Tree và B Plus Tree khác gì
-
-Hai cấu trúc cùng thuộc họ cây cân bằng nhiều nhánh, nhưng vị trí lưu dữ liệu khác nhau:
-
-| Đặc điểm | B-Tree | B+Tree |
-| --- | --- | --- |
-| Entry trỏ tới row | Có thể nằm ở internal node và leaf | Nằm ở leaf |
-| Internal node | Có thể vừa điều hướng vừa giữ dữ liệu | Chủ yếu giữ separator key và child pointer |
-| Leaf ordering | Không bắt buộc tạo một chuỗi duyệt tuần tự | Thường có sibling link để quét liên tiếp |
-| Range scan | Có thể phải quay lại nhiều nhánh của cây | Tìm điểm đầu rồi đi dọc leaf |
-| Fanout | Thấp hơn nếu internal node phải giữ payload lớn | Cao hơn vì internal entry nhỏ |
-
-Các database thường gọi index mặc định là **B-tree index**, dù cách tổ chức thực tế mang nhiều đặc tính của B+Tree hoặc một biến thể tối ưu cho concurrency. Khi đọc tài liệu của PostgreSQL, MySQL, Oracle hay SQL Server, đừng suy luận chỉ từ tên gọi. Hãy xem leaf chứa gì và row locator được lưu ở đâu.
-
-### Bốn bất biến quan trọng
-
-B+Tree duy trì bốn tính chất cốt lõi:
-
-1. **Key trong mỗi page được sắp xếp.** Database có thể binary search bên trong page thay vì đọc tuần tự từng entry.
-2. **Internal page chia không gian key thành các khoảng.** Mỗi child pointer chịu trách nhiệm cho một khoảng không chồng lấn với child bên cạnh.
-3. **Mọi leaf nằm cùng độ sâu.** Không có nhánh dài 6 tầng trong khi nhánh khác chỉ dài 2 tầng.
-4. **Entry dữ liệu nằm ở leaf.** Internal page chỉ cần đủ thông tin để chọn nhánh.
-
-<Callout type="warn" title="Đừng áp dụng máy móc sách giáo khoa">
-  Database thực tế còn phải xử lý MVCC, transaction, WAL, crash recovery và nhiều session cùng sửa một page. Vì vậy, quy tắc “node luôn đầy ít nhất một nửa” hoặc “DELETE lập tức merge node” thường không đúng tuyệt đối trong production.
-</Callout>
-
-## Cấu trúc một node trên đĩa
-
-Một page không chỉ là mảng key. Nó còn có header, con trỏ tới vùng trống, metadata transaction và các slot trỏ tới từng item. Layout cụ thể khác nhau giữa các engine, nhưng mô hình sau đủ để hiểu đường đi của query:
-
-```text
-┌──────────────────────────────────────────────────────────────────┐
-│ Page header                                                      │
-│ page id · loại page · số item · free-space offset · sibling link │
-├──────────────────────────────────────────────────────────────────┤
-│ Item directory                                                   │
-│ slot 1 │ slot 2 │ slot 3 │ ...                                  │
-├──────────────────────────────────────────────────────────────────┤
-│                         Free space                               │
-├──────────────────────────────────────────────────────────────────┤
-│ Item data                                                        │
-│ key/pointer │ key/pointer │ key/pointer │ ...                    │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-Page thường có kích thước cố định. PostgreSQL thường dùng page 8 KiB. InnoDB thường dùng page 16 KiB theo cấu hình mặc định. Kích thước cố định giúp buffer pool cache và flush dữ liệu theo đơn vị nhất quán.
-
-### Internal page dùng để điều hướng
-
-Internal page chứa **separator key** và **child pointer**. Separator không nhất thiết là một bản sao đầy đủ của business key. Một engine có thể rút gọn separator miễn là giá trị đó vẫn phân biệt đúng hai khoảng lân cận.
-
-Ví dụ internal page chứa `[30 | 60]`:
-
-```text
-                 [ 30 | 60 ]
-                  /    |    \
-                 /     |     \
-          key < 30   30 ≤ key < 60   key ≥ 60
-```
-
-Khi tìm `42`, database không cần biết row của `42` nằm ở đâu ngay tại root. Root chỉ trả lời: “hãy đi vào child ở giữa”.
-
-### Leaf page giữ index entry
-
-Leaf page giữ các entry đã sắp xếp. Mỗi entry gồm:
-
-- **Search key**: giá trị một cột hoặc tuple của composite index.
-- **Row locator hoặc row payload**: cách đi tới row thật, tùy loại index và storage engine.
-- **Metadata**: có thể gồm thông tin transaction, độ dài hoặc cờ trạng thái.
-
-```text
-┌──────────────────────── Leaf page #812 ────────────────────────┐
-│ (30, 'paid')    → row locator A                                │
-│ (30, 'pending') → row locator B                                │
-│ (31, 'paid')    → row locator C                                │
-│ (31, 'paid')    → row locator D                                │
-│ (32, 'shipped') → row locator E                                │
-└────────────────────────────────────────────────────────────────┘
-```
-
-Duplicate key không phá vỡ thứ tự. Engine dùng thêm row locator hoặc một giá trị ẩn để phân biệt nhiều entry có cùng search key. Với unique index, engine còn phải kiểm tra xem một entry trùng có đang visible với transaction hay không trước khi cho phép ghi.
-
-### Leaf page liên kết với nhau
-
-Leaf page thường giữ con trỏ tới sibling bên trái và bên phải:
-
-```text
-        prev                 next                 next
-         ◄──┐                 ┌──►                 ┌──►
-┌───────────┴────┐   ┌────────┴───────┐   ┌────────┴───────┐
-│ 10  14  18  21 │ ⇄ │ 25  30  33  39 │ ⇄ │ 42  47  51  58 │
-└────────────────┘   └────────────────┘   └────────────────┘
-```
-
-Liên kết này là lý do range scan hiệu quả. Sau khi tìm thấy leaf đầu tiên, database không cần quay lại root cho từng key tiếp theo. Nó chỉ đi sang sibling kế tiếp cho đến khi vượt khỏi điều kiện dừng.
-
-Sibling link còn hỗ trợ scan ngược cho `ORDER BY ... DESC` trong nhiều engine. Tuy nhiên, khả năng dùng index cho một thứ tự cụ thể vẫn phụ thuộc hướng sort, collation và thứ tự cột của composite index.
-
-## Vì sao cây rất nông
-
-### Fanout quyết định chiều cao
-
-**Fanout** là số child mà một internal page có thể trỏ tới. Nếu page chứa được 300 child pointer, mỗi tầng mới mở rộng phạm vi thêm khoảng 300 lần.
-
-Giả sử:
-
-- Một internal page có fanout khoảng `300`.
-- Một leaf page chứa khoảng `250` index entry.
-- Root luôn được cache sau khi index trở nên “nóng”.
-
-Một cây ba tầng `root → internal → leaf` có thể địa chỉ hóa xấp xỉ:
-
-```text
-300 × 300 × 250 = 22,500,000 index entries
-```
-
-Thêm một tầng internal sẽ nâng sức chứa lý thuyết lên hàng tỷ entry. Con số thật thay đổi theo độ rộng key, page header, fill factor và compression, nhưng kết luận không đổi: **B+Tree của một bảng lớn thường chỉ cao vài page**.
-
-### Độ phức tạp phải tính theo page
-
-Ta thường viết lookup B+Tree là `O(log N)`. Chính xác hơn cho storage là:
-
-```text
-Số page trên đường tìm kiếm ≈ O(log_f N)
-```
-
-Trong đó `f` là fanout, thường lớn hơn 2 rất nhiều. Với một triệu row, database không nhất thiết thực hiện 20 lần đọc page như binary search tree. Nó có thể chỉ đọc root, một internal page và một leaf page.
-
-Bên trong từng page, database vẫn phải so sánh key. Việc này diễn ra trong memory và thường dùng binary search hoặc kỹ thuật tìm kiếm được tối ưu riêng. Chi phí đáng quan tâm nhất vẫn là:
-
-1. Page có nằm trong buffer pool không?
-2. Nếu không, cần bao nhiêu random I/O để đọc page?
-3. Sau khi tìm leaf, có phải đọc thêm data page để lấy row không?
-
-<Callout type="idea" title="Mô hình chi phí hữu ích">
-  Hãy đếm page read trước khi đếm phép so sánh. Một B+Tree chỉ cao ba tầng vẫn có thể chậm nếu query phải fetch hàng trăm nghìn row từ các data page rải rác.
-</Callout>
-
-## Tra cứu một khóa chính xác
-
-### Ví dụ tìm khóa 42
-
-Giả sử index có cây đơn giản sau:
-
-```mermaid
-flowchart TD
-    R["Root: 30 | 60"]
-    L1["Leaf A: 5, 10, 20"]
-    L2["Leaf B: 30, 42, 55"]
-    L3["Leaf C: 60, 75, 90"]
-    D["Data page hoặc row payload"]
-
-    R -->|"key < 30"| L1
-    R -->|"30 ≤ key < 60"| L2
-    R -->|"key ≥ 60"| L3
-    L2 -->|"row locator của 42"| D
-```
-
-Query:
+Ta cần tìm user có `id = 42`:
 
 ```sql
 SELECT *
@@ -235,263 +58,571 @@ FROM users
 WHERE id = 42;
 ```
 
-Database thực hiện các bước:
-
-1. Đọc root page.
-2. So sánh `42` với separator `30` và `60`.
-3. Chọn child chịu trách nhiệm cho khoảng `[30, 60)`.
-4. Đọc leaf page và binary search entry `42`.
-5. Lấy row locator hoặc row payload từ leaf.
-6. Nếu leaf chưa chứa toàn bộ cột cần trả về, đọc thêm data page.
-
-Cây luôn cân bằng nên mọi exact lookup đi qua cùng số tầng. Một key ở đầu index không “gần root hơn” key ở cuối index.
-
-### Chi phí fetch row sau khi tìm thấy leaf
-
-Tìm được index entry chưa chắc đã hoàn thành query. Với secondary index, leaf thường không chứa tất cả cột trong `SELECT`.
+Nếu không có index phù hợp, database có thể phải kiểm tra lần lượt rất nhiều row:
 
 ```text
-B+Tree lookup          Table lookup
-──────────────         ─────────────
-Root                   Data page #91
-  ↓                         ▲
-Internal                    │
-  ↓                         │ row locator
-Leaf entry ─────────────────┘
+Row 1  → không phải 42
+Row 2  → không phải 42
+Row 3  → không phải 42
+...
+Row 42 → tìm thấy
+...
 ```
 
-Nếu query trả một row, một lần fetch thêm thường rẻ. Nếu query trả 100.000 row, 100.000 row locator có thể dẫn tới rất nhiều data page rải rác. Đây là lúc optimizer có thể chọn table scan dù index tồn tại.
+Cách đọc lần lượt như vậy gọi là **table scan** hoặc **sequential scan**. Nếu row cần tìm nằm gần cuối bảng, database có thể phải đọc gần như toàn bộ bảng.
 
-**Covering index** giảm chi phí này bằng cách giữ đủ cột cần thiết ngay tại leaf. PostgreSQL gọi plan tương ứng là `Index Only Scan` khi visibility cho phép. MySQL thường hiển thị `Using index` trong `Extra`.
+B+Tree giải quyết vấn đề bằng cách tạo một đường đi ngắn tới vùng chứa `42`:
 
-## Quét theo khoảng
+```text
+Không có index: đọc nhiều row để tìm 42
+Có B+Tree:      chọn đúng nhánh → tới đúng page → tìm 42
+```
 
-### Range scan diễn ra như thế nào
+Hãy hình dung B+Tree giống mục lục của một cuốn sách. Ta không đọc từ trang đầu để tìm chương 8. Ta mở mục lục, tìm vị trí của chương 8 rồi đi thẳng tới trang đó.
+
+<Callout type="idea" title="Ý chính">
+  B+Tree không làm dữ liệu biến mất. Nó giúp database biết nên bắt đầu đọc ở đâu.
+</Callout>
+
+## Toàn cảnh B Plus Tree
+
+B+Tree là một cây có nhiều nhánh. Các giá trị trong cây luôn được sắp xếp.
+
+Ta dùng cây nhỏ sau trong các phần tiếp theo:
+
+```text
+                         Root
+                      [ 30 | 60 ]
+                     /      |      \
+                    /       |       \
+                   ▼        ▼        ▼
+               Leaf A     Leaf B     Leaf C
+[5, 10, 20] ⇄ [30, 42, 55] ⇄ [60, 75, 90]
+```
+
+Cây này có hai tầng:
+
+1. Tầng trên là `Root`.
+2. Tầng dưới gồm ba `Leaf`.
+
+Root chia dữ liệu thành ba khoảng:
+
+| Nhánh | Khoảng giá trị |
+| --- | --- |
+| Nhánh trái | Nhỏ hơn `30` |
+| Nhánh giữa | Từ `30` đến nhỏ hơn `60` |
+| Nhánh phải | Từ `60` trở lên |
+
+Các leaf cũng được nối với nhau:
+
+```text
+Leaf A ⇄ Leaf B ⇄ Leaf C
+```
+
+Nhờ liên kết này, database có thể đọc một khoảng giá trị liên tục mà không cần quay lại root.
+
+Tên **B+Tree** dễ gây hiểu lầm. Chữ `B` không có nghĩa là binary. Một node không chỉ có hai nhánh. Trong database thực tế, một node có thể có hàng trăm nhánh.
+
+<Callout type="idea" title="Ý chính">
+  Root chọn khoảng cần tìm. Leaf giữ các giá trị đã sắp xếp. Các leaf nối với nhau để hỗ trợ range scan.
+</Callout>
+
+## Root internal và leaf
+
+B+Tree có ba loại node. Với cây nhỏ, đôi khi không cần internal node ở giữa.
+
+| Loại node | Công việc chính |
+| --- | --- |
+| Root node | Điểm bắt đầu của mọi lần tìm kiếm |
+| Internal node | Chọn nhánh tiếp theo khi cây có nhiều tầng |
+| Leaf node | Giữ index entry và thông tin để tìm row |
+
+**Node** trong sơ đồ thường tương ứng với một **page** trong database. Page là khối dữ liệu mà database đọc từ ổ đĩa vào memory.
+
+Ví dụ, PostgreSQL thường dùng page 8 KiB. InnoDB thường dùng page 16 KiB theo cấu hình mặc định.
+
+### Root và internal node giữ gì
+
+Root và internal node chủ yếu giữ:
+
+- Giá trị dùng để chia khoảng.
+- Con trỏ tới node con.
+
+Ví dụ:
+
+```text
+[ 30 | 60 ]
+
+key < 30       → đi sang trái
+30 ≤ key < 60  → đi vào giữa
+key ≥ 60       → đi sang phải
+```
+
+Root không cần chứa toàn bộ row của user. Nó chỉ cần đủ thông tin để chọn đúng đường.
+
+### Leaf node giữ gì
+
+Leaf giữ **index entry**. Một entry thường gồm:
+
+```text
+indexed key + thông tin để tìm row thật
+```
+
+Ví dụ đơn giản:
+
+```text
+42 → vị trí của row có id = 42
+```
+
+Thông tin bên phải có thể là địa chỉ row hoặc primary key. Cách lưu cụ thể phụ thuộc database. Phần “Đi từ index tới row thật” sẽ giải thích kỹ hơn.
+
+<Callout type="info" title="Một cách nhớ đơn giản">
+  Root và internal node giống biển chỉ đường. Leaf giống mục lục có số trang cụ thể.
+</Callout>
+
+## Tìm một giá trị cụ thể
+
+Ta chạy lại query:
+
+```sql
+SELECT *
+FROM users
+WHERE id = 42;
+```
+
+Cây hiện tại:
+
+```text
+                         Root
+                      [ 30 | 60 ]
+                     /      |      \
+                    /       |       \
+                   ▼        ▼        ▼
+              [5,10,20] [30,42,55] [60,75,90]
+```
+
+Database tìm `42` theo từng bước.
+
+**Đọc root**
+
+Database so sánh `42` với `30` và `60`:
+
+```text
+42 ≥ 30
+42 < 60
+```
+
+Vậy `42` nằm trong nhánh giữa.
+
+**Đi tới leaf ở giữa**
+
+Leaf giữa chứa:
+
+```text
+[30, 42, 55]
+```
+
+Database tìm thấy entry `42` trong leaf này.
+
+**Lấy thông tin về row**
+
+Entry `42` cho database biết cách đi tới row thật:
+
+```text
+42 → row locator → row của user 42
+```
+
+Toàn bộ đường đi:
+
+```text
+Root [30 | 60]
+        │
+        │ chọn khoảng 30 ≤ key < 60
+        ▼
+Leaf [30, 42, 55]
+          │
+          │ tìm thấy 42
+          ▼
+Row của user 42
+```
+
+Nếu cây có thêm internal node, database chỉ lặp lại bước “so sánh rồi chọn nhánh” thêm vài lần.
+
+<Callout type="idea" title="Ý chính">
+  Exact lookup gồm ba việc: chọn nhánh, tìm entry trong leaf, rồi lấy row thật.
+</Callout>
+
+## Vì sao cây luôn thấp
+
+Một binary tree chỉ có tối đa hai nhánh ở mỗi node. B+Tree có thể có hàng trăm nhánh.
+
+Số nhánh của một node gọi là **fanout**.
+
+Giả sử mỗi internal page trỏ được tới `300` page con. Mỗi leaf giữ được `250` entry.
+
+Một cây có ba tầng dữ liệu có thể quản lý gần đúng:
+
+```text
+300 × 300 × 250 = 22.500.000 entries
+```
+
+Đây chỉ là ví dụ để tạo trực giác. Số thật phụ thuộc:
+
+- Kích thước page.
+- Độ rộng của key.
+- Metadata của database.
+- Page đang đầy bao nhiêu phần trăm.
+
+Điều quan trọng là: một bảng có hàng triệu row không tạo ra một cây có hàng triệu tầng. Cây thường chỉ cao vài tầng.
+
+B+Tree còn luôn giữ các leaf ở cùng độ sâu:
+
+```text
+Đúng:
+Root → Internal → Leaf
+Root → Internal → Leaf
+Root → Internal → Leaf
+
+Không đúng:
+Root → Leaf
+Root → Internal → Internal → Leaf
+```
+
+Tính chất này gọi là **cân bằng**. Vì cây cân bằng, mọi lookup đi qua số tầng gần như giống nhau.
+
+Ta thường nói lookup có độ phức tạp `O(log N)`. Trong thực tế, điều cần quan tâm hơn là số page phải đọc. Nếu root và internal page đã nằm trong cache, database có thể chỉ cần đọc leaf và data page.
+
+<Callout type="idea" title="Ý chính">
+  B+Tree nhanh vì một page chứa nhiều đường đi. Fanout lớn giúp cây chỉ cao vài tầng.
+</Callout>
+
+## Quét dữ liệu theo khoảng
+
+B+Tree không chỉ nhanh với dấu bằng. Nó còn rất phù hợp với các điều kiện khoảng:
+
+```sql
+SELECT *
+FROM users
+WHERE id BETWEEN 35 AND 75;
+```
+
+Database thực hiện hai giai đoạn.
+
+**Giai đoạn 1 — Tìm điểm bắt đầu**
+
+Database đi từ root tới leaf có giá trị đầu tiên lớn hơn hoặc bằng `35`.
+
+Với dữ liệu mẫu, giá trị đầu tiên phù hợp là `42`:
+
+```text
+Leaf B: [30, 42, 55]
+             ▲
+             bắt đầu tại đây
+```
+
+**Giai đoạn 2 — Đi dọc các leaf**
+
+Database đọc tiếp các entry theo thứ tự:
+
+```text
+Leaf B              Leaf C
+[30, 42, 55]   ⇄   [60, 75, 90]
+     └──┬──┘       └──┬──┘
+      42, 55        60, 75
+```
+
+Khi gặp `90`, database biết đã vượt quá giới hạn `75` và dừng.
+
+Kết quả là:
+
+```text
+42, 55, 60, 75
+```
+
+Database chỉ đi từ root xuống một lần. Sau đó nó đi ngang qua các leaf liền kề.
+
+Cơ chế tương tự giúp `ORDER BY` và `LIMIT` chạy nhanh khi thứ tự index phù hợp:
+
+```sql
+CREATE INDEX idx_users_created_at
+ON users (created_at DESC);
+
+SELECT *
+FROM users
+ORDER BY created_at DESC
+LIMIT 10;
+```
+
+Database có thể đọc 10 entry đầu tiên của index rồi dừng. Nó không nhất thiết phải lấy toàn bộ bảng ra để sort.
+
+<Callout type="idea" title="Ý chính">
+  Range scan gồm một lần tìm điểm bắt đầu, sau đó đọc các leaf liên tiếp cho tới điểm dừng.
+</Callout>
+
+## Chèn dữ liệu khi page còn chỗ
+
+Giả sử leaf đang chứa:
+
+```text
+[30, 42, 55]
+```
+
+Ta chèn user có `id = 47`:
+
+```sql
+INSERT INTO users (id, name, email, created_at)
+VALUES (47, 'An', 'an@example.com', CURRENT_TIMESTAMP);
+```
+
+Database thực hiện các bước:
+
+1. Đi từ root tới leaf chứa khoảng của `47`.
+2. Tìm vị trí đúng giữa `42` và `55`.
+3. Thêm entry `47` vào leaf.
+4. Giữ các entry theo đúng thứ tự.
+
+Kết quả:
+
+```text
+Trước: [30, 42,     55]
+Sau:   [30, 42, 47, 55]
+```
+
+Nếu page vẫn còn chỗ, thao tác kết thúc tại đây. Cấu trúc cây không thay đổi.
+
+Database còn phải ghi transaction log để phục hồi khi có sự cố. Phần đó không thay đổi ý tưởng chính của việc chèn: **tìm đúng leaf rồi đặt key vào đúng vị trí**.
+
+<Callout type="idea" title="Ý chính">
+  Khi leaf còn chỗ, insert chỉ cần tìm leaf và thêm entry theo thứ tự.
+</Callout>
+
+## Chia page khi page đã đầy
+
+Bây giờ giả sử mỗi leaf trong ví dụ chỉ giữ tối đa bốn key.
+
+Leaf sau đã đầy:
+
+```text
+[30, 42, 45, 55]
+```
+
+Ta cần chèn `47`. Leaf không còn chỗ cho entry mới.
+
+Database phải thực hiện **page split**. Page split nghĩa là chia một page thành hai page.
+
+**Trước khi split:**
+
+```text
+Parent
+  │
+  ▼
+[30, 42, 45, 55]  ← page đầy
+```
+
+**Sau khi thêm `47` và split:**
+
+```text
+Parent thêm separator 45
+          /       \
+         ▼         ▼
+   [30, 42]  ⇄  [45, 47, 55]
+```
+
+Quá trình gồm các bước:
+
+1. Tạo một leaf mới.
+2. Chia các entry sang hai leaf.
+3. Nối hai leaf với nhau.
+4. Thêm separator vào parent để parent biết đường tới leaf mới.
+
+Trong ví dụ, separator là `45`. Khi tìm key từ `45` trở lên, parent sẽ chọn leaf bên phải.
+
+Nếu parent cũng đầy, parent tiếp tục split. Việc split có thể đi lên nhiều tầng.
+
+Nếu root đầy và phải split, database tạo root mới:
+
+```text
+Root cũ đầy
+    │
+    ▼
+Split root cũ thành hai node
+    │
+    ▼
+Tạo root mới trỏ tới hai node đó
+```
+
+Đây là cách duy nhất cây cao thêm một tầng.
+
+Page split làm `INSERT` tốn thêm I/O. Tuy nhiên, split không xảy ra ở mọi lần insert. Nó chỉ cần thiết khi page đích không đủ chỗ.
+
+<Callout type="warn" title="Không nên hiểu quá máy móc">
+  Database thực tế có chiến lược chọn điểm split riêng. Hai page sau split không bắt buộc luôn đầy đúng 50 phần trăm.
+</Callout>
+
+## Xóa và cập nhật dữ liệu
+
+### Khi xóa một row
+
+Giả sử ta xóa user `42`:
+
+```sql
+DELETE FROM users
+WHERE id = 42;
+```
+
+Về mặt logic, entry `42` không còn được dùng:
+
+```text
+Trước: [30, 42, 47, 55]
+Sau:   [30,     47, 55]
+```
+
+Hai page quá thưa có thể được gộp lại. Thao tác này gọi là **page merge**.
+
+Tuy nhiên, database dùng MVCC không nhất thiết xóa vật lý hoặc merge page ngay lập tức. **MVCC** là cơ chế cho phép nhiều transaction nhìn thấy các phiên bản dữ liệu phù hợp với thời điểm của chúng.
+
+Một transaction cũ có thể vẫn cần thấy row vừa bị xóa. Vì vậy, database thường đánh dấu entry, chờ cleanup rồi mới tái sử dụng không gian.
+
+Ví dụ:
+
+- PostgreSQL dùng `VACUUM` để dọn các version không còn cần thiết.
+- InnoDB có quá trình purge cho mục đích tương tự.
+
+Do đó, chạy `DELETE` không có nghĩa file index sẽ nhỏ lại ngay.
+
+### Khi cập nhật indexed key
+
+Giả sử có index trên `email`:
+
+```sql
+CREATE INDEX idx_users_email
+ON users (email);
+```
+
+Ta đổi email:
+
+```sql
+UPDATE users
+SET email = 'new@example.com'
+WHERE id = 42;
+```
+
+Vị trí của email cũ và email mới trong B+Tree có thể khác nhau. Database không thể luôn sửa nguyên tại vị trí cũ.
+
+Về mặt logic, nó phải:
+
+1. Loại entry của email cũ.
+2. Tìm vị trí của email mới.
+3. Thêm entry mới vào vị trí đúng.
+
+Đó là lý do nhiều index làm `INSERT`, `UPDATE` và `DELETE` chậm hơn. Mỗi index liên quan đều cần được bảo trì.
+
+<Callout type="idea" title="Ý chính">
+  Index tăng tốc đọc nhưng tạo thêm việc khi ghi. Xóa có thể được dọn sau; cập nhật indexed key gần giống xóa key cũ rồi chèn key mới.
+</Callout>
+
+## Đi từ index tới row thật
+
+Tìm thấy leaf entry chưa chắc đã có đủ dữ liệu cho câu `SELECT`.
 
 Xét query:
 
 ```sql
-SELECT id, created_at
-FROM orders
-WHERE created_at >= '2026-01-01'
-  AND created_at <  '2026-02-01';
+SELECT id, name, email
+FROM users
+WHERE email = 'an@example.com';
 ```
 
-B+Tree không tìm từng ngày riêng lẻ. Nó làm hai pha:
-
-1. **Seek**: đi từ root xuống leaf chứa key đầu tiên lớn hơn hoặc bằng `2026-01-01`.
-2. **Scan**: đi dọc các entry và sibling leaf cho đến khi gặp key `>= 2026-02-01`.
+Index trên `email` giúp tìm entry nhanh:
 
 ```text
-                    Seek một lần
+'an@example.com' → thông tin để tìm row
+```
+
+Database có thể phải dùng thông tin đó để đọc row thật từ table.
+
+Cách thực hiện khác nhau giữa PostgreSQL và MySQL InnoDB.
+
+### PostgreSQL lưu row locator như thế nào
+
+PostgreSQL thường lưu table theo dạng heap. Leaf của B-tree index giữ key và một **TID**.
+
+TID là địa chỉ của tuple trong heap:
+
+```text
+TID = (số block, vị trí item trong block)
+```
+
+Đường đi đơn giản:
+
+```text
+Index trên email
+'an@example.com' → TID (917, 4)
                          │
                          ▼
-... ⇄ [2025-12-28 ... 2026-01-03] ⇄ [2026-01-04 ... 2026-01-20] ⇄ [2026-01-21 ... 2026-02-04] ⇄ ...
-                 ▲                                                          ▲
-                 └────────────── scan các entry thỏa điều kiện ─────────────┘
-                                                                            dừng trước 2026-02-01
+Heap block 917, item 4 → row của An
 ```
 
-Chi phí gần đúng là:
+PostgreSQL thường phải đọc cả index page và heap page.
+
+Nếu index chứa đủ các cột cần trả về, PostgreSQL có thể dùng `Index Only Scan`. Dù vậy, nó đôi khi vẫn cần kiểm tra heap để xác nhận row có visible với transaction hiện tại hay không.
+
+### MySQL InnoDB lưu row locator như thế nào
+
+InnoDB lưu row data tại leaf của primary-key index.
 
 ```text
-O(log_f N + số leaf page phải quét + chi phí fetch row)
+Primary-key B+Tree
+42 → toàn bộ row có id = 42
 ```
 
-Vì vậy, range scan trả 20 row và range scan trả 20 triệu row có cùng chi phí seek ban đầu nhưng hoàn toàn khác nhau về tổng I/O.
-
-### Vì sao ORDER BY và LIMIT có thể rất nhanh
-
-Nếu thứ tự index khớp với `ORDER BY`, database có thể đọc entry theo đúng thứ tự mong muốn và dừng sớm ở `LIMIT`:
-
-```sql
-CREATE INDEX idx_orders_customer_created
-ON orders (customer_id, created_at DESC);
-
-SELECT id, created_at, total
-FROM orders
-WHERE customer_id = 42
-ORDER BY created_at DESC
-LIMIT 20;
-```
-
-Leaf entries của `customer_id = 42` đã nằm cạnh nhau và được sắp theo `created_at DESC`. Engine seek tới đầu khoảng của customer `42`, đọc 20 entry rồi dừng. Nó không cần lấy toàn bộ đơn hàng ra để sort.
-
-Nếu index chỉ có `(customer_id)` thì database vẫn tìm đúng customer nhanh, nhưng phải sort các row đó theo `created_at`. Nếu index là `(created_at, customer_id)`, các row của customer `42` có thể rải khắp cây và leftmost prefix không còn khớp query.
-
-## Chèn và tách page
-
-### Chèn khi leaf còn chỗ
-
-Khi insert một row có indexed key, engine:
-
-1. Đi từ root xuống leaf đích.
-2. Tìm vị trí đúng theo thứ tự key.
-3. Ghi index entry vào vùng trống của leaf.
-4. Ghi log phục hồi và metadata transaction theo cơ chế của engine.
-
-Ví dụ chèn `47` vào leaf còn chỗ:
+Leaf của secondary index thường giữ secondary key và primary key:
 
 ```text
-Trước: [ 30 | 42 | 55 ]
-Sau:   [ 30 | 42 | 47 | 55 ]
+Secondary index trên email
+'an@example.com' → primary key 42
+                         │
+                         ▼
+Primary-key tree
+42 → toàn bộ row
 ```
 
-Các entry về mặt logic vẫn được sắp xếp. Trên page vật lý, engine có thể di chuyển bytes hoặc chỉ cập nhật item directory. Chi tiết này không thay đổi cách query nhìn thấy index.
+Vì vậy, query qua secondary index có thể cần hai lần đi qua B+Tree:
 
-### Leaf split khi page đầy
+1. Tìm email để lấy primary key.
+2. Dùng primary key để lấy row thật.
 
-Nếu leaf không còn đủ chỗ, engine phải **split page**. Ví dụ minh họa giả định leaf chứa tối đa bốn key:
+Nếu secondary index đã chứa đủ cột query cần, lần tìm thứ hai có thể được bỏ qua. Trường hợp đó gọi là **covering index**.
 
-```text
-Trước khi chèn 47:
+| Database | Leaf của secondary index thường giữ gì |
+| --- | --- |
+| PostgreSQL | Indexed key và TID trỏ tới heap tuple |
+| MySQL InnoDB | Secondary key và primary-key value |
+| Oracle | Indexed key và ROWID |
+| SQL Server | Row locator phụ thuộc table là heap hay clustered |
 
-Parent:          [ 30 | 60 ]
-                       │
-Leaf:         [ 30 | 42 | 45 | 55 ]   ← đầy
-
-Sau khi chèn và split:
-
-Parent:       [ 30 | 45 | 60 ]
-                    /      \
-                   /        \
-Leaf trái: [ 30 | 42 ] ⇄ [ 45 | 47 | 55 ] :Leaf phải
-                            ▲
-                            └─ separator 45 được copy lên parent
-```
-
-Trong B+Tree, separator `45` vẫn tồn tại ở leaf phải. Bản sao tại parent chỉ dùng để điều hướng. Đây là điểm khác quan trọng với một số mô tả B-Tree, nơi median key có thể được chuyển hẳn lên parent.
-
-Split tạo thêm công việc:
-
-- Cấp phát hoặc tái sử dụng một page.
-- Phân phối lại entry giữa hai page.
-- Sửa sibling link.
-- Chèn separator vào parent.
-- Ghi WAL hoặc redo log để crash recovery có thể khôi phục trạng thái hợp lệ.
-
-Chiến lược chọn điểm split phụ thuộc engine. Database không nhất thiết chia đúng 50/50. Với workload insert tăng dần, nó có thể chừa thêm chỗ ở page bên phải để giảm split lặp lại.
-
-### Split lan lên root
-
-Parent cũng là page hữu hạn. Nếu parent đầy khi nhận separator mới, parent phải split và đẩy một separator lên tầng cao hơn. Quá trình có thể lan tới root:
-
-```mermaid
-flowchart TD
-    A["Insert index entry"] --> B["Tìm leaf đích"]
-    B --> C{"Leaf còn chỗ?"}
-    C -->|Có| D["Ghi entry và kết thúc"]
-    C -->|Không| E["Split leaf"]
-    E --> F["Chèn separator vào parent"]
-    F --> G{"Parent còn chỗ?"}
-    G -->|Có| H["Cập nhật log và kết thúc"]
-    G -->|Không| I["Split internal page"]
-    I --> J{"Đã tới root?"}
-    J -->|Chưa| F
-    J -->|Rồi| K["Tạo root mới"]
-```
-
-Root split là thao tác duy nhất làm cây cao thêm một tầng. Nó hiếm hơn leaf split rất nhiều vì một root hoặc internal page có fanout lớn.
-
-<Callout type="warn" title="Page split không đồng nghĩa query luôn chậm">
-  Split làm tăng chi phí ghi tại thời điểm xảy ra. Tác động dài hạn phụ thuộc locality, free space, cache và cách engine tái sử dụng page. Đừng kết luận index “fragmented” chỉ từ việc biết đã có split; hãy đo bằng công cụ của database cụ thể.
+<Callout type="idea" title="Ý chính">
+  Index entry là điểm bắt đầu. Query vẫn có thể cần thêm một lần đọc để lấy row thật.
 </Callout>
 
-## Xóa và cập nhật
+## Composite index
 
-### Xóa trong sách giáo khoa và trong database
-
-Trong thuật toán sách giáo khoa, xóa key có thể làm node thiếu entry. Cây sẽ mượn entry từ sibling hoặc merge hai node, rồi cập nhật separator ở parent.
-
-```text
-Redistribute:  sibling dư entry → chuyển một phần sang page thiếu
-Merge:         hai page ít entry → gộp thành một page, xóa separator ở parent
-```
-
-Database production thường trì hoãn công việc này vì transaction khác có thể vẫn nhìn thấy version cũ:
-
-- **PostgreSQL** có thể để lại dead index tuple cho tới khi `VACUUM` dọn. PostgreSQL không cố merge mọi page vừa trở nên thưa như thuật toán lớp học.
-- **InnoDB** dùng MVCC và purge để dọn version không còn cần thiết. Page merge diễn ra theo ngưỡng và chính sách của engine, không nhất thiết ngay sau câu `DELETE`.
-
-Takeaway: `DELETE` về mặt logic loại bỏ entry, nhưng dung lượng file index không nhất thiết giảm ngay. Muốn đánh giá bloat hoặc reclaim space, phải dùng metric và lệnh bảo trì đúng cho từng database.
-
-### Cập nhật cột có index
-
-Nếu indexed key thay đổi, engine phải bảo toàn thứ tự của cây. Về mặt logic, nó thực hiện:
-
-```text
-xóa entry với key cũ + chèn entry với key mới
-```
-
-Ví dụ:
+**Composite index** là index có nhiều cột:
 
 ```sql
-UPDATE orders
-SET status = 'shipped'
-WHERE id = 42;
+CREATE INDEX idx_orders_customer_status_created
+ON orders (customer_id, status, created_at);
 ```
 
-Nếu có index `(status, created_at)`, entry có `status = 'paid'` không thể sửa tại chỗ thành `shipped` nếu vị trí sắp xếp mới nằm ở leaf khác. Engine phải tạo đường đi tới vị trí mới.
-
-Nếu chỉ cập nhật cột không nằm trong index, một số engine tránh được phần lớn index maintenance. PostgreSQL còn có HOT update trong điều kiện phù hợp: không có indexed column nào đổi và heap page còn đủ chỗ. Đây là lý do thêm quá nhiều index làm workload `UPDATE` đắt hơn, kể cả query đọc được cải thiện.
-
-## Từ leaf entry đến row thật
-
-B+Tree mô tả cách tìm key. Cách leaf trỏ tới row lại phụ thuộc storage engine.
-
-### PostgreSQL heap table
-
-PostgreSQL lưu table theo dạng heap. B-tree leaf entry thường chứa indexed key và **TID** — định danh vị trí tuple trong heap, thường biểu diễn bằng `(block number, item offset)`.
+Đây là một B+Tree duy nhất. Mỗi key là một tuple:
 
 ```text
-B-tree leaf                         Heap table
-┌──────────────────────┐           ┌──────────────────────────┐
-│ email='a@example.com'│           │ block 917                │
-│ TID=(917, 4) ────────┼──────────►│ item 4: user row         │
-└──────────────────────┘           └──────────────────────────┘
+(customer_id, status, created_at)
 ```
 
-Một `Index Scan` thường đọc leaf rồi đọc heap page. Một `Index Only Scan` có thể trả dữ liệu từ index, nhưng PostgreSQL vẫn phải biết row có visible với snapshot không. Visibility map giúp tránh heap fetch khi page được đánh dấu all-visible.
+Database sắp tuple từ trái sang phải, giống cách sắp từ trong từ điển.
 
-### MySQL InnoDB clustered index
-
-InnoDB tổ chức primary key thành clustered index:
-
-- Leaf của **primary-key B+Tree** chứa row data.
-- Leaf của **secondary index** chứa secondary key và primary-key value.
-
-```text
-Secondary index on email              Clustered primary-key tree
-┌────────────────────────────┐        ┌─────────────────────────────┐
-│ email='a@example.com'      │        │ PK=42 + toàn bộ row data    │
-│ primary key=42 ────────────┼───────►│ name, email, created_at ... │
-└────────────────────────────┘        └─────────────────────────────┘
-```
-
-Query dùng secondary index có thể cần hai lần tree traversal: một lần tìm secondary key, lần nữa tìm primary key trong clustered tree. Nếu secondary index đã cover toàn bộ cột cần trả về, lần lookup thứ hai có thể được bỏ qua.
-
-Hệ quả thực tế: primary key rộng làm mọi secondary index rộng theo, vì primary-key value được lặp ở leaf của từng secondary index.
-
-### Các hệ quản trị khác
-
-| Hệ quản trị | Leaf của index thường trỏ tới gì? | Ghi chú |
-| --- | --- | --- |
-| PostgreSQL | Heap TID | Table không tự sắp theo primary key |
-| MySQL InnoDB primary index | Row data | Primary key là clustered index |
-| MySQL InnoDB secondary index | Primary-key value | Có thể cần lookup lần hai |
-| SQL Server clustered index | Row data | Mỗi table tối đa một clustered index |
-| SQL Server nonclustered index | Clustering key hoặc RID | Phụ thuộc table là clustered hay heap |
-| Oracle B-tree index | ROWID | Dùng ROWID để truy cập table block |
-
-Tên “clustered” không có cùng semantics tuyệt đối giữa mọi hệ quản trị. Luôn đọc tài liệu của engine đang dùng trước khi suy luận về số lần lookup.
-
-## Composite index được sắp xếp ra sao
-
-### Thứ tự từ điển của tuple
-
-Composite index không phải nhiều cây độc lập ghép lại. Index `(tenant_id, status, created_at)` là **một cây** có search key là tuple ba phần.
-
-Các tuple được so từ trái sang phải:
+Ví dụ:
 
 ```text
 (10, 'paid',    '2026-01-01')
@@ -500,107 +631,149 @@ Các tuple được so từ trái sang phải:
 (11, 'paid',    '2024-01-01')
 ```
 
-Ở tuple cuối, `tenant_id = 11` quyết định thứ tự ngay lập tức. `created_at = 2024-01-01` không thể đưa tuple đó lên trước nhóm `tenant_id = 10`.
+Cách so sánh diễn ra từng bước:
 
-### Leftmost prefix xuất hiện từ đâu
+1. So `customer_id` trước.
+2. Nếu `customer_id` bằng nhau, so `status`.
+3. Nếu cả hai bằng nhau, so `created_at`.
 
-Vì tuple được sắp từ trái sang phải, index có thể xác định một khoảng liên tục cho:
+Vì vậy, index trên hỗ trợ tốt query sau:
 
 ```sql
-WHERE tenant_id = 10;
+WHERE customer_id = 10;
+```
 
-WHERE tenant_id = 10
+Nó cũng hỗ trợ tốt:
+
+```sql
+WHERE customer_id = 10
   AND status = 'paid';
+```
 
-WHERE tenant_id = 10
+Và:
+
+```sql
+WHERE customer_id = 10
   AND status = 'paid'
   AND created_at >= '2026-01-01';
 ```
 
-Nhưng với điều kiện chỉ có `status = 'paid'`, các entry `paid` xuất hiện trong mọi nhóm `tenant_id`. Không có một khoảng liên tục duy nhất để seek:
-
-```text
-tenant 10: cancelled, paid, pending
-tenant 11: cancelled, paid, pending
-tenant 12: cancelled, paid, pending
-                     ▲
-        'paid' lặp lại trong từng tenant
-```
-
-Đây là nguồn gốc tự nhiên của **leftmost prefix rule**. Một số optimizer có skip scan hoặc kết hợp nhiều range để tận dụng phần cột phía sau, nhưng đó là chiến lược bổ sung. Thiết kế index chính vẫn nên bám theo access pattern thường xuyên nhất.
-
-<Callout type="idea" title="Quy tắc thiết kế thực dụng">
-  Với query có equality và range, thường đặt các cột equality liên tiếp trước, rồi đặt cột range. Sau đó dùng `EXPLAIN` để xác nhận predicate nào thực sự trở thành điều kiện truy cập index.
-</Callout>
-
-## Khi B Plus Tree nhanh và chậm
-
-### Những truy vấn phù hợp
-
-B+Tree phù hợp khi dữ liệu cần một thứ tự toàn phần và query có thể thu hẹp thành một hoặc vài khoảng liên tục:
-
-| Pattern | Vì sao phù hợp |
-| --- | --- |
-| `column = value` | Seek tới đúng vùng key |
-| `<`, `<=`, `>`, `>=`, `BETWEEN` | Seek điểm đầu rồi scan leaf |
-| `ORDER BY` khớp index | Leaf đã có thứ tự cần thiết |
-| `MIN`, `MAX` | Đọc entry đầu hoặc cuối của khoảng |
-| Prefix search như `LIKE 'abc%'` | Có thể chuyển thành khoảng theo collation hoặc operator class phù hợp |
-| Pagination bằng keyset | Tiếp tục scan từ key cuối của trang trước |
-| Unique constraint | Tìm key trùng hiệu quả trước khi ghi |
-
-Ví dụ keyset pagination:
+Nhưng nếu query chỉ có:
 
 ```sql
-SELECT id, created_at
-FROM events
-WHERE (created_at, id) < ('2026-03-01 10:00:00+00', 98123)
-ORDER BY created_at DESC, id DESC
-LIMIT 50;
+WHERE status = 'paid';
 ```
 
-Với index `(created_at DESC, id DESC)`, engine seek tới tuple mốc rồi đọc 50 entry kế tiếp. Nó không phải bỏ qua hàng triệu row như `OFFSET` lớn.
-
-### Những trường hợp index không mang lại lợi ích
-
-B+Tree tồn tại không đồng nghĩa optimizer phải dùng nó.
-
-| Trường hợp | Vấn đề |
-| --- | --- |
-| Query trả phần lớn table | Scan index rồi fetch nhiều row có thể đắt hơn sequential scan |
-| `LIKE '%keyword'` | Không có left boundary để seek trên B+Tree thông thường |
-| Hàm trên cột không khớp expression index | Thứ tự của giá trị gốc không giúp tìm kết quả của hàm |
-| Implicit cast sai phía | Engine có thể phải biến đổi từng indexed value |
-| Composite index thiếu cột bên trái | Các giá trị cần tìm rải trong nhiều khoảng |
-| Cột có rất ít giá trị và một giá trị chiếm đa số | Lookup vẫn dẫn tới quá nhiều row |
-| Statistics cũ hoặc sai | Optimizer ước lượng sai số row và chọn plan kém |
-
-Ví dụ `status = 'active'` khớp 95% table. Index seek được tới nhóm `active`, nhưng sau đó vẫn phải đọc gần toàn bộ leaf và phần lớn data page. Full table scan có thể rẻ hơn.
-
-Nói ngắn gọn: **B+Tree tối ưu việc tìm vị trí bắt đầu; nó không làm biến mất chi phí đọc tập kết quả lớn.**
-
-### Ảnh hưởng của key rộng và kiểu chèn
-
-Key càng rộng thì mỗi page chứa càng ít entry. Fanout giảm, index lớn hơn và cache được ít phần trăm cây hơn.
+Các entry `paid` nằm rải trong từng nhóm customer:
 
 ```text
-Key nhỏ  → nhiều entry/page → fanout cao → cây thấp → cache tốt
-Key rộng → ít entry/page    → fanout thấp → cây cao → nhiều I/O hơn
+customer 10: cancelled, paid, pending
+customer 11: cancelled, paid, pending
+customer 12: cancelled, paid, pending
 ```
 
-Kiểu phân bố của key mới cũng ảnh hưởng write path:
+Database không có một điểm bắt đầu duy nhất cho toàn bộ giá trị `paid`. Đây là lý do xuất hiện **leftmost prefix rule**.
 
-- **Key tăng dần** như sequence thường ghi vào leaf bên phải. Locality tốt, nhưng page cuối có thể thành điểm tranh chấp khi concurrency rất cao.
-- **Key ngẫu nhiên** như UUID v4 phân tán insert trên nhiều leaf. Nó giảm điểm nóng tập trung nhưng tăng random write, page split ở giữa cây và working set trong cache.
-- **Key gần tăng dần** như UUID v7 cố cân bằng locality và khả năng tạo ID phân tán. Hiệu quả thật vẫn phụ thuộc engine, workload và độ rộng key.
+Cách nhớ đơn giản:
 
-Không có lựa chọn luôn thắng. Hãy đo write throughput, index size, cache hit và query latency trên workload thật.
+```text
+Index (a, b, c)
 
-## Quan sát B Plus Tree qua execution plan
+Dễ dùng: a
+Dễ dùng: a + b
+Dễ dùng: a + b + c
+Khó dùng trực tiếp: b
+Khó dùng trực tiếp: c
+```
 
-Execution plan không vẽ toàn bộ cây, nhưng cho biết optimizer định seek, scan và fetch row như thế nào.
+Một số database có thể dùng skip scan trong vài trường hợp. Tuy nhiên, không nên dựa vào ngoại lệ này khi thiết kế index chính.
 
-### PostgreSQL
+<Callout type="idea" title="Ý chính">
+  Composite index sắp cả tuple từ trái sang phải. Muốn tìm nhanh, query thường phải bắt đầu từ cột bên trái của index.
+</Callout>
+
+## Khi nào B Plus Tree không hiệu quả
+
+Có index không có nghĩa database luôn dùng index.
+
+### Trường hợp query trả quá nhiều row
+
+Giả sử 95 phần trăm user có trạng thái `active`:
+
+```sql
+SELECT *
+FROM users
+WHERE status = 'active';
+```
+
+Index có thể tìm điểm bắt đầu của nhóm `active`. Nhưng database vẫn phải đọc gần như toàn bộ nhóm đó và lấy rất nhiều row thật.
+
+Trong trường hợp này, table scan có thể rẻ hơn:
+
+```text
+Index scan:
+đọc index → lấy nhiều row locator → đọc rất nhiều data page
+
+Table scan:
+đọc tuần tự toàn bộ table một lần
+```
+
+Optimizer là bộ phận ước lượng chi phí và chọn execution plan. Nếu nó cho rằng index đắt hơn, nó sẽ chọn table scan.
+
+### Trường hợp không có điểm bắt đầu rõ ràng
+
+B+Tree phù hợp khi query tạo được một khoảng liên tục trong thứ tự của index.
+
+Các pattern sau thường khó dùng B+Tree thông thường:
+
+```sql
+WHERE name LIKE '%an';
+```
+
+Dấu `%` ở đầu khiến database không biết prefix để tìm điểm bắt đầu.
+
+```sql
+WHERE LOWER(email) = 'an@example.com';
+```
+
+Index trên `email` gốc không tự động có thứ tự theo kết quả của `LOWER(email)`. Ta có thể cần expression index phù hợp.
+
+```sql
+WHERE status = 'paid';
+```
+
+Query này không dễ dùng index `(customer_id, status)` vì thiếu cột bên trái.
+
+### Trường hợp key quá rộng
+
+Key rộng làm mỗi page chứa ít entry hơn:
+
+```text
+Key nhỏ  → nhiều entry trong page → fanout lớn → cây thấp hơn
+Key rộng → ít entry trong page    → fanout nhỏ → index lớn hơn
+```
+
+Primary key rộng còn đặc biệt đáng chú ý trong InnoDB. Primary-key value được lưu trong mỗi secondary index. Primary key càng rộng, các secondary index càng lớn.
+
+### Trường hợp có quá nhiều index
+
+Mỗi index cần:
+
+- Dung lượng lưu trữ.
+- Memory trong buffer pool khi được đọc.
+- Cập nhật khi `INSERT`, `UPDATE` hoặc `DELETE`.
+
+Không nên tạo index cho mọi cột. Hãy bắt đầu từ query quan trọng, tạo index phù hợp rồi kiểm tra bằng `EXPLAIN ANALYZE`.
+
+<Callout type="idea" title="Ý chính">
+  B+Tree hiệu quả khi query đọc một phần nhỏ, liên tục theo thứ tự index. Nếu query cần phần lớn table, scan tuần tự có thể tốt hơn.
+</Callout>
+
+## Theo dõi B Plus Tree bằng EXPLAIN
+
+Ta không cần nhìn trực tiếp từng page để biết index có giúp query hay không. Execution plan cho thấy database định đọc dữ liệu theo cách nào.
+
+### Đọc plan PostgreSQL
 
 ```sql
 EXPLAIN (ANALYZE, BUFFERS)
@@ -611,24 +784,24 @@ WHERE customer_id = 42
 ORDER BY created_at;
 ```
 
-Với index `(customer_id, created_at)`, plan tốt có thể giống:
+Với index `(customer_id, created_at)`, ta có thể thấy:
 
 ```text
 Index Scan using idx_orders_customer_created on orders
   Index Cond: ((customer_id = 42)
-               AND (created_at >= '2026-01-01'::timestamp))
+               AND (created_at >= '2026-01-01'))
   Buffers: shared hit=8
 ```
 
-Đọc các dấu hiệu:
+Hãy đọc theo thứ tự:
 
-- `Index Cond` cho biết predicate được dùng để xác định vùng index.
-- `Filter` cho biết predicate còn phải kiểm tra sau khi đọc entry hoặc row.
-- `Rows Removed by Filter` lớn cho thấy scan đang đọc thừa nhiều.
-- `Heap Fetches` trong `Index Only Scan` cho thấy vẫn phải quay lại heap để kiểm tra visibility.
-- `Buffers` giúp đánh giá số page thực tế đã đụng tới.
+1. `Index Scan` cho biết database đang đi qua index.
+2. `Index Cond` cho biết điều kiện nào xác định vùng cần đọc trong B+Tree.
+3. `Filter` nếu có là điều kiện kiểm tra sau khi đã đọc row.
+4. `Rows Removed by Filter` lớn cho thấy database đang đọc nhiều row rồi loại bỏ.
+5. `Buffers` cho biết query đã đụng tới bao nhiêu page.
 
-### MySQL
+### Đọc plan MySQL
 
 ```sql
 EXPLAIN ANALYZE
@@ -639,50 +812,110 @@ WHERE customer_id = 42
 ORDER BY created_at;
 ```
 
-Các trường cần chú ý trong `EXPLAIN` truyền thống:
+Trong kết quả `EXPLAIN`, chú ý:
 
-- `key`: index được chọn.
-- `type`: `const`, `ref`, `range`, `index` hay `ALL`.
-- `key_len`: phần key mà optimizer có thể tận dụng.
-- `rows`: số row ước lượng phải đọc.
-- `Extra: Using index`: query được cover bởi index.
-- `Extra: Using filesort`: thứ tự index không đáp ứng hoàn toàn `ORDER BY`.
+| Trường | Ý nghĩa đơn giản |
+| --- | --- |
+| `key` | Index được chọn |
+| `type` | Cách truy cập như `ref`, `range`, `index` hoặc `ALL` |
+| `rows` | Số row database ước lượng phải đọc |
+| `Using index` | Index đã chứa đủ dữ liệu query cần |
+| `Using filesort` | Database vẫn phải sort riêng |
 
-<Callout type="warn" title="Đo, đừng đoán">
-  Cùng một B+Tree có thể được seek ở query này nhưng bị bỏ qua ở query khác. Statistics, số row dự kiến, cột trong `SELECT`, cache và cost model đều ảnh hưởng quyết định. Hãy dùng `EXPLAIN ANALYZE` trên dữ liệu đại diện thay vì chỉ nhìn câu lệnh `CREATE INDEX`.
+<Callout type="warn" title="Luôn kiểm tra plan thật">
+  Đừng kết luận query nhanh chỉ vì đã tạo index. Hãy chạy `EXPLAIN ANALYZE` trên dữ liệu có phân bố gần với production.
 </Callout>
 
-## Các hiểu lầm thường gặp
+## Các câu hỏi thường gặp
 
-| Hiểu lầm | Thực tế |
-| --- | --- |
-| “Một triệu row cần khoảng 20 lần đọc vì `log₂(1.000.000)`.” | B+Tree có fanout hàng trăm. Cây thường chỉ cao vài page; 20 là trực giác của cây nhị phân. |
-| “Mỗi internal key trỏ trực tiếp tới row.” | Internal entry chủ yếu chọn child. Row locator hoặc row payload nằm ở leaf. |
-| “Exact lookup luôn là `O(1)` nếu root được cache.” | Vẫn phải đi qua các tầng còn lại và có thể fetch data page. Độ phức tạp là logarithmic theo fanout. |
-| “Có index thì query chắc chắn dùng index.” | Optimizer có thể chọn table scan nếu kết quả lớn hoặc lookup row quá đắt. |
-| “DELETE lập tức trả dung lượng index về hệ điều hành.” | MVCC và cơ chế cleanup thường trì hoãn reclaim; file không nhất thiết co lại. |
-| “Page split luôn chia đúng 50/50.” | Split policy là chi tiết implementation và có thể tối ưu cho hướng insert. |
-| “Composite index là nhiều single-column index ghép lại.” | Nó là một cây, được sắp theo một tuple từ trái sang phải. |
-| “Leaf luôn chứa toàn bộ row.” | Chỉ clustered index của một số engine làm vậy. Secondary index thường giữ row locator. |
-| “B+Tree chỉ hữu ích cho dấu bằng.” | Thứ tự và sibling link khiến nó đặc biệt mạnh cho range scan và `ORDER BY`. |
-| “Big O đủ để dự đoán latency.” | Cache miss, số data page, độ rộng key, selectivity và concurrency thường quyết định latency thật. |
+**B+Tree có phải binary tree không?**
 
-## Tóm tắt
+Không. Một node B+Tree có thể có hàng trăm nhánh. Đây là lý do cây vẫn thấp khi có hàng triệu row.
 
-B+Tree nhanh không phải vì nó biến lookup thành phép màu, mà vì nó tối ưu đúng đơn vị chi phí của database: **page I/O**.
+**B-Tree và B+Tree khác nhau thế nào?**
 
-1. Internal page giữ separator và child pointer để loại bỏ phần lớn không gian tìm kiếm sau mỗi lần đọc.
-2. Fanout lớn giữ cây thấp, thường chỉ vài tầng ngay cả với hàng triệu row.
-3. Leaf page giữ index entry theo thứ tự và thường nối với sibling để range scan liên tục.
-4. Exact lookup đi từ root xuống một leaf; query có thể cần thêm table lookup để lấy row.
-5. Range scan chỉ seek một lần rồi đi dọc leaf cho tới upper bound.
-6. Insert vào page đầy gây split; split có thể lan lên và root split làm cây cao thêm.
-7. Delete và update phải tuân theo MVCC và crash recovery, nên hành vi thực tế phức tạp hơn thuật toán sách giáo khoa.
-8. Composite index sắp theo tuple từ trái sang phải; leftmost prefix là hệ quả trực tiếp của thứ tự đó.
-9. Index chỉ đáng giá khi nó giảm đủ số page phải đọc. Tập kết quả lớn vẫn có thể khiến table scan thắng.
+Trong B+Tree, dữ liệu hoặc row locator nằm ở leaf. Internal node chủ yếu dùng để điều hướng. Các leaf thường nối với nhau, nên range scan dễ thực hiện.
+
+Nhiều database gọi index của họ là “B-tree index” dù implementation có nhiều đặc điểm của B+Tree. Hãy xem tài liệu của database cụ thể thay vì chỉ dựa vào tên.
+
+**Tại sao leaf phải nối với nhau?**
+
+Sau khi tìm điểm bắt đầu của một range, database có thể đi sang leaf kế tiếp. Nó không cần quay lại root để tìm từng giá trị.
+
+**Một triệu row cần bao nhiêu bước?**
+
+Không nên lấy `log₂(1.000.000)` rồi kết luận cần khoảng 20 lần đọc page. B+Tree không phải cây nhị phân. Vì fanout lớn, cây của một triệu row thường chỉ cao vài tầng.
+
+**Page split có xảy ra ở mọi lần insert không?**
+
+Không. Split chỉ xảy ra khi page đích không còn đủ chỗ.
+
+**DELETE có làm file index nhỏ ngay không?**
+
+Thường là không. MVCC và cleanup khiến việc tái sử dụng hoặc trả lại dung lượng diễn ra sau đó.
+
+**Tại sao optimizer không dùng index của tôi?**
+
+Các lý do phổ biến gồm:
+
+- Query trả quá nhiều row.
+- Composite index thiếu điều kiện cho cột bên trái.
+- Cột bị bọc trong hàm.
+- Kiểu dữ liệu bị cast không phù hợp.
+- Statistics chưa phản ánh đúng dữ liệu.
+- Chi phí lấy row thật cao hơn table scan.
+
+## Tóm tắt bằng một ví dụ hoàn chỉnh
+
+Hãy ghép toàn bộ quá trình khi chạy:
+
+```sql
+SELECT *
+FROM users
+WHERE id BETWEEN 35 AND 75
+ORDER BY id;
+```
+
+Cây:
+
+```text
+                         Root
+                      [ 30 | 60 ]
+                     /      |      \
+                    /       |       \
+                   ▼        ▼        ▼
+              [5,10,20] [30,42,55] [60,75,90]
+```
+
+Database làm lần lượt:
+
+1. Đọc root.
+2. Xác định `35` thuộc nhánh giữa.
+3. Đi tới leaf `[30, 42, 55]`.
+4. Tìm entry đầu tiên lớn hơn hoặc bằng `35`, tức `42`.
+5. Đọc `42` và `55`.
+6. Đi qua sibling link sang leaf `[60, 75, 90]`.
+7. Đọc `60` và `75`.
+8. Gặp `90`, lớn hơn giới hạn `75`, nên dừng.
+9. Dùng row locator để lấy các row thật nếu index chưa chứa đủ dữ liệu.
+10. Trả kết quả `42, 55, 60, 75` theo đúng thứ tự.
+
+Đó là toàn bộ ý tưởng cốt lõi của B+Tree:
+
+```text
+Chọn đúng nhánh
+      ↓
+Tìm đúng leaf
+      ↓
+Đọc entry theo thứ tự
+      ↓
+Đi ngang qua leaf khi cần range
+      ↓
+Lấy row thật
+```
 
 <Cards>
-  <Card title="Index SQL — Deep Dive" href="/optimization/index-sql-deep-dive/" description="Đi từ cấu trúc index tới selectivity, covering index và execution plan." />
-  <Card title="Composite Index và Leftmost Prefix" href="/optimization/composite-index-deep-dive/" description="Thiết kế thứ tự cột cho equality, range và ORDER BY." />
-  <Card title="EXPLAIN ANALYZE — Deep Dive" href="/optimization/explain-analyze-deep-dive/" description="Đọc plan, row estimate và buffer để xác minh hiệu năng." />
+  <Card title="Index SQL" href="/optimization/index-sql-deep-dive/" description="Tìm hiểu selectivity, covering index và các loại index phổ biến." />
+  <Card title="Composite Index" href="/optimization/composite-index-deep-dive/" description="Hiểu kỹ thứ tự cột và leftmost prefix rule." />
+  <Card title="EXPLAIN ANALYZE" href="/optimization/explain-analyze-deep-dive/" description="Đọc execution plan và kiểm tra số page thực tế." />
 </Cards>
