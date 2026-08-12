@@ -171,10 +171,10 @@ Trong clustered index, leaf page chứa toàn bộ các cột của row:
 Clustered leaf entry
 ┌──────────────────────────────────────────────────────────┐
 │ id = 42                                                  │
-│ customer_id = 7                                         │
-│ status = 'paid'                                         │
-│ created_at = '2026-02-10 09:30:00'                      │
-│ total = 950000                                          │
+│ customer_id = 7                                          │
+│ status = 'paid'                                          │
+│ created_at = '2026-02-10 09:30:00'                       │
+│ total = 950000                                           │
 └──────────────────────────────────────────────────────────┘
 ```
 
