@@ -12,6 +12,9 @@ description: "Giải thích B+Tree theo trình tự đơn giản: tìm kiếm, r
 - [Vấn đề khi không có index](#vấn-đề-khi-không-có-index)
 - [Toàn cảnh B Plus Tree](#toàn-cảnh-b-plus-tree)
 - [Root internal và leaf](#root-internal-và-leaf)
+  - [Cây nhỏ chỉ có một level](#cây-nhỏ-chỉ-có-một-level)
+  - [Root trỏ thẳng tới leaf](#root-trỏ-thẳng-tới-leaf)
+  - [Khi nào internal node xuất hiện](#khi-nào-internal-node-xuất-hiện)
   - [Root và internal node giữ gì](#root-và-internal-node-giữ-gì)
   - [Leaf node giữ gì](#leaf-node-giữ-gì)
 - [Tìm một giá trị cụ thể](#tìm-một-giá-trị-cụ-thể)
@@ -92,12 +95,12 @@ Ta dùng cây nhỏ sau trong các phần tiếp theo:
 
 ```text
                          Root
-                      [ 30 | 60 ]
-                     /      |      \
-                    /       |       \
-                   ▼        ▼        ▼
-               Leaf A     Leaf B     Leaf C
-[5, 10, 20] ⇄ [30, 42, 55] ⇄ [60, 75, 90]
+                       [ 30 | 60 ]
+                     /      |       \
+                    /       |        \
+                   ▼        ▼         ▼
+               Leaf A     Leaf B      Leaf C
+          [5, 10, 20] ⇄ [30, 42, 55] ⇄ [60, 75, 90]
 ```
 
 Cây này có hai tầng:
@@ -129,17 +132,105 @@ Tên **B+Tree** dễ gây hiểu lầm. Chữ `B` không có nghĩa là binary. 
 
 ## Root internal và leaf
 
-B+Tree có ba loại node. Với cây nhỏ, đôi khi không cần internal node ở giữa.
+Bạn có thể đã nghe rằng B+Tree gồm **root và leaf**. Điều đó đúng. **Internal node không phải lúc nào cũng xuất hiện.** Nó chỉ được thêm vào giữa khi root không còn đủ chỗ để trỏ thẳng tới tất cả leaf.
 
-| Loại node | Công việc chính |
-| --- | --- |
-| Root node | Điểm bắt đầu của mọi lần tìm kiếm |
-| Internal node | Chọn nhánh tiếp theo khi cây có nhiều tầng |
-| Leaf node | Giữ index entry và thông tin để tìm row |
+Ba tên gọi này mô tả vị trí và nhiệm vụ của node:
 
-**Node** trong sơ đồ thường tương ứng với một **page** trong database. Page là khối dữ liệu mà database đọc từ ổ đĩa vào memory.
+| Loại node | Nằm ở đâu? | Công việc chính |
+| --- | --- | --- |
+| Root node | Trên cùng | Điểm bắt đầu của mọi lần tìm kiếm |
+| Internal node | Giữa root và leaf | Tiếp tục chọn nhánh khi cây lớn |
+| Leaf node | Dưới cùng | Giữ index entry và thông tin để tìm row |
 
-Ví dụ, PostgreSQL thường dùng page 8 KiB. InnoDB thường dùng page 16 KiB theo cấu hình mặc định.
+Về mặt thuật toán, một root có node con cũng là một node điều hướng. Tài liệu này dùng từ **internal node** để chỉ các node điều hướng nằm giữa root và leaf, giúp ba vị trí dễ phân biệt hơn.
+
+**Node** trong sơ đồ thường tương ứng với một **page** trong database. Page là khối dữ liệu mà database đọc từ ổ đĩa vào memory. PostgreSQL thường dùng page 8 KiB. InnoDB thường dùng page 16 KiB theo cấu hình mặc định.
+
+### Cây nhỏ chỉ có một level
+
+Khi index còn rất nhỏ, một page có thể chứa toàn bộ entry. Page này đồng thời là root và leaf:
+
+```text
+┌────────────────────────┐
+│ Root đồng thời là Leaf │
+│ 10 | 20 | 30 | 40      │
+└────────────────────────┘
+```
+
+Cây lúc này có một level. Database tìm key ngay trong root, chưa cần đi tới page con.
+
+### Root trỏ thẳng tới leaf
+
+Khi page đầu tiên đầy, nó được chia thành nhiều leaf và một root mới được tạo để chỉ đường:
+
+```text
+                    Root
+                 [30 | 60]
+                 /   |   \
+                ▼    ▼    ▼
+             Leaf   Leaf   Leaf
+           [1..29] [30..59] [60..]
+```
+
+Cây có hai level:
+
+```text
+Level 1: Root
+Level 2: Leaf
+```
+
+Ở kích thước này vẫn **không có internal node ở giữa**. Root trỏ thẳng tới các leaf.
+
+### Khi nào internal node xuất hiện
+
+Mỗi root page chỉ chứa được một số lượng child pointer hữu hạn. Giả sử root chứa tối đa 500 pointer. Khi index có hơn 500 leaf, root không thể trỏ thẳng tới tất cả leaf nữa.
+
+Database thêm một tầng internal node:
+
+```text
+                            Root
+                         [500 | 900]
+                        /     |      \
+                       ▼      ▼       ▼
+                 Internal  Internal  Internal
+                    /|\       /|\       /|\
+                   ▼ ▼ ▼     ▼ ▼ ▼     ▼ ▼ ▼
+                 Leaf       Leaf       Leaf
+```
+
+Cây bây giờ có ba level:
+
+```text
+Level 1: Root
+Level 2: Internal
+Level 3: Leaf
+```
+
+Nếu index tiếp tục lớn, cây có thể có nhiều tầng internal:
+
+```text
+Root
+  ↓
+Internal
+  ↓
+Internal
+  ↓
+Leaf
+```
+
+Dù có bao nhiêu internal level, cách tìm kiếm không đổi:
+
+```text
+Root bắt đầu chọn đường
+          ↓
+Internal tiếp tục thu hẹp khoảng
+          ↓
+Leaf chứa index entry cần tìm
+```
+
+<Callout type="info" title="Cách đếm level">
+  Tài liệu này đếm từ trên xuống: root là level 1. Một số công cụ database đếm ngược từ dưới lên và gọi leaf là level 0. Vì vậy, hãy kiểm tra quy ước trước khi đọc con số chiều cao của index.
+</Callout>
 
 ### Root và internal node giữ gì
 
@@ -158,7 +249,7 @@ key < 30       → đi sang trái
 key ≥ 60       → đi sang phải
 ```
 
-Root không cần chứa toàn bộ row của user. Nó chỉ cần đủ thông tin để chọn đúng đường.
+Root và internal node không cần chứa toàn bộ row của user. Chúng chỉ cần đủ thông tin để chọn đúng đường.
 
 ### Leaf node giữ gì
 
@@ -176,8 +267,8 @@ Ví dụ đơn giản:
 
 Thông tin bên phải có thể là địa chỉ row hoặc primary key. Cách lưu cụ thể phụ thuộc database. Phần “Đi từ index tới row thật” sẽ giải thích kỹ hơn.
 
-<Callout type="info" title="Một cách nhớ đơn giản">
-  Root và internal node giống biển chỉ đường. Leaf giống mục lục có số trang cụ thể.
+<Callout type="idea" title="Một cách nhớ đơn giản">
+  Root luôn là điểm bắt đầu. Internal chỉ xuất hiện ở giữa khi cây đủ lớn. Leaf luôn nằm dưới cùng và giữ index entry.
 </Callout>
 
 ## Tìm một giá trị cụ thể
