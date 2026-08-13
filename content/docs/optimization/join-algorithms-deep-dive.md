@@ -6,6 +6,7 @@ description: "Mổ xẻ chi tiết 3 thuật toán JOIN cốt lõi — Nested Lo
 ## Mục lục
 
 - [Bối cảnh: Tại sao cần hiểu JOIN algorithms](#1-bối-cảnh-tại-sao-cần-hiểu-join-algorithms)
+  - [Ai quyết định thuật toán JOIN?](#ai-quyết-định-thuật-toán-join)
 - [Tổng quan 3 thuật toán JOIN](#2-tổng-quan-3-thuật-toán-join)
 - [Nested Loop Join — Chi tiết](#3-nested-loop-join--chi-tiết)
 - [Hash Join — Chi tiết](#4-hash-join--chi-tiết)
@@ -63,6 +64,41 @@ Tùy thuộc vào **thuật toán JOIN** mà database chọn, query này có th�
 > 1. Đọc hiểu EXPLAIN plan và biết query đang chạy tối ưu hay chưa
 > 2. Tạo index đúng để optimizer chọn thuật toán tốt nhất
 > 3. Viết query tránh các anti-pattern khiến DB chọn sai thuật toán
+
+### Ai quyết định thuật toán JOIN?
+
+Thông thường, **optimizer tự chọn** `Nested Loop`, `Hash Join` hoặc `Merge Join`. Bạn chỉ mô tả kết quả cần lấy bằng SQL:
+
+```sql
+SELECT o.id, c.name
+FROM orders o
+JOIN customers c ON c.id = o.customer_id;
+```
+
+SQL chuẩn không yêu cầu bạn ghi thuật toán JOIN. Trước khi chạy query, optimizer sẽ tạo nhiều execution plan, ước tính chi phí của từng plan rồi chọn plan được cho là rẻ nhất.
+
+Optimizer chủ yếu dựa vào:
+
+- Số dòng ước tính còn lại **sau `WHERE`**.
+- Index hiện có trên các join key.
+- Statistics về số dòng và phân bố dữ liệu.
+- Loại điều kiện join, chẳng hạn `=` hay `<`.
+- Dữ liệu có sẵn thứ tự phù hợp hay không.
+- Bộ nhớ và chi phí đọc dữ liệu ước tính.
+
+Vì vậy, bạn không trực tiếp chọn thuật toán trong phần lớn trường hợp, nhưng vẫn **tác động gián tiếp** bằng query, index và statistics. Ví dụ:
+
+```sql
+CREATE INDEX idx_orders_customer_id ON orders(customer_id);
+```
+
+Index này có thể giúp optimizer chọn Index Nested Loop khi đầu vào `customers` chỉ còn ít dòng. Ngược lại, khi phải join phần lớn hai bảng bằng dấu `=`, optimizer có thể chọn Hash Join.
+
+Một số database cho phép ép hoặc vô hiệu hóa thuật toán bằng hint hay cấu hình. Ví dụ, Oracle có `USE_NL`/`USE_HASH`, SQL Server có join hint, còn PostgreSQL có các tùy chọn như `enable_hashjoin`. Tuy nhiên, đây chủ yếu là công cụ kiểm thử hoặc giải pháp cuối cùng, không nên là bước tối ưu đầu tiên.
+
+<Callout title="Cách làm thực tế" type="idea">
+  Hãy viết query rõ ràng, tạo index phù hợp, cập nhật statistics rồi dùng `EXPLAIN` hoặc `EXPLAIN ANALYZE` để xem optimizer thực sự chọn gì. Chỉ ép thuật toán sau khi đo đạc và xác nhận optimizer đã chọn plan không phù hợp.
+</Callout>
 
 ---
 

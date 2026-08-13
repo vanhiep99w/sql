@@ -412,13 +412,13 @@ Cùng một index, cùng một bảng. Sự khác biệt nằm ở **bạn có c
 
 ### 5.1. Hiện tượng
 
-Đây là **luật ít người để ý nhất** và là nguồn gốc của 80% bug về composite index trong production:
+Đây là một trong những quy tắc dễ bị bỏ sót nhất khi thiết kế composite index:
 
 > [!IMPORTANT]
-> **Range Stop Rule:**
-> Trên composite index, **một khi gặp một cột dùng range predicate** (`>`, `<`, `BETWEEN`, `LIKE 'x%'`, `IS NOT NULL`), thì **mọi cột phía sau trong index trở thành filter**, không còn là access nữa.
+> **Range Stop Rule — với một B-Tree scan thông thường:**
+> Các equality liên tiếp ở đầu index và range đầu tiên quyết định **khoảng leaf entries phải quét**. Predicate trên cột đứng sau range thường không thể làm khoảng đó ngắn hơn; nó chỉ loại entry trong lúc quét hoặc sau khi đọc row.
 
-Tức là: dù bạn có equality trên các cột sau range column, chúng cũng **không** thu hẹp được phạm vi seek.
+Nói chính xác hơn: cột phía sau range không tạo thêm được một cặp `start_key` / `end_key` liên tục cho lần scan đó. Một số engine vẫn kiểm tra predicate ấy ngay trong index, dùng Index Condition Pushdown, hoặc thực hiện nhiều sub-scan bằng skip scan. Những tối ưu này có thể giảm heap/table fetch, thậm chí bỏ qua một số đoạn index, nhưng không làm mất đi nguyên tắc thiết kế nền tảng: **equality trước, range sau**.
 
 ### 5.2. Vì sao? Hình ảnh sort trên đĩa
 
@@ -523,22 +523,213 @@ Index Scan using idx_users_fixed
 
 ### 5.4. Quy tắc luôn-luôn-đúng
 
-> [!TIP]
-> Khi thiết kế composite index:
->
-> 1. Đặt **tất cả** các cột equality trước.
-> 2. Đặt **đúng một** range column ở cuối (nếu có).
-> 3. Cột nào sau range column **chỉ đáng giá** nếu nó dùng cho `ORDER BY` hoặc covering — không giúp seek.
+Cụm “luôn-luôn-đúng” ở đây nên hiểu là **điểm xuất phát an toàn khi thiết kế B-Tree**, không phải lời khẳng định rằng mọi optimizer và mọi execution plan đều hành xử giống hệt nhau.
 
-Mở rộng: nếu query có **nhiều** range column, chỉ một trong số đó sẽ là access. Bạn phải **chọn** range nào có selectivity cao hơn để xếp trước:
+> [!TIP]
+> Với query có dạng `equality + range`, hãy bắt đầu bằng công thức:
+>
+> ```text
+> [các cột equality liên tiếp] → [range quan trọng nhất] → [cột phụ]
+> ```
+>
+> - Nhóm equality khóa B-Tree vào đúng một nhánh hẹp.
+> - Range đầu tiên xác định đoạn leaf entries phải đi qua.
+> - Cột phía sau range không làm một đoạn scan thông thường ngắn hơn. Nó vẫn có thể hữu ích để lọc ngay trong index, phục vụ thứ tự đọc, hoặc làm covering index.
+
+#### 5.4.1. “Range chặn cột sau” thực sự nghĩa là gì?
+
+Giả sử có index:
 
 ```sql
--- Query: WHERE created_at >= X AND total >= Y
--- Nếu created_at hẹp hơn (chỉ 1% rows):
-CREATE INDEX ix1 ON orders (created_at, total);   -- created_at access, total filter
+CREATE INDEX ix_orders
+ON orders (customer_id, status, created_at, total);
+```
 
--- Nếu total hẹp hơn (chỉ 0.1% rows):
-CREATE INDEX ix2 ON orders (total, created_at);   -- total access, created_at filter
+Và query:
+
+```sql
+SELECT id, created_at, total
+FROM orders
+WHERE customer_id = 90341
+  AND status = 'paid'
+  AND created_at >= TIMESTAMPTZ '2026-01-01'
+  AND total >= 10000000;
+```
+
+B-Tree có thể tạo biên scan gần giống như sau:
+
+```text
+start_key = (90341, 'paid', '2026-01-01', -∞)
+stop_key  = (90341, 'paid', +∞,           +∞)
+```
+
+`customer_id` và `status` là equality, nên chúng khóa hai chiều đầu tiên của key. `created_at` là range đầu tiên, nên nó xác định điểm bắt đầu của đoạn scan.
+
+`total >= 10000000` không thể biến thành một biên liên tục khác. Lý do là `total` chỉ được sắp xếp **bên trong từng giá trị `created_at`**:
+
+```text
+(90341, paid, 2026-01-01 08:00,    500000)
+(90341, paid, 2026-01-01 08:00,  12000000)  ✓
+(90341, paid, 2026-01-01 09:00,    300000)
+(90341, paid, 2026-01-01 09:00,  15000000)  ✓
+(90341, paid, 2026-01-02 10:00,    200000)
+(90341, paid, 2026-01-02 10:00,  11000000)  ✓
+```
+
+Các row thỏa `total` tạo thành nhiều “lỗ” rời rạc trong khoảng `created_at`, chứ không tạo thành một đoạn liền nhau. Vì vậy, với một range scan thông thường, DB vẫn phải đi qua các entry có `total` thấp để tìm entry tiếp theo có `total` cao.
+
+> [!IMPORTANT]
+> “Không giúp thu hẹp scan range” **không đồng nghĩa** với “hoàn toàn vô dụng”. Nếu `total` có trong index, engine có thể kiểm tra nó trước khi fetch row từ table. PostgreSQL có thể kiểm tra constraint ở tầng index; MySQL có Index Condition Pushdown. Ta tiết kiệm được table/heap I/O, nhưng vẫn có thể phải đọc cùng số leaf entries trong khoảng `created_at`.
+
+#### 5.4.2. Nếu có hai range, chọn cột nào trước?
+
+Xét query:
+
+```sql
+WHERE tenant_id = 42
+  AND status = 'paid'
+  AND created_at >= :seven_days_ago
+  AND total >= 10000000
+```
+
+Hai index ứng viên:
+
+```sql
+-- created_at là range quyết định đoạn scan
+CREATE INDEX ix_by_time
+ON orders (tenant_id, status, created_at, total);
+
+-- total là range quyết định đoạn scan
+CREATE INDEX ix_by_total
+ON orders (tenant_id, status, total, created_at);
+```
+
+Đừng so selectivity trên toàn bảng. Hãy so **selectivity có điều kiện sau nhóm equality**. Giả sử riêng trong `(tenant_id = 42, status = 'paid')` có 1.000.000 rows:
+
+| Predicate range | Rows còn lại | Tỷ lệ phải quét |
+|---|---:|---:|
+| `created_at >= :seven_days_ago` | 10.000 | 1% |
+| `total >= 10000000` | 100.000 | 10% |
+
+Trong trường hợp này:
+
+```text
+ix_by_time  ≈ quét 10.000 index entries  → lọc total
+ix_by_total ≈ quét 100.000 index entries → lọc created_at
+```
+
+`ix_by_time` thường tốt hơn vì range đầu tiên để lại ít entry hơn. Nếu phân bố dữ liệu đảo ngược, `ix_by_total` có thể thắng.
+
+> [!NOTE]
+> Selectivity phải lấy từ dữ liệu thật và trong đúng scope equality. Ví dụ, đơn giá trị cao có thể rất hiếm trên toàn hệ thống nhưng lại phổ biến với một tenant bán hàng xa xỉ. Correlation giữa `created_at` và `total` cũng khiến phép nhân tỷ lệ đơn giản bị sai.
+
+#### 5.4.3. Equality trả nhiều rows hơn range thì có nên đảo range lên trước?
+
+**Thông thường là không.** Đây là điểm rất dễ nhầm.
+
+Giả sử bảng có 100 triệu orders:
+
+```text
+status = 'paid'                 → 60.000.000 rows (60%)
+created_at trong 1 giờ gần nhất →    100.000 rows (0,1%)
+Cả hai điều kiện                →     60.000 rows
+```
+
+Thoạt nhìn, `created_at` chọn lọc hơn rất nhiều nên có vẻ nên đặt nó trước. Nhưng hãy so hai index cho query luôn có cả hai điều kiện:
+
+```sql
+WHERE status = 'paid'
+  AND created_at >= :one_hour_ago
+```
+
+**Index `(status, created_at)`:**
+
+```text
+start_key = ('paid', :one_hour_ago)
+stop_key  = ('paid', +∞)
+
+Số entry phải quét ≈ 60.000
+```
+
+DB **không quét 60 triệu rows `paid` rồi mới lọc ngày**. Vì `status` đã được khóa bằng equality, `created_at` vẫn được sắp xếp bên trong đúng nhóm `paid`. DB có thể nhảy thẳng tới `('paid', :one_hour_ago)`.
+
+**Index `(created_at, status)`:**
+
+```text
+start_key = (:one_hour_ago, -∞)
+stop_key  = (+∞,           +∞)
+
+Số entry phải quét ≈ 100.000
+Sau đó mới giữ lại khoảng 60.000 rows có status = 'paid'
+```
+
+Với một B-Tree range scan thông thường, có thể hình dung:
+
+```text
+scan(equality, range) ≈ số rows thỏa equality ∩ range
+scan(range, equality) ≈ số rows thỏa range
+```
+
+Mà về mặt tập hợp:
+
+```text
+|equality ∩ range| ≤ |range|
+```
+
+Vì vậy, nếu query **luôn có cả equality và range**, đặt equality trước thường quét ít hơn hoặc bằng đặt range trước — kể cả khi equality đứng một mình trả về rất nhiều rows.
+
+> [!IMPORTANT]
+> “Equality trước” không có nghĩa là optimizer chỉ dùng equality. Nó dùng equality để chọn đúng nhóm, rồi dùng range để tìm start/stop point **bên trong nhóm đó**. Đây chính là lợi thế mà index `(equality, range)` mang lại.
+
+Chỉ cân nhắc đặt range trước khi có một mục tiêu khác quan trọng hơn:
+
+- Query thường chạy **không có equality predicate**, nên cần prefix bắt đầu bằng range.
+- `ORDER BY` và `LIMIT` khớp với range column, cho phép đọc đúng thứ tự và dừng rất sớm.
+- Bạn đang tối ưu một access pattern khác quan trọng hơn, hoặc sẽ tạo hai index riêng cho hai nhóm query.
+- Kết quả `EXPLAIN ANALYZE` trên dữ liệu thật chứng minh plan range-first rẻ hơn do đặc điểm riêng của engine hoặc workload.
+
+Nói ngắn gọn: **đừng đảo range lên trước chỉ vì range đứng một mình trả ít rows hơn equality**. Hãy so số entry của giao hai điều kiện và kiểm tra plan thực tế.
+
+#### 5.4.4. Quy trình chọn thứ tự cột
+
+Với mỗi query quan trọng, đi theo năm bước:
+
+1. **Liệt kê equality predicate**: `=`, `IS NULL`, và đôi khi `IN` danh sách ngắn mà optimizer triển khai thành nhiều equality seek.
+2. **Đặt equality thành một prefix liên tiếp**: không để gap trước range cần tối ưu.
+3. **Ước lượng từng range ứng viên** sau khi đã cố định nhóm equality. Ưu tiên range khiến số index entries phải quét ít nhất.
+4. **Xét `ORDER BY ... LIMIT`**. Một index quét nhiều hơn theo ước lượng lọc vẫn có thể thắng nếu đọc đúng thứ tự và dừng sau vài chục rows, thay vì đọc hết rồi sort.
+5. **Xác nhận bằng `EXPLAIN (ANALYZE, BUFFERS)`** hoặc công cụ tương đương. So rows scanned, rows removed, buffer reads và thời gian; đừng chỉ nhìn tên index được chọn.
+
+Ví dụ, nếu query đổi thành:
+
+```sql
+WHERE tenant_id = 42
+  AND status = 'paid'
+  AND created_at >= :seven_days_ago
+  AND total >= 10000000
+ORDER BY total DESC
+LIMIT 20;
+```
+
+Index đặt `total` trước `created_at` có thể đáng cân nhắc. Nó cho phép đọc các đơn giá trị cao trước và dừng sớm sau 20 rows. Đây là lý do `ORDER BY ... LIMIT` phải được đánh giá cùng access pattern, không thể chỉ so selectivity từng predicate.
+
+#### 5.4.5. Ba ngoại lệ dễ làm hiểu sai quy tắc
+
+1. **`IN` không phải lúc nào cũng là một range liên tục.** Với danh sách ngắn, optimizer có thể thực hiện nhiều equality seek. Với danh sách rất dài, nó có thể đổi sang bitmap scan hoặc table scan.
+2. **Predicate sau range có thể xuất hiện trong `Index Cond`.** Điều đó cho biết engine kiểm tra predicate ở tầng index; chưa chắc predicate ấy đã thu hẹp biên scan ban đầu. Hãy nhìn thêm số rows/index entries và buffers.
+3. **Skip scan có thể tạo nhiều sub-seek.** PostgreSQL 18+, Oracle và một số trường hợp trên MySQL có thể dùng cột sau gap/range để tái định vị nhiều lần. Đây là tối ưu của optimizer, không phải lý do để chủ động thiết kế index sai thứ tự.
+
+> [!WARNING]
+> Không áp dụng máy móc câu “cột selectivity cao nhất luôn đứng đầu”. Thứ tự ưu tiên thực tế là: **access pattern chung → equality prefix → range phù hợp → `ORDER BY/LIMIT` → covering**. Giữa các equality luôn xuất hiện cùng nhau, thứ tự còn phụ thuộc khả năng tái sử dụng prefix cho các query khác; selectivity không phải tiêu chí duy nhất.
+
+Tóm lại, phiên bản có thể hành động ngay của quy tắc là:
+
+```text
+Equality liên tiếp trước.
+Range giúp giảm scan nhiều nhất đặt ngay sau.
+Cột còn lại chỉ thêm khi có lợi ích đo được về filter-in-index,
+ORDER BY, covering hoặc khả năng tái sử dụng cho query khác.
+Sau cùng, dùng EXPLAIN ANALYZE để kiểm chứng.
 ```
 
 ---
