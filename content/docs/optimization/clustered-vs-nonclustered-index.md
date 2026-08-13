@@ -200,20 +200,78 @@ Vì vậy, một bảng chỉ có tối đa một clustered index theo mô hình
 
 ### Clustered không có nghĩa file luôn liền mạch
 
-Cụm từ “dữ liệu được sắp xếp vật lý” dễ gây hiểu lầm.
+Trong phần này, **file** nghĩa là **database data file** — file mà database dùng để lưu table và index trên thiết bị lưu trữ. Ví dụ:
 
-Điều được đảm bảo chủ yếu là **thứ tự logic ở leaf level**. Các page được liên kết theo thứ tự key. Sau nhiều lần insert, update và page split, các page không nhất thiết nằm cạnh nhau trong file hoặc trên thiết bị lưu trữ.
+- SQL Server thường có file `.mdf` và `.ndf`.
+- MySQL InnoDB có thể lưu table trong file `.ibd` hoặc trong tablespace dùng chung.
+- Đây không phải là một file do ứng dụng tự tạo, cũng không phải mỗi row có một file riêng.
+
+Database chia data file thành các khối có kích thước cố định gọi là **page**. SQL Server thường dùng page 8 KiB. Clustered index lưu row data trong các page ở leaf level.
+
+Cụm từ “clustered index sắp xếp dữ liệu vật lý” dễ làm ta tưởng rằng mọi page phải nằm cạnh nhau trong data file. Điều clustered index duy trì chủ yếu là **thứ tự logic theo key** và liên kết giữa các leaf page.
+
+Giả sử clustered key là `id`. Về mặt logic, các leaf page có thứ tự:
 
 ```text
-Thứ tự logic:
-Page 8  → Page 31 → Page 14 → Page 52
-key 1-9   key 10-19 key 20-29  key 30-39
-
-Vị trí trong file không nhất thiết:
-Page 8  → Page 9 → Page 10 → Page 11
+Page chứa id 1–100
+          │
+          ▼
+Page chứa id 101–200
+          │
+          ▼
+Page chứa id 201–300
 ```
 
-Hiện tượng page theo thứ tự logic nhưng phân tán về vị trí gọi là **fragmentation**. Do đó, đừng hiểu clustered index là “toàn bộ file luôn được xếp lại hoàn hảo sau mỗi lần ghi”.
+Nhưng vị trí của các page trong data file có thể phân tán:
+
+```text
+Thứ tự vị trí trong data file:
+
+Page 8   → chứa id 1–100
+Page 14  → chứa id 201–300
+Page 31  → chứa id 101–200
+
+Thứ tự logic mà B+Tree sử dụng:
+
+Page 8              Page 31               Page 14
+id 1–100     →       id 101–200     →      id 201–300
+```
+
+B+Tree biết page tiếp theo thông qua cấu trúc cây và liên kết giữa các leaf page. Vì vậy, database vẫn đọc đúng thứ tự `id` dù page tiếp theo không nằm ngay cạnh page hiện tại trong data file.
+
+Page thường bị phân tán sau một **page split**. Ví dụ page chứa `id 1–100` đã đầy và database cần chèn thêm row vào giữa khoảng này:
+
+```text
+Trước khi split:
+
+Page 8
+[id 1–100]       ← đã đầy
+
+Sau khi split:
+
+Page 8                         Page 50 mới được cấp phát
+[id 1–50]       →              [id 51–100]
+```
+
+Database có thể tìm được chỗ trống ở page 50, chứ không nhất thiết ở page 9 ngay cạnh page 8. Nó không di chuyển toàn bộ các page phía sau chỉ để page mới nằm liền kề, vì việc đó quá tốn kém.
+
+Hiện tượng thứ tự key vẫn đúng nhưng các page bị phân tán trong data file được gọi là **fragmentation**.
+
+```text
+Clustered index đảm bảo:
+✓ Row data nằm tại leaf level.
+✓ Leaf được tổ chức theo thứ tự logic của clustered key.
+✓ Database biết leaf page tiếp theo nằm ở đâu.
+
+Clustered index không đảm bảo:
+✗ Các page luôn có số page liên tiếp.
+✗ Các page luôn nằm cạnh nhau trong data file.
+✗ Toàn bộ data file được sắp xếp lại sau mỗi lần insert.
+```
+
+<Callout type="idea" title="Cách hiểu chính xác">
+  Clustered index giữ row theo thứ tự **logic** của clustered key. Các page vẫn có thể nằm rải rác trong database data file; database dùng B+Tree và liên kết leaf để đi qua chúng theo đúng thứ tự.
+</Callout>
 
 ## Mô hình nonclustered index
 
