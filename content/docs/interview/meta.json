@@ -11,6 +11,7 @@
     "fast-staging-slow-production",
     "add-column-large-table-zero-downtime",
     "postgresql-connection-exhaustion",
-    "in-vs-exists-vs-join"
+    "in-vs-exists-vs-join",
+    "sharding-at-scale"
   ]
 }
