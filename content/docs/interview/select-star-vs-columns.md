@@ -1,5 +1,5 @@
 ---
-title: "SELECT * vs SELECT cột cần — khác nhau thật sự ở đâu? — Deep Dive"
+title: "SELECT * vs SELECT cột cần — khác nhau thật sự ở đâu?"
 description: "Câu hỏi phỏng vấn: SELECT * và SELECT chỉ vài cột khác nhau ra sao về hiệu năng? Mổ xẻ index-only scan, covering index, TOAST/giá trị lớn, băng thông mạng, projection, vì sao SELECT * phá vỡ index-only scan, và các tác hại ngầm khác."
 ---
 

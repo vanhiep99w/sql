@@ -1,5 +1,5 @@
 ---
-title: "Subquery vs CTE vs Temp Table — Deep Dive"
+title: "Subquery vs CTE vs Temp Table"
 description: "Mổ xẻ chi tiết 3 cách tổ chức query phức tạp trong SQL — khi nào dùng subquery, khi nào CTE, khi nào temp table. Kèm execution plan, benchmark, recursive CTE, materialization trap, và real-world patterns."
 ---
 

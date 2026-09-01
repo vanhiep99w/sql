@@ -1,5 +1,5 @@
 ---
-title: "IN vs EXISTS vs JOIN — khi nào khác nhau? — Deep Dive"
+title: "IN vs EXISTS vs JOIN — khi nào khác nhau?"
 description: "Câu hỏi phỏng vấn: IN (subquery), EXISTS, và JOIN có cho cùng kết quả không, và cái nào nhanh hơn? Mổ xẻ semi-join, cách optimizer biến đổi, cái bẫy NOT IN với NULL, anti-join (NOT EXISTS), nhân bản dòng khi JOIN, và khi nào thật sự khác nhau."
 ---
 

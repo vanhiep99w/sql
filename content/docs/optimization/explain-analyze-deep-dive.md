@@ -1,5 +1,5 @@
 ---
-title: "EXPLAIN & EXPLAIN ANALYZE — Deep Dive"
+title: "EXPLAIN & EXPLAIN ANALYZE"
 description: "Đọc hiểu execution plan tường tận — EXPLAIN vs EXPLAIN ANALYZE, cost/rows/width, actual time/loops, buffers, các node scan & join, estimated vs actual, cách phát hiện và fix query chậm. Kèm ví dụ Postgres & MySQL."
 ---
 

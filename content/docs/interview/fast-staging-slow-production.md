@@ -1,5 +1,5 @@
 ---
-title: "Query nhanh ở staging nhưng chậm ở production? — Deep Dive"
+title: "Query nhanh ở staging nhưng chậm ở production?"
 description: "Câu hỏi phỏng vấn: cùng một query, cùng schema, nhanh ở staging nhưng chậm ở production. Mổ xẻ khác biệt data distribution, statistics, plan flip, parameter sniffing/generic plan, kích thước data & cache, cấu hình khác nhau, concurrency/lock, và cách tái hiện + chẩn đoán."
 ---
 

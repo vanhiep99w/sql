@@ -1,5 +1,5 @@
 ---
-title: "Vì sao OFFSET phân trang càng sâu càng chậm? — Deep Dive"
+title: "Vì sao OFFSET phân trang càng sâu càng chậm?"
 description: "Câu hỏi phỏng vấn: LIMIT 20 OFFSET 0 nhanh, nhưng LIMIT 20 OFFSET 1000000 chậm 3 giây dù cùng index. Mổ xẻ vì sao OFFSET phải quét và vứt bỏ N dòng, keyset/seek pagination thay thế, xử lý sort phức tạp, deferred join, và các đánh đổi thực tế."
 ---
 

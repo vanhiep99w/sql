@@ -1,5 +1,5 @@
 ---
-title: "Index SQL — Deep Dive"
+title: "Index SQL"
 description: "Deep dive vào SQL Index — B-Tree, Composite Index, EXPLAIN, Selectivity, Covering Index"
 ---
 

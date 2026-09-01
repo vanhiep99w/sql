@@ -1,5 +1,5 @@
 ---
-title: "Tôi đã tạo index rồi mà query vẫn Seq Scan? — Deep Dive"
+title: "Tôi đã tạo index rồi mà query vẫn Seq Scan?"
 description: "Câu hỏi phỏng vấn: đã CREATE INDEX trên đúng cột trong WHERE mà optimizer vẫn chọn Seq Scan. Mổ xẻ 10 nguyên nhân: selectivity thấp, type mismatch/implicit cast, function trên cột, LIKE '%x%', statistics cũ, OR, NULL, sai thứ tự composite, bảng nhỏ, và cách chẩn đoán bằng EXPLAIN."
 ---
 
