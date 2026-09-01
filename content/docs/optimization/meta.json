@@ -1,7 +1,8 @@
 {
   "title": "Tối ưu hóa",
   "pages": [
-    "index-sql",
+    "b-plus-tree-deep-dive",
+    "clustered-vs-nonclustered-index",
     "index-sql-deep-dive",
     "composite-index-deep-dive",
     "dml-index-impact-deep-dive",

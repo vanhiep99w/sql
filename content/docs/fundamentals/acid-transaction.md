@@ -13,6 +13,12 @@ description: "Hiểu sâu về ACID trong database — Atomicity, Consistency, I
   - [Durability — Tính bền vững](#durability--tính-bền-vững)
 - [Ví dụ Transaction thực tế](#ví-dụ-transaction-thực-tế)
 - [Các vấn đề khi không có ACID](#các-vấn-đề-khi-không-có-acid)
+  - [Dirty Read](#dirty-read)
+  - [Non-Repeatable Read](#non-repeatable-read)
+  - [Phân biệt Dirty Read và Non-Repeatable Read](#phân-biệt-dirty-read-và-non-repeatable-read)
+  - [Phantom Read](#phantom-read)
+  - [Phân biệt Non-Repeatable Read và Phantom Read](#phân-biệt-non-repeatable-read-và-phantom-read)
+  - [Lost Update](#lost-update)
 - [ACID vs BASE](#acid-vs-base)
 
 ---
@@ -232,34 +238,138 @@ Khi không đảm bảo ACID, hệ thống sẽ gặp các vấn đề nghiêm t
 
 ### Dirty Read
 
-Transaction đọc dữ liệu **chưa được commit** từ transaction khác. Nếu transaction kia rollback, dữ liệu đọc được là sai.
+**Dirty Read** xảy ra khi một transaction đọc thay đổi **chưa được commit** của transaction khác. Thay đổi này vẫn chỉ là dữ liệu tạm thời và có thể bị rollback.
 
+Ví dụ, số dư ban đầu là `10M`:
+
+```text
+TX1: UPDATE balance = 0 WHERE id = 1    -- chưa COMMIT
+TX2: SELECT balance WHERE id = 1        -- đọc được 0
+TX1: ROLLBACK                           -- số dư trở lại 10M
 ```
-TX1: UPDATE balance = 0 WHERE id = 1   (chưa COMMIT)
-TX2: SELECT balance FROM ... WHERE id = 1  → đọc được 0
-TX1: ROLLBACK                              → balance thực tế vẫn là 10M
-TX2: đã dùng giá trị sai (0) để tính toán → SAI!
-```
+
+TX2 đã đọc và có thể sử dụng giá trị `0`. Tuy nhiên, sau khi TX1 rollback, giá trị `0` không còn tồn tại. Có thể hiểu TX2 đã nhìn thấy một **bản nháp chưa được xác nhận**.
+
+> Dấu hiệu nhận biết: transaction khác **chưa commit** tại thời điểm dữ liệu được đọc. Dirty Read chỉ cần một lần `SELECT` là có thể xảy ra.
 
 ### Non-Repeatable Read
 
-Cùng một câu `SELECT` trong transaction, chạy 2 lần cho kết quả **khác nhau** vì transaction khác đã commit thay đổi.
+**Non-Repeatable Read** xảy ra khi một transaction đọc cùng một row hai lần nhưng nhận được hai kết quả khác nhau. Nguyên nhân là transaction khác đã cập nhật và **commit** row đó ở giữa hai lần đọc.
 
+Ví dụ, số dư ban đầu là `10M`:
+
+```text
+TX1: SELECT balance WHERE id = 1        -- lần 1: đọc được 10M
+
+TX2: UPDATE balance = 8M WHERE id = 1
+TX2: COMMIT                             -- 8M đã trở thành dữ liệu chính thức
+
+TX1: SELECT balance WHERE id = 1        -- lần 2: đọc được 8M
 ```
-TX1: SELECT salary WHERE id = 1  → 20M
-TX2: UPDATE salary = 25M WHERE id = 1; COMMIT;
-TX1: SELECT salary WHERE id = 1  → 25M   ← Kết quả khác lần trước!
+
+Cả `10M` và `8M` đều là dữ liệu hợp lệ tại thời điểm TX1 nhìn thấy chúng. Vấn đề là TX1 không giữ được một góc nhìn nhất quán trong suốt transaction: cùng một row nhưng lần đọc sau không lặp lại được kết quả lần đầu.
+
+> Dấu hiệu nhận biết: có **hai lần đọc** trong cùng một transaction và transaction khác **commit ở giữa**.
+
+### Phân biệt Dirty Read và Non-Repeatable Read
+
+Hai hiện tượng trông giống nhau vì đều có một transaction đang đọc trong lúc transaction khác thay đổi dữ liệu. Điểm khác biệt quan trọng nhất là thay đổi đó **đã commit hay chưa**.
+
+| Tiêu chí | Dirty Read | Non-Repeatable Read |
+|---|---|---|
+| Dữ liệu được đọc | Chưa commit | Đã commit |
+| Số lần đọc cần thiết | Một lần là đủ | Phải đọc cùng dữ liệu ít nhất hai lần |
+| Nếu transaction ghi rollback | Giá trị đã đọc có thể biến mất | Không liên quan vì thay đổi đã commit |
+| Vấn đề chính | Đọc phải dữ liệu tạm thời, có thể không bao giờ trở thành sự thật | Kết quả thay đổi giữa hai lần đọc trong cùng transaction |
+| Thường có thể xảy ra ở | `READ UNCOMMITTED` | `READ COMMITTED` |
+
+Có thể ghi nhớ bằng hai timeline ngắn:
+
+```text
+Dirty Read:
+UPDATE → READ → ROLLBACK
+         ↑
+         Đọc khi thay đổi chưa commit
+
+Non-Repeatable Read:
+READ lần 1 → UPDATE + COMMIT → READ lần 2
+                                  ↑
+                                  Kết quả khác lần 1
 ```
+
+Khi gặp một ví dụ, hãy đặt hai câu hỏi theo thứ tự:
+
+1. **Giá trị được đọc đã commit chưa?** Nếu chưa, đó là Dirty Read.
+2. **Cùng dữ liệu có được đọc hai lần và cho kết quả khác nhau không?** Nếu có, đó là Non-Repeatable Read.
+
+Nói ngắn gọn: **Dirty Read quan tâm dữ liệu có hợp lệ hay chưa; Non-Repeatable Read quan tâm hai lần đọc có nhất quán hay không.**
 
 ### Phantom Read
 
-Transaction đọc một tập rows, transaction khác thêm/xóa rows thỏa mãn điều kiện, khi đọc lại thì thấy rows "ma" xuất hiện/biến mất.
+**Phantom Read** xảy ra khi một transaction chạy lại cùng một query nhưng nhận được **tập rows khác**. Transaction khác đã thêm, xóa hoặc làm một row đi vào/đi ra khỏi điều kiện tìm kiếm rồi commit ở giữa hai lần đọc.
 
+Ví dụ, ban đầu phòng IT có 10 nhân viên:
+
+```text
+TX1: SELECT * FROM employees WHERE dept = 'IT'
+     -- lần 1: nhận được 10 rows
+
+TX2: INSERT INTO employees (id, name, dept)
+     VALUES (99, 'Bình', 'IT')
+TX2: COMMIT
+
+TX1: SELECT * FROM employees WHERE dept = 'IT'
+     -- lần 2: nhận được 11 rows, xuất hiện thêm nhân viên Bình
 ```
-TX1: SELECT COUNT(*) FROM employees WHERE dept = 'IT'  → 10
-TX2: INSERT INTO employees (..., dept='IT'); COMMIT;
-TX1: SELECT COUNT(*) FROM employees WHERE dept = 'IT'  → 11  ← Phantom!
+
+Các row cũ không nhất thiết bị thay đổi. Một row mới xuất hiện trong kết quả giống như một "bóng ma", vì vậy hiện tượng này được gọi là Phantom Read.
+
+> Dấu hiệu nhận biết: cùng một **điều kiện tìm kiếm** nhưng danh sách rows ở lần đọc sau có thêm hoặc bớt phần tử.
+
+### Phân biệt Non-Repeatable Read và Phantom Read
+
+Hai hiện tượng có cùng cấu trúc nên rất dễ nhầm:
+
+```text
+TX1 đọc lần 1
+TX2 thay đổi dữ liệu rồi COMMIT
+TX1 đọc lần 2 → kết quả khác
 ```
+
+Điểm khác biệt nằm ở **thứ đã thay đổi**:
+
+| Tiêu chí | Non-Repeatable Read | Phantom Read |
+|---|---|---|
+| Cái thay đổi | Giá trị của cùng một row | Tập rows thỏa điều kiện |
+| Query điển hình | `WHERE id = 1` | `WHERE dept = 'IT'` |
+| Thao tác thường gây ra | `UPDATE` | `INSERT` hoặc `DELETE` |
+| Kết quả lần hai | Vẫn row đó nhưng nội dung khác | Có row xuất hiện hoặc biến mất |
+| Câu hỏi để nhận biết | "Cùng một đối tượng có đổi thông tin không?" | "Danh sách đối tượng có thêm hoặc bớt không?" |
+
+Ví dụ đời thường:
+
+- **Non-Repeatable Read:** đọc hồ sơ của An hai lần; lần đầu lương `20M`, lần sau lương `25M`.
+- **Phantom Read:** đọc danh sách nhân viên IT hai lần; lần sau xuất hiện thêm nhân viên Bình.
+
+Có thể ghi nhớ ngắn gọn:
+
+```text
+Non-Repeatable Read: cùng một row       → nội dung khác
+Phantom Read:       cùng một điều kiện → danh sách rows khác
+```
+
+Một trường hợp dễ gây nhầm là transaction khác dùng `UPDATE` để thay đổi phòng ban:
+
+```sql
+UPDATE employees
+SET dept = 'IT'
+WHERE id = 5;
+COMMIT;
+```
+
+Nếu TX1 chạy lại `SELECT * FROM employees WHERE dept = 'IT'` và thấy `id = 5` xuất hiện thêm, hiện tượng vẫn mang tính chất **Phantom Read**. Điều quan trọng không phải loại câu lệnh là `INSERT` hay `UPDATE`, mà là **tập rows thỏa điều kiện đã thay đổi**.
+
+Nói ngắn gọn: **Non-Repeatable Read theo dõi một row cụ thể; Phantom Read theo dõi một tập rows được xác định bởi điều kiện.**
 
 ### Lost Update
 

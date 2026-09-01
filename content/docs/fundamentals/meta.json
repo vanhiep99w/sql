@@ -6,6 +6,7 @@
     "acid-transaction",
     "isolation-levels",
     "lock",
+    "locking-isolation-relationship",
     "mvcc",
     "subquery-vs-cte-vs-temp-table",
     "delete-vs-truncate",
