@@ -1,6 +1,6 @@
 ---
 title: "Mối quan hệ giữa Locking Level, Locking Type và Isolation Level"
-description: "Hiểu ba góc nhìn độc lập của concurrency control và cách database kết hợp lock, thời gian giữ lock cùng MVCC để thực thi isolation"
+description: "Hiểu ba góc nhìn độc lập của concurrency control và cách database kết hợp lock, thời gian giữ lock cùng MVCC để thực thi isolation — vì sao có MVCC vẫn cần lock, và khác biệt thật sự giữa Optimistic và Pessimistic Locking"
 ---
 
 Ba khái niệm này thường xuất hiện cạnh nhau nhưng không nằm cùng một hệ phân loại. Cách hiểu ngắn nhất là: **Isolation Level đặt ra yêu cầu; Locking Type và Locking Level là một phần công cụ database có thể dùng để đáp ứng yêu cầu đó.**
@@ -32,7 +32,22 @@ Ba khái niệm này thường xuất hiện cạnh nhau nhưng không nằm cù
   - [MySQL InnoDB](#mysql-innodb)
 - [Range và Predicate Lock nằm ở đâu](#range-và-predicate-lock-nằm-ở-đâu)
 - [Optimistic và Pessimistic Locking nằm ở đâu](#optimistic-và-pessimistic-locking-nằm-ở-đâu)
+- [MVCC đã có snapshot, vì sao vẫn cần lock?](#mvcc-đã-có-snapshot-vì-sao-vẫn-cần-lock)
+  - [Snapshot chỉ dùng để đọc, còn ghi thì ghi vào đâu](#snapshot-chỉ-dùng-để-đọc-còn-ghi-thì-ghi-vào-đâu)
+  - [Ba loại xung đột, MVCC giải quyết hai phần ba](#ba-loại-xung-đột-mvcc-giải-quyết-hai-phần-ba)
+  - [Hai UPDATE đồng thời diễn ra thế nào](#hai-update-đồng-thời-diễn-ra-thế-nào)
+  - [SELECT FOR UPDATE và cột version đều là cách thoát snapshot](#select-for-update-và-cột-version-đều-là-cách-thoát-snapshot)
+- [Optimistic Lock cũng dùng lock DB, khác biệt nằm ở đâu?](#optimistic-lock-cũng-dùng-lock-db-khác-biệt-nằm-ở-đâu)
+  - [Timeline hai chiến lược cạnh nhau](#timeline-hai-chiến-lược-cạnh-nhau)
+  - [Optimistic Lock là protocol, không phải lock](#optimistic-lock-là-protocol-không-phải-lock)
+  - [Khi hai chiến lược hội tụ thành một](#khi-hai-chiến-lược-hội-tụ-thành-một)
 - [Database tự lock hay developer yêu cầu](#database-tự-lock-hay-developer-yêu-cầu)
+- [Vì sao developer hiếm khi viết lock tường minh](#vì-sao-developer-hiếm-khi-viết-lock-tường-minh)
+  - [Mọi UPDATE đã tự lấy lock rồi](#mọi-update-đã-tự-lấy-lock-rồi)
+  - [Dồn mọi thứ vào một câu SQL atomic](#dồn-mọi-thứ-vào-một-câu-sql-atomic)
+  - [Constraint chính là người gác cổng](#constraint-chính-là-người-gác-cổng)
+  - [Những chỗ thật sự cần lock tường minh](#những-chỗ-thật-sự-cần-lock-tường-minh)
+  - [Framework đã gói lock giùm](#framework-đã-gói-lock-giùm)
 - [Các cách hiểu sai thường gặp](#các-cách-hiểu-sai-thường-gặp)
 - [Cách phân tích một tình huống concurrency](#cách-phân-tích-một-tình-huống-concurrency)
 - [Tổng kết](#tổng-kết)
@@ -666,6 +681,163 @@ affected_rows = 0 → version đã đổi, cần xử lý conflict
 
 Database vẫn đặt lock nội bộ trong lúc thực thi `UPDATE`. "Optimistic" chỉ có nghĩa application không giữ explicit lock trong toàn bộ khoảng thời gian từ đọc đến ghi.
 
+## MVCC đã có snapshot, vì sao vẫn cần lock?
+
+Câu hỏi này nảy sinh rất tự nhiên: nếu mỗi transaction đã có snapshot riêng, reader không block writer, vậy lock còn để làm gì? Câu trả lời nằm ở sự khác biệt giữa **đọc** và **ghi**:
+
+> **Snapshot là cách nhìn quá khứ nhất quán. Lock là cách sắp xếp thứ tự ghi ở hiện tại.** MVCC loại bỏ sự chờ đợi giữa reader và writer, nhưng hai writer cùng ghi một row thì database vẫn buộc phải chọn thứ tự — và lock chính là công cụ để chọn.
+
+### Snapshot chỉ dùng để đọc, còn ghi thì ghi vào đâu
+
+Snapshot là bản sao cũ nhưng nhất quán để transaction *nhìn*. Khi `UPDATE` hay `DELETE`, transaction không thể sửa snapshot của mình — nó phải tạo **phiên bản mới nhất tiếp theo** của row trong version chain.
+
+Version chain phải tuyến tính:
+
+```text
+A → B → C → ...
+```
+
+Nếu hai transaction cùng đọc snapshot cũ và cùng ghi:
+
+```text
+stock = 10 (phiên bản A)
+
+T1 đọc snapshot: thấy 10
+T2 đọc snapshot: thấy 10
+
+T1: UPDATE → tạo phiên bản B (stock = 9)  ← "mới nhất"
+T2: UPDATE → tạo phiên bản... gì đây?      ← không thể có "B thứ hai"
+```
+
+Nếu T2 vẫn ghi dựa trên hiểu biết cũ (đọc 10, ghi 9), kết quả của T1 bị mất — đây chính là **lost update**. Mỗi bên đều có snapshot "hoàn hảo" của riêng mình; vấn đề là cả hai snapshot đều đã cũ vào thời điểm ghi.
+
+### Ba loại xung đột, MVCC giải quyết hai phần ba
+
+| Xung đột | MVCC giải quyết? | Ai giải quyết? |
+|---|---|---|
+| Read ↔ Read | ✅ vốn không xung đột | — |
+| Read ↔ Write | ✅ reader đọc snapshot, không thấy thay đổi | MVCC |
+| **Write ↔ Write** | ❌ | **Lock** (hoặc abort/retry) |
+
+> [!IMPORTANT]
+> MVCC không đồng nghĩa với "không cần lock". MVCC đồng nghĩa với "reader không bao giờ phải chờ". Writer với writer trên cùng một row vẫn phải sắp hàng.
+
+### Hai UPDATE đồng thời diễn ra thế nào
+
+Xét PostgreSQL ở `READ COMMITTED`, `stock = 10`, hai transaction cùng chạy:
+
+```sql
+-- T1
+UPDATE products SET stock = stock - 1 WHERE id = 1;
+
+-- T2, chạy đồng thời
+UPDATE products SET stock = stock - 1 WHERE id = 1;
+```
+
+Diễn biến bên trong:
+
+```text
+1. T1 lấy row lock trên id = 1
+   đọc 10 → tạo phiên bản mới (stock = 9) → giữ lock đến COMMIT
+
+2. T2 muốn lock cùng row → phải CHỜ
+   ← đây chính là lúc snapshot của T2 "vỡ lễ"
+
+3. T1 COMMIT → giải phóng lock
+
+4. T2 được đánh thức
+   đọc LẠI phiên bản mới nhất (9) — không dùng snapshot cũ — rồi ghi 8
+```
+
+Kết quả cuối cùng là 8, đúng như kỳ vọng. Hai chi tiết đáng chú ý:
+
+- T2 **không dùng snapshot của nó lúc ghi**. Nếu cứ dựa vào snapshot (10), kết quả cuối sẽ là 9 và bản ghi của T1 bị mất.
+- Chính nhờ hành vi "chờ lock rồi đọc lại giá trị mới nhất" mà câu `UPDATE ... WHERE stock > 0` an toàn mà không cần thêm optimistic hay pessimistic gì cả.
+
+Ở `REPEATABLE READ`, PostgreSQL xử lý khác: khi row T2 muốn sửa đã bị transaction khác thay đổi và commit, T2 nhận lỗi `could not serialize access due to concurrent update` — application phải retry. MySQL InnoDB thì luôn đọc bản hiện tại (current read) khi UPDATE, kết quả cũng là 8. Ba cách xử lý, một nguyên tắc chung: **xung đột write↔write không được phép lướt qua nhau**.
+
+### SELECT FOR UPDATE và cột version đều là cách thoát snapshot
+
+Trong một database có MVCC, `SELECT ... FOR UPDATE` tồn tại vì một lý do cụ thể: nó là lệnh **chủ động thoát khỏi snapshot** — "đưa tôi bản mới nhất và khóa nó lại, đừng cho tôi bản cũ". Snapshot tốt cho đọc; logic ghi đôi khi cần dữ liệu thật ở thời điểm hiện tại.
+
+Cột `version` của Optimistic Lock giải quyết cùng vấn đề từ hướng ngược lại. Nó trả lời câu hỏi mà snapshot không thể tự trả lời: *"snapshot của tôi còn mới không?"*
+
+```sql
+UPDATE products
+SET stock = 9, version = version + 1
+WHERE id = 1 AND version = 3;
+```
+
+- `affected_rows = 1` → snapshot còn hợp lệ, ghi được
+- `affected_rows = 0` → đã có người ghi trước → retry
+
+## Optimistic Lock cũng dùng lock DB, khác biệt nằm ở đâu?
+
+Câu UPDATE của Optimistic Lock vẫn lấy row lock, vậy khác biệt với Pessimistic nằm ở đâu? Câu trả lời không phải "lock hay không lock" mà là **lock khi nào và giữ trong bao lâu**.
+
+### Timeline hai chiến lược cạnh nhau
+
+Giả sử business logic (gọi API bên ngoài, tính toán, chờ người dùng...) mất 2 giây.
+
+Pessimistic lock **trước khi làm việc** và giữ **suốt quá trình**:
+
+```text
+T1: ─[SELECT FOR UPDATE]──[business logic 2s]──[UPDATE]──[COMMIT]──
+    ─────────────████████████████████████████████████████  ← giữ lock
+
+T2: ─────[SELECT FOR UPDATE → chờ 2 giây...]──[logic]──[UPDATE]──[COMMIT]
+```
+
+Optimistic cho mọi người **làm việc tự do**, chỉ lock **vài millisecond ở phút chót**:
+
+```text
+T1: ─[SELECT]──[business logic 2s]──[UPDATE + check version]─[COMMIT]─
+                                     ████  ← lock vài ms
+
+T2: ─[SELECT]──[business logic 2s, chạy SONG SONG]──[UPDATE → 0 rows]─[retry]
+                                                     ████
+```
+
+| | Pessimistic | Optimistic |
+|---|---|---|
+| Thời điểm lock | trước khi làm việc | sau khi làm xong việc |
+| Thời lượng lock | toàn bộ business logic | một câu UPDATE + commit (vài ms) |
+| Ai phải chờ | mọi writer cùng row, trong suốt | không ai chờ — người thua nhận ra rồi retry |
+| Giữ DB connection | cả thời gian làm logic | chỉ lúc ghi |
+| Deadlock risk | cao (giữ nhiều lock lâu) | gần bằng 0 (cửa sổ lock cực ngắn) |
+
+Ví dụ 100 request cùng sửa một khu dữ liệu, mỗi request mất 2 giây logic:
+
+- Pessimistic: 100 request xếp hàng dọc, request cuối chờ khoảng 200 giây; connection pool rất dễ cạn.
+- Optimistic: 100 request chạy logic song song; xung đột chỉ xảy ra ở khoảnh khắc ghi, người thua retry.
+
+### Optimistic Lock là protocol, không phải lock
+
+Cái tên gây hiểu lầm. Optimistic Locking thật ra là một **protocol phát hiện xung đột lúc ghi** (optimistic concurrency control), và protocol này tồn tại ở những nơi không hề có DB lock:
+
+| Hệ thống | Cơ chế |
+|---|---|
+| **Git** | commit lên branch riêng tự do; push bị reject nếu có người push trước → rebase rồi push lại |
+| **Redis** | `WATCH/MULTI/EXEC` abort transaction nếu key đã bị đổi |
+| **CPU** | lệnh compare-and-swap (`cmpxchg`) — nguyên tử trong một lệnh, nền tảng của lock-free programming |
+| **HTTP** | header `ETag` + `If-Match` — optimistic concurrency cho API |
+| **PostgreSQL SERIALIZABLE** | SSI abort transaction ở COMMIT nếu phát hiện dependency nguy hiểm |
+
+Trong trường hợp database + cột `version`, row lock của câu UPDATE chỉ là **cách cài đặt** để phép so sánh cuối cùng diễn ra nguyên tử. Lock là chi tiết implementation; protocol "làm tự do → validate lúc nộp → thua thì làm lại" mới là Optimistic Lock.
+
+### Khi hai chiến lược hội tụ thành một
+
+Nếu không có gì xảy ra giữa lúc đọc và lúc ghi — đọc và ghi nằm gọn trong cùng một câu lệnh — cuộc tranh luận optimistic vs pessimistic tự biến mất:
+
+```sql
+UPDATE products SET stock = stock - 1 WHERE id = 1 AND stock > 0;
+```
+
+Không có khoảng trống cho transaction nào chen vào. Câu lệnh này không cần optimistic (không có gì để race) cũng không cần pessimistic (không có khoảng chờ nào để khóa). Nó chỉ dùng implicit lock của chính UPDATE — và đó là giải pháp tối ưu.
+
+> [!TIP]
+> Cuộc tranh luận pessimistic vs optimistic chỉ tồn tại khi **có khoảng thời gian làm việc giữa lúc đọc và lúc ghi** (logic trong app, gọi API, chờ người dùng). Khi đó mới phải chọn: khóa khoảng thời gian đó ngay từ đầu (pessimistic), hoặc cho chạy tự do rồi kiểm tra lúc ghi (optimistic).
+
 ## Database tự lock hay developer yêu cầu
 
 Cả hai trường hợp đều tồn tại:
@@ -681,6 +853,88 @@ Cả hai trường hợp đều tồn tại:
 
 Developer không tự khóa row trong storage engine. Developer chọn strategy, isolation hoặc explicit locking clause; database mới là thành phần tạo, theo dõi, chờ và giải phóng lock.
 
+## Vì sao developer hiếm khi viết lock tường minh
+
+Nhiều developer làm việc nhiều năm mà chưa từng viết `FOR UPDATE`. Không phải vì lock hiếm khi cần — mà vì các pattern hiện đại đã "hóa giải" nhu cầu viết lock tường minh.
+
+### Mọi UPDATE đã tự lấy lock rồi
+
+```sql
+UPDATE users SET name = 'John' WHERE id = 5;
+```
+
+Database tự động lấy row lock trên row đó cho đến khi COMMIT. Hai request cùng UPDATE một row → cái sau tự chờ cái trước. Developer không thấy gì vì mọi thứ diễn ra ngầm.
+
+`SELECT ... FOR UPDATE` chỉ là cách **mượn tay database lấy lock sớm hơn** — từ lúc SELECT thay vì đợi đến lúc UPDATE. Nó không phải tính năng đặc biệt, chỉ là dịch thời điểm lock.
+
+### Dồn mọi thứ vào một câu SQL atomic
+
+Bài toán kinh điển "đọc → check → ghi" viết trong application:
+
+```js
+// ❌ Race condition — hai request cùng chạy sẽ oversell
+const { stock } = await db.product.findById(1); // stock = 5
+if (stock > 0) {
+  await db.product.update(1, { stock: stock - 1 });
+}
+```
+
+Giải pháp không cần lock tường minh:
+
+```sql
+-- ✅ Row lock tự động của UPDATE + tính toán atomic trong một câu
+UPDATE products
+SET stock = stock - 1
+WHERE id = 1 AND stock > 0;
+```
+
+Application chỉ cần check `affected_rows`: bằng 0 nghĩa là hết hàng. Đa số bài toán "tưởng cần lock" biến mất với pattern này.
+
+### Constraint chính là người gác cổng
+
+```sql
+ALTER TABLE users ADD CONSTRAINT uq_email UNIQUE (email);
+```
+
+Hai request signup cùng email chạy đồng thời → database tự chặn một cái bằng unique index. Application chỉ cần catch duplicate key error. Tương tự với idempotency key:
+
+```sql
+INSERT INTO payments (idempotency_key, amount, ...)
+VALUES ('pay_abc123', 500000, ...);
+-- UNIQUE constraint chặn request thứ hai
+-- → nhấn nút thanh toán hai lần không bị trừ tiền hai lần
+```
+
+### Những chỗ thật sự cần lock tường minh
+
+- **Chuyển tiền / trừ số dư** — check-then-act trải nhiều row, cần `FOR UPDATE` để việc check số dư an toàn.
+- **Job queue chạy trên database** — `FOR UPDATE SKIP LOCKED` cho phép nhiều worker kéo job mà không chờ nhau, không nhận trùng job:
+
+```sql
+SELECT *
+FROM jobs
+WHERE status = 'pending'
+ORDER BY created_at
+LIMIT 1
+FOR UPDATE SKIP LOCKED;
+```
+
+- **Sinh số thứ tự theo format riêng** (ví dụ `INV-2026-0001`) — dùng counter row + `FOR UPDATE` để không sinh trùng số.
+
+### Framework đã gói lock giùm
+
+| Framework | Pessimistic | Optimistic |
+|---|---|---|
+| Django | `select_for_update()` | `F()` expressions |
+| Laravel | `lockForUpdate()` | — |
+| JPA/Hibernate | `@Lock(PESSIMISTIC_WRITE)` | `@Version` |
+| GORM | `Clauses(clause.Locking{...})` | optimistic locking |
+
+Rất có thể bạn đã từng thấy `@Version` trong Java hay `select_for_update()` trong Python mà không nhận ra đó chính là lock.
+
+> [!WARNING]
+> Race condition là bug thầm lặng: nó xảy ra một lần trong hàng chục nghìn request, không reproduce được, không để lại log. Nhiều hệ thống đang mang bug concurrency mà team không hề hay biết. Dấu hiệu sắp cần lock: có logic *đọc → tính toán trong application → ghi lại* trên dữ liệu mà nhiều request có thể cùng chạm (số dư, tồn kho, trạng thái booking...).
+
 ## Các cách hiểu sai thường gặp
 
 | Cách hiểu sai | Cách hiểu đúng |
@@ -691,6 +945,8 @@ Developer không tự khóa row trong storage engine. Developer chọn strategy,
 | Exclusive Lock luôn block mọi reader | Trong MVCC, reader thường đọc version cũ đã commit và không lấy lock xung đột |
 | Optimistic Lock hoàn toàn không có DB lock | Conditional `UPDATE` vẫn cần lock nội bộ; chỉ không giữ explicit lock từ read đến write |
 | Predicate Lock của PostgreSQL chặn `INSERT` | `SIReadLock` chủ yếu theo dõi dependency; PostgreSQL thường abort thay vì block writer |
+| "Có MVCC rồi thì không cần lock" | MVCC chỉ hóa giải xung đột read↔write; write↔write trên cùng row vẫn phải lock hoặc abort/retry |
+| "Không viết lock nghĩa là hệ thống không dùng lock" | Mọi `UPDATE`/`DELETE` đều lấy lock ngầm; constraint và framework cũng đang dựa vào lock |
 
 ## Cách phân tích một tình huống concurrency
 
@@ -749,6 +1005,10 @@ Database implementation
 Điểm cần nhớ nhất:
 
 > **Isolation Level quy định kết quả cần đảm bảo. Locking Type và Locking Level chỉ là hai trong số các công cụ triển khai; thời gian giữ lock và MVCC mới hoàn thiện bức tranh.**
+
+Nhìn từ góc độ chiến lược xử lý conflict:
+
+> **Snapshot là cách nhìn quá khứ nhất quán, lock là cách sắp xếp thứ tự ghi ở hiện tại. Pessimistic mượn lock sớm và giữ lâu. Optimistic hoãn lock lại đến phút chót và giữ ngắn nhất có thể. Khi đọc và ghi gộp chung trong một câu lệnh, hai chiến lược hội tụ thành một — implicit lock của chính câu lệnh đó.**
 
 ## Tài liệu liên quan
 
