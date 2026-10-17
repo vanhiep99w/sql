@@ -10,6 +10,7 @@
     "application-concurrency-locking",
     "mvcc",
     "subquery-vs-cte-vs-temp-table",
+    "view-vs-materialized-view",
     "delete-vs-truncate",
     "join-deep-dive"
   ]
