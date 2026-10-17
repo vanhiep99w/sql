@@ -3,6 +3,12 @@ title: "LIKE, Pattern Search & B-Tree"
 description: "Mổ xẻ chi tiết tại sao LIKE '%keyword%' bỏ qua index — character set, collation, B-Tree internals, access vs filter predicate, bind parameter trap, trigram GIN, full-text search, suffix index. Kèm benchmark và EXPLAIN ANALYZE."
 ---
 
+<SourceRef project="optimization-like-query-deep-dive" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Bối cảnh: Câu chuyện 15 giây trên bảng 10 triệu rows](#1-bối-cảnh-câu-chuyện-15-giây-trên-bảng-10-triệu-rows)
@@ -181,13 +187,23 @@ Trước khi đi vào phần chính, có **3 ý** ta cần nhớ về B-Tree (ch
 
 Mỗi node B-Tree nhồi được **hàng trăm key** vào một page (8KB Postgres, 16KB MySQL). Dù bảng có hàng triệu hay hàng tỷ dòng, chỉ cần **3–4 lần nhảy** là tới leaf.
 
-```
-                            [Root  page]               ← page 1
-                          /      |      \
-                  [Inter1]   [Inter2]   [Inter3]       ← Internal pages
-                  /  |  \    /  |  \    /  |  \
-              [L1][L2][L3]...                          ← Leaf pages
-                ⇄   ⇄   ⇄  (linked list ngang)
+```d2 title="B+Tree cho LIKE prefix"
+direction: down
+root: Root page — page 1
+a: Internal 1
+b: Internal 2
+c: Internal 3
+l1: L1
+l2: L2
+l3: L3 và các leaf tiếp theo
+root -> a
+root -> b
+root -> c
+a -> l1
+a -> l2
+a -> l3
+l1 <-> l2
+l2 <-> l3
 ```
 
 Với fanout trung bình **~200 keys/page**:
@@ -206,10 +222,19 @@ Với fanout trung bình **~200 keys/page**:
 
 Một khi tìm được leaf đầu tiên, database có thể **đi thẳng sang phải** mà không cần quay lại root. Đây là cơ chế làm **range scan** cực nhanh — chìa khóa để hiểu prefix search.
 
-```
-[L1] ⇄ [L2] ⇄ [L3] ⇄ [L4] ⇄ [L5] ⇄ [L6] ⇄ ...
-        ↑                          ↑
-      start                       stop
+```d2 title="Start và stop của range scan"
+direction: right
+l1: L1
+l2: "L2 — start"
+l3: L3
+l4: L4
+l5: "L5 — stop"
+l6: "L6..."
+l1 <-> l2
+l2 <-> l3
+l3 <-> l4
+l4 <-> l5
+l5 <-> l6
 ```
 
 Cơ chế này dùng cho:
@@ -253,13 +278,13 @@ Optimizer đọc prefix 'SQL' → tính:
 
 Quy trình thực thi (`Index Range Scan`):
 
-```diagram
-╭───────────────────────────────────────────────────────╮
-│ 1. Nhảy xuống leaf chứa 'SQL'    (3 page reads)       │
-│ 2. Đi thẳng sang phải qua linked list                 │
-│ 3. Mỗi entry: lấy CTID/RowID → fetch row data         │
-│ 4. Dừng khi gặp key >= 'SQM'                          │
-╰───────────────────────────────────────────────────────╯
+```d2 title="LIKE prefix: seek rồi range scan"
+direction: right
+n0: "Nhảy xuống leaf chứa SQL — ví dụ 3 page reads"
+n1: "Đi sang phải qua linked list"
+n2: "Mỗi entry lấy CTID / RowID và fetch row khi cần"
+n3: "Dừng khi key ≥ SQM theo quy tắc so sánh của ví dụ"
+n0 -> n1 -> n2 -> n3
 ```
 
 EXPLAIN tương ứng (Postgres, sau khi có `text_pattern_ops` index):
@@ -1191,16 +1216,14 @@ Khi scale lên **hàng trăm triệu rows**, hoặc cần:
 
 ### 13.3. Pattern phổ biến: Postgres + Elasticsearch sync
 
-```diagram
-╭───────────────╮     CDC      ╭───────────────╮
-│  Postgres     │─────────────▶│ Elasticsearch │
-│  (source of   │  Debezium /  │  (search +    │
-│   truth)      │  logical rep │   aggregation)│
-╰───────────────╯              ╰───────────────╯
-       ▲                              ▲
-       │ writes                       │ search queries
-       │                              │
-       ╰──────── App ─────────────────╯
+```d2 title="Postgres là nguồn dữ liệu, Elasticsearch phục vụ search"
+direction: right
+pg: "Postgres: source of truth"
+es: "Elasticsearch: search + aggregation"
+app: "App"
+app -> pg: "writes"
+pg -> es: "CDC: Debezium / logical replication"
+app -> es: "search queries"
 ```
 
 - **Postgres** giữ canonical data, transaction integrity.
@@ -1294,11 +1317,13 @@ WHERE email_rev LIKE reverse(lower($1)) || '%';
 
 **Giải pháp**: Move khỏi Postgres → Elasticsearch / Loki / Clickhouse.
 
-```diagram
-╭──────────╮  Fluent Bit   ╭───────────────╮  Kibana
-│   App    │──────────────▶│ Elasticsearch │ ◀──── User
-│  logs    │  / Vector     │  + index      │
-╰──────────╯               ╰───────────────╯
+```d2 title="Pipeline tìm kiếm log"
+direction: right
+app: "App logs"
+es: "Elasticsearch + index"
+user: "User / Kibana"
+app -> es: "Fluent Bit / Vector"
+user -> es: "truy vấn bằng Kibana"
 ```
 
 Postgres không phải tool cho log search ở scale này — write rate cao + cardinality lớn sẽ phá GIN index.

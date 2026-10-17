@@ -3,6 +3,12 @@ title: "Primary Key: Integer vs UUIDv4 vs UUIDv7"
 description: "Mổ xẻ cách database lưu primary key dưới B+Tree, vì sao UUIDv4 gây page split và index fragmentation, UUIDv7 hoạt động ra sao, cùng benchmark và playbook migration cho Postgres/MySQL/SQL Server."
 ---
 
+<SourceRef project="optimization-primary-key-uuid-vs-integer-deep-dive" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Bối cảnh: Câu hỏi đầu tiên mỗi khi tạo bảng](#1-bối-cảnh-câu-hỏi-đầu-tiên-mỗi-khi-tạo-bảng)
@@ -105,12 +111,17 @@ CREATE TABLE users (id BIGSERIAL PRIMARY KEY, ...);
 
 Sequence được lưu trên đĩa (Postgres) hoặc trong memory (MySQL InnoDB `auto_increment_offset`). Mỗi `nextval()` đều cần **acquire một latch ngắn** để bump counter.
 
-```diagram
-╭───────────────────────────────────────────────────────╮
-│  Backend A ──┐                                        │
-│  Backend B ──┼──▶ [Sequence Latch] ──▶ next_value++   │
-│  Backend C ──┘                                        │
-╰───────────────────────────────────────────────────────╯
+```d2 title="Sequence là điểm phối hợp cấp ID"
+direction: right
+a: "Backend A"
+b: "Backend B"
+c: "Backend C"
+latch: "Sequence Latch"
+value: "next_value++"
+a -> latch
+b -> latch
+c -> latch
+latch -> value
 ```
 
 Trên một node single-master, latch này nhanh tới mức **không ai để ý**. Nhưng trên hệ thống multi-master hoặc khi muốn **cấp ID ở phía client**, sequence là rào cản — chúng ta sẽ quay lại ở mục 16.
@@ -193,17 +204,19 @@ Insert ID = 1, 2, 3, …, 9999, 10000 — kịch bản trong mơ của B+Tree. H
 
 ### 4.1. Mọi insert đều đi vào rìa phải
 
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│       Root                                                   │
-│      / | \                                                   │
-│    ...    \                                                  │
-│            \                                                 │
-│  Leaf-N-2 ⇄ Leaf-N-1 ⇄ Leaf-N (rightmost)  ← insert ở đây    │
-│                                  ▲                           │
-│                                  │                           │
-│                          new id luôn lớn hơn id cũ           │
-╰──────────────────────────────────────────────────────────────╯
+```d2 title="ID tăng dần đi về leaf ngoài cùng bên phải"
+direction: down
+root: Root
+leaf_left: "Leaf-N-2"
+middle: "Leaf-N-1"
+leaf_right: "Leaf-N — rightmost"
+new: New ID lớn hơn ID cũ
+root -> leaf_left
+root -> middle
+root -> leaf_right
+leaf_left <-> middle
+middle <-> leaf_right
+new -> leaf_right: insert tại đây
 ```
 
 Khi rightmost leaf đầy:
@@ -411,14 +424,13 @@ Khi leaf split, key separator mới được đẩy lên parent. Nếu parent c�
 
 Một insert có thể chạm **2-3 page split** liên tiếp.
 
-```diagram
-                Root (full)              Root (split → cây cao thêm 1)
-                /    \                       /        \
-              N1      N2  ─ insert ─▶     N1'         N2'
-             / \     / \                  / \         / \
-            L   L   L   L                L'  L'      L'  L
-            ▲                                       ▲
-            page split here                cây vừa tăng 1 level
+```d2 title="Page split có thể lan tới root"
+direction: right
+n0: "Insert vào leaf → page split"
+n1: "Parent thêm separator, có thể split tiếp"
+n2: "Root đầy → split root"
+n3: "Root mới: cây cao thêm một level"
+n0 -> n1 -> n2 -> n3
 ```
 
 Trên BIGSERIAL điều này **gần như không xảy ra** sau khi cây đã hình thành.
@@ -806,6 +818,10 @@ END
 $$ LANGUAGE plpgsql VOLATILE;
 ```
 
+<SourceRef project="optimization-primary-key-uuid-vs-integer-deep-dive" file="1213-uuidv7--extension-cho-version-18/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 #### 12.1.4. Phía client (Node.js)
 
 ```javascript
@@ -879,6 +895,10 @@ CREATE TABLE users (
     email VARCHAR(255)
 );
 ```
+
+<SourceRef project="optimization-primary-key-uuid-vs-integer-deep-dive" file="1223-uuidv7-trên-mysql/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ### 12.3. SQL Server
 
@@ -1078,19 +1098,14 @@ Trong kiến trúc microservice / multi-region / offline-first mobile:
 
 UUID (mọi version) đều cho phép **client sinh ID, server chỉ insert**.
 
-```diagram
-╭─────────────────────────────────────────────────────────────╮
-│  Mobile App (offline)                                       │
-│    └─▶ uuid.v7() → 'create order' (queued)                  │
-│                                                             │
-│  Sau khi online:                                            │
-│    POST /orders {id: '0190...', items: [...]}               │
-│                                                             │
-│  Server: INSERT ... (id từ client) ON CONFLICT DO NOTHING   │
-│                                                             │
-│  ✅ Idempotent retry: nếu lần POST trước đã commit, ID đã   │
-│     có trong DB → conflict → no-op. Không cần check khác.   │
-╰─────────────────────────────────────────────────────────────╯
+```d2 title="Mobile offline tạo ID và retry"
+direction: right
+n0: "Mobile offline: uuid.v7()"
+n1: "Queue create order"
+n2: "Online: POST /orders với id 0190... và items"
+n3: "Server INSERT id từ client ON CONFLICT DO NOTHING"
+n4: "Nếu ID đã commit trước đó: conflict → no-op"
+n0 -> n1 -> n2 -> n3 -> n4
 ```
 
 ### 16.2. Collision math — chính xác và an tâm
@@ -1165,6 +1180,10 @@ CREATE UNIQUE INDEX CONCURRENTLY idx_orders_id_v7 ON orders(id_v7);
 ALTER TABLE orders ALTER COLUMN id_v7 SET NOT NULL;
 ALTER TABLE orders ALTER COLUMN id_v7 SET DEFAULT uuid_generate_v7();
 ```
+
+<SourceRef project="optimization-primary-key-uuid-vs-integer-deep-dive" file="171-bước-1--thêm-cột-uuid-song-song/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ### 17.2. Bước 2 — Dual-write trong app
 

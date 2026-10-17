@@ -3,6 +3,12 @@ title: "Subquery vs CTE vs Temp Table"
 description: "Mổ xẻ chi tiết 3 cách tổ chức query phức tạp trong SQL — khi nào dùng subquery, khi nào CTE, khi nào temp table. Kèm execution plan, benchmark, recursive CTE, materialization trap, và real-world patterns."
 ---
 
+<SourceRef project="fundamentals-subquery-vs-cte-vs-temp-table" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Bối cảnh: Khi một câu query 200 dòng không ai dám đụng vào](#1-bối-cảnh-khi-một-câu-query-200-dòng-không-ai-dám-đụng-vào)
@@ -55,6 +61,10 @@ WHERE u.created_at >= '2024-01-01'
 ORDER BY total_revenue DESC
 LIMIT 50;
 ```
+
+<SourceRef project="fundamentals-subquery-vs-cte-vs-temp-table" file="1-bối-cảnh-khi-một-câu-query-200-dòng-không-ai-dám-đụng-vào/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 **5 correlated subqueries** trong SELECT, **2 nested subqueries** trong WHERE, **không có comment**. Mỗi subquery chạy cho **mỗi row** của outer query. Trên bảng 2 triệu users → hàng triệu lần thực thi.
 
@@ -297,6 +307,10 @@ WHERE s.segment = 'VIP'
 ORDER BY s.total_revenue DESC;
 ```
 
+<SourceRef project="fundamentals-subquery-vs-cte-vs-temp-table" file="42-nhiều-cte--pipeline-processing/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 So sánh nếu viết bằng **subquery lồng**:
 
 ```sql
@@ -442,6 +456,10 @@ FROM (
 GROUP BY segment;
 ```
 
+<SourceRef project="fundamentals-subquery-vs-cte-vs-temp-table" file="51-temp-table-là-gì/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ### 5.2. Temp Table trên các DB
 
 | Feature | PostgreSQL | MySQL | Oracle | SQL Server |
@@ -487,6 +505,10 @@ SELECT CORR(order_count, revenue) AS correlation FROM tmp_user_stats;
 -- Cleanup
 DROP TABLE tmp_user_stats;
 ```
+
+<SourceRef project="fundamentals-subquery-vs-cte-vs-temp-table" file="case-1-kết-quả-trung-gian-dùng-nhiều-lần/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 Với CTE hoặc subquery, logic `SELECT ... FROM orders GROUP BY user_id` phải **chạy lại từ đầu** cho mỗi query — aggregate 20 triệu rows **4 lần**. Temp table chạy **1 lần** duy nhất.
 
@@ -825,22 +847,34 @@ INSERT INTO categories VALUES
 (12, 'Shirts', 11);
 ```
 
-```diagram
-╭───────────────────────────────────────────────────╮
-│  Electronics (1)                                  │
-│  ├── Computers (2)                                │
-│  │   ├── Laptops (3)                              │
-│  │   │   ├── Gaming Laptops (4)                   │
-│  │   │   └── Business Laptops (5)                 │
-│  │   └── Desktops (6)                             │
-│  └── Phones (7)                                   │
-│      ├── Smartphones (8)                          │
-│      └── Feature Phones (9)                       │
-│                                                   │
-│  Clothing (10)                                    │
-│  └── Men (11)                                     │
-│      └── Shirts (12)                              │
-╰───────────────────────────────────────────────────╯
+<SourceRef project="fundamentals-subquery-vs-cte-vs-temp-table" file="81-vấn-đề-duyệt-dữ-liệu-phân-cấp/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
+```d2 title="Cây danh mục cho recursive CTE"
+direction: down
+e: "Electronics (1)"
+c: "Computers (2)"
+l: "Laptops (3)"
+g: "Gaming Laptops (4)"
+b: "Business Laptops (5)"
+d: "Desktops (6)"
+p: "Phones (7)"
+s: "Smartphones (8)"
+ft: "Feature Phones (9)"
+cl: "Clothing (10)"
+m: "Men (11)"
+sh: "Shirts (12)"
+e -> c
+c -> l
+l -> g
+l -> b
+c -> d
+e -> p
+p -> s
+p -> ft
+cl -> m
+m -> sh
 ```
 
 **Bài toán**: Lấy tất cả subcategories của "Electronics" (bao gồm chính nó) — bất kể sâu bao nhiêu level.

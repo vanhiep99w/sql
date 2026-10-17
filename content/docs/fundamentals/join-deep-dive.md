@@ -5,6 +5,12 @@ description: "Mổ xẻ chi tiết JOIN trong SQL — INNER/LEFT/RIGHT/FULL/CROS
 
 # JOIN & Join Algorithms — Deep Dive
 
+<SourceRef project="fundamentals-join-deep-dive" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Bối cảnh: Cùng một JOIN, hai plan, chênh nhau 400 lần](#1-bối-cảnh-cùng-một-join-hai-plan-chênh-nhau-400-lần)
@@ -78,19 +84,11 @@ Trong doc này ta sẽ mổ xẻ:
 
 Đây là điểm nhầm lẫn lớn nhất của người mới. `INNER JOIN`, `LEFT JOIN` là **cú pháp logic** — mô tả **kết quả mong muốn**. Chúng **không** quyết định cách DB thực thi.
 
-```
-┌────────────────────────────────────────────────────────────┐
-│  TẦNG LOGIC (bạn viết)                                     │
-│  INNER JOIN · LEFT JOIN · RIGHT JOIN · FULL JOIN · CROSS   │
-│  → Định nghĩa: row nào xuất hiện trong kết quả             │
-└───────────────────────────┬────────────────────────────────┘
-                            │ optimizer dịch
-                            ▼
-┌────────────────────────────────────────────────────────────┐
-│  TẦNG VẬT LÝ (DB chạy)                                     │
-│  Nested Loop · Hash Join · Merge Join                      │
-│  → Định nghĩa: CÁCH ghép hai tập row lại với nhau          │
-└────────────────────────────────────────────────────────────┘
+```d2 title="JOIN logic và thuật toán vật lý"
+direction: down
+logic: "Tầng logic: INNER / LEFT / RIGHT / FULL / CROSS — row nào xuất hiện?"
+physical: "Tầng vật lý: Nested Loop / Hash / Merge — ghép row bằng cách nào?"
+logic -> physical: "optimizer dịch"
 ```
 
 Ví dụ minh họa: cùng một `INNER JOIN` dưới đây có thể được thực thi bằng **cả ba** thuật toán tùy dữ liệu và index:
@@ -181,12 +179,12 @@ NULL │ 999    ← order không có customer
 
 Mỗi row bên trái ghép với **mọi** row bên phải. 3 customer × 4 order = **12 row**. Nguy hiểm khi quên điều kiện JOIN → tạo ra "accidental cross join" bùng nổ số row.
 
-```mermaid
-graph LR
-    A["INNER<br/>chỉ phần giao"] 
-    B["LEFT<br/>tất cả trái + giao"]
-    C["FULL<br/>tất cả hai bên"]
-    D["CROSS<br/>mọi cặp có thể"]
+```d2 title="3.5. CROSS JOIN — Tích Descartes"
+direction: right
+A: "INNER\nchỉ phần giao"
+B: "LEFT\ntất cả trái + giao"
+C: "FULL\ntất cả hai bên"
+D: "CROSS\nmọi cặp có thể"
 ```
 
 > [!TIP]
@@ -284,23 +282,30 @@ Khi outer **lớn** mà optimizer vẫn chọn Nested Loop (thường do đoán 
 
 Hash Join gồm **2 pha**:
 
+```d2 title="Hash Join gồm hai pha"
+direction: right
+n0: "BUILD: chọn bảng nhỏ hơn"
+n1: "Đọc và băm cột join → hash table trong RAM"
+n2: "PROBE: đọc bảng lớn từng row"
+n3: "Băm cột join → tra hash table"
+n4: "Khớp thì xuất kết quả"
+n0 -> n1 -> n2 -> n3 -> n4
 ```
-PHA 1 — BUILD:
-    Chọn bảng nhỏ hơn (build input).
-    Đọc toàn bộ, băm cột join → dựng hash table trong RAM.
 
-PHA 2 — PROBE:
-    Đọc bảng lớn (probe input) từng row.
-    Băm cột join của row → tra hash table → khớp thì xuất.
-```
-
-```
-BUILD (customers nhỏ)                PROBE (orders lớn)
-┌─────────────────┐
-│ hash(1) → An    │  ◀── tra ───  order(customer_id=1) → khớp An
-│ hash(2) → Bình  │  ◀── tra ───  order(customer_id=2) → khớp Bình
-│ hash(3) → Chi   │               order(customer_id=9) → không có → bỏ
-└─────────────────┘
+```d2 title="Build customers, probe orders"
+direction: right
+hash_table: Hash table từ customers {
+  a: hash(1) → An
+  b: hash(2) → Bình
+  c: hash(3) → Chi
+}
+o1: Order customer_id=1
+o2: Order customer_id=2
+o9: Order customer_id=9
+miss: Không có key 9 — bỏ
+o1 -> hash_table.a: khớp An
+o2 -> hash_table.b: khớp Bình
+o9 -> miss
 ```
 
 ### 5.2. Vì sao nhanh
@@ -402,15 +407,23 @@ Không có node `Sort` → cả hai đầu vào lấy từ Index Scan (đã sort
 | **Điểm chết** | Outer lớn → cực chậm | Build tràn RAM → tràn đĩa | Phải sort 2 bảng lớn |
 | **Điển hình** | OLTP, lookup vài row | OLAP, join 2 bảng lớn | Join theo PK/FK đã index |
 
-```mermaid
-graph TD
-    Start["JOIN a và b"] --> Q1{"Một bảng<br/>rất nhỏ?"}
-    Q1 -->|Có, và bảng kia<br/>có index| NL["Nested Loop"]
-    Q1 -->|Không| Q2{"Cả hai đã<br/>sorted theo<br/>cột join?"}
-    Q2 -->|Có| MJ["Merge Join"]
-    Q2 -->|Không| Q3{"Equi-join<br/>và đủ RAM?"}
-    Q3 -->|Có| HJ["Hash Join"]
-    Q3 -->|Không| MJ2["Merge Join<br/>+ Sort"]
+```d2 title="7. Bảng so sánh 3 thuật toán"
+direction: down
+Start: "JOIN a và b"
+Q1: "Một bảng\nrất nhỏ?" { shape: diamond }
+NL: "Nested Loop"
+Q2: "Cả hai đã\nsorted theo\ncột join?" { shape: diamond }
+MJ: "Merge Join"
+Q3: "Equi-join\nvà đủ RAM?" { shape: diamond }
+HJ: "Hash Join"
+MJ2: "Merge Join\n+ Sort"
+Start -> Q1
+Q1 -> NL: "Có, và bảng kia\ncó index"
+Q1 -> Q2: "Không"
+Q2 -> MJ: "Có"
+Q2 -> Q3: "Không"
+Q3 -> HJ: "Có"
+Q3 -> MJ2: "Không"
 ```
 
 ---

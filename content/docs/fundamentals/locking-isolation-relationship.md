@@ -5,6 +5,12 @@ description: "Hiểu ba góc nhìn độc lập của concurrency control và c�
 
 Ba khái niệm này thường xuất hiện cạnh nhau nhưng không nằm cùng một hệ phân loại. Cách hiểu ngắn nhất là: **Isolation Level đặt ra yêu cầu; Locking Type và Locking Level là một phần công cụ database có thể dùng để đáp ứng yêu cầu đó.**
 
+<SourceRef project="fundamentals-locking-isolation-relationship" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Mô hình tổng quát](#mô-hình-tổng-quát)
@@ -59,19 +65,21 @@ Ba khái niệm này thường xuất hiện cạnh nhau nhưng không nằm cù
 
 Hãy hình dung quá trình database xử lý concurrency theo hai tầng:
 
-```text
-TẦNG YÊU CẦU
-Isolation Level
-"Transaction phải được bảo vệ đến mức nào?"
-        │
-        ▼
-TẦNG THỰC THI
-Database kết hợp:
-├── Locking Type   — Shared, Exclusive, Intent...
-├── Locking Level  — Row, Page, Table, Range...
-├── Lock Duration  — giữ đến hết statement hay transaction
-├── MVCC Snapshot  — transaction nhìn thấy version nào
-└── Conflict Check — block, deadlock detection hoặc abort/retry
+```d2 title="Isolation là yêu cầu, cơ chế là cách thực thi"
+direction: right
+iso: "Isolation requirement: transaction cần an toàn đến mức nào?"
+db: "Database implementation"
+type: "Locking Type: Shared / Exclusive / Intent"
+level: "Locking Level: Row / Page / Table / Range"
+duration: "Lock Duration: statement / transaction"
+snapshot: "MVCC Snapshot: version được thấy"
+conflict: "Conflict Detection: block / deadlock / abort / retry"
+iso -> db
+db -> type
+db -> level
+db -> duration
+db -> snapshot
+db -> conflict
 ```
 
 Không có ánh xạ một-một như:
@@ -87,48 +95,60 @@ Cùng một Isolation Level có thể được database A thực hiện bằng l
 
 Để không trộn lẫn các khái niệm, hãy đi từ **yêu cầu của application** xuống **cách storage engine thực thi**. Isolation Level, MVCC và locking nằm ở các tầng khác nhau:
 
-```mermaid
-flowchart TD
-    A["Application / ORM"] -->|"BEGIN, SQL, isolation, FOR UPDATE"| B["Transaction của database"]
-    B --> C["Isolation contract<br/>Kết quả phải an toàn đến mức nào?"]
-    B --> O{"Loại thao tác"}
-
-    O -->|"Plain SELECT"| R["Luồng đọc / visibility"]
-    O -->|"SELECT FOR UPDATE"| LR["Luồng đọc có khóa"]
-    O -->|"INSERT / UPDATE / DELETE"| W["Luồng ghi"]
-
-    C --> S["Snapshot policy<br/>mỗi statement hay cả transaction"]
-    C --> D["Conflict policy<br/>cho chạy, block hay abort"]
-
-    R --> S
-    S --> M["MVCC visibility<br/>chọn row version phù hợp"]
-    M --> V[("Row versions<br/>heap hoặc undo")]
-
-    LR --> L["Lock manager"]
-    W --> L
-    W --> V
-    L --> LM["Mode + Granularity + Duration"]
-
-    D --> X["Conflict detection<br/>deadlock, SSI, write conflict"]
-    LM --> X
-    X --> K{"Kết quả"}
-    K -->|"Không xung đột"| OK["Tiếp tục / COMMIT"]
-    K -->|"Phải chờ"| WAIT["BLOCK rồi tiếp tục"]
-    K -->|"Không thể an toàn"| ABORT["ROLLBACK / app retry"]
-
-    V --> CLEAN["VACUUM / purge / undo retention"]
+```d2 title="Bức tranh toàn cảnh"
+direction: down
+A: "Application / ORM"
+B: "Transaction của database"
+C: "Isolation contract\nKết quả phải an toàn đến mức nào?"
+O: "Loại thao tác" { shape: diamond }
+R: "Luồng đọc / visibility"
+LR: "Luồng đọc có khóa"
+W: "Luồng ghi"
+S: "Snapshot policy\nmỗi statement hay cả transaction"
+D: "Conflict policy\ncho chạy, block hay abort"
+M: "MVCC visibility\nchọn row version phù hợp"
+V: "Row versions\nheap hoặc undo" { shape: cylinder }
+L: "Lock manager"
+LM: "Mode + Granularity + Duration"
+X: "Conflict detection\ndeadlock, SSI, write conflict"
+K: "Kết quả" { shape: diamond }
+OK: "Tiếp tục / COMMIT"
+WAIT: "BLOCK rồi tiếp tục"
+ABORT: "ROLLBACK / app retry"
+CLEAN: "VACUUM / purge / undo retention"
+A -> B: "BEGIN, SQL, isolation, FOR UPDATE"
+B -> C
+B -> O
+O -> R: "Plain SELECT"
+O -> LR: "SELECT FOR UPDATE"
+O -> W: "INSERT / UPDATE / DELETE"
+C -> S
+C -> D
+R -> S
+S -> M
+M -> V
+LR -> L
+W -> L
+W -> V
+L -> LM
+D -> X
+LM -> X
+X -> K
+K -> OK: "Không xung đột"
+K -> WAIT: "Phải chờ"
+K -> ABORT: "Không thể an toàn"
+V -> CLEAN
 ```
 
 Sơ đồ trên có thể rút gọn thành một công thức:
 
-```text
-Yêu cầu nghiệp vụ
-      ↓
-Isolation Level                         ← cam kết về hành vi
-      ↓
-Snapshot + MVCC + Lock + Conflict Check ← công cụ thực thi
-      ↓
-COMMIT, BLOCK hoặc ABORT/RETRY           ← kết quả quan sát được
+```d2 title="Từ yêu cầu đến kết quả transaction"
+direction: right
+n0: "Yêu cầu nghiệp vụ"
+n1: "Isolation Level: cam kết hành vi"
+n2: "Snapshot + MVCC + Lock + Conflict Check"
+n3: "COMMIT, BLOCK hoặc ABORT / RETRY"
+n0 -> n1 -> n2 -> n3
 ```
 
 ### Tầng 1 — Application đưa ra yêu cầu
@@ -218,14 +238,13 @@ Application phải chuẩn bị cho cả ba. Đặc biệt, `SERIALIZABLE` theo 
 
 #### Luồng visibility — “Tôi nhìn thấy version nào?”
 
-```text
-Isolation Level
-      ↓
-Snapshot lifetime
-      ↓
-MVCC visibility rules
-      ↓
-Row version visible cho câu SELECT
+```d2 title="Chọn row version cho SELECT"
+direction: right
+n0: "Isolation Level"
+n1: "Snapshot lifetime"
+n2: "MVCC visibility rules"
+n3: "Row version visible cho SELECT"
+n0 -> n1 -> n2 -> n3
 ```
 
 Ví dụ PostgreSQL:
@@ -238,14 +257,13 @@ MVCC cung cấp các version để lựa chọn. Isolation Level quyết định
 
 #### Luồng conflict — “Tôi có được sửa tài nguyên không?”
 
-```text
-Loại câu lệnh
-      ↓
-Tài nguyên cần bảo vệ
-      ↓
-Lock mode + granularity + duration
-      ↓
-Chạy ngay, block, deadlock hoặc abort
+```d2 title="Chọn cơ chế bảo vệ thao tác"
+direction: right
+n0: "Loại câu lệnh"
+n1: "Tài nguyên cần bảo vệ"
+n2: "Lock mode + granularity + duration"
+n3: "Chạy ngay, block, deadlock hoặc abort"
+n0 -> n1 -> n2 -> n3
 ```
 
 Ví dụ:
@@ -495,15 +513,20 @@ TX1 SELECT lần 2 → vẫn thấy 10M
 
 Database có thể thực hiện bằng một trong hai hướng:
 
-```text
-Lock-based:
-Giữ Shared Row Lock đến cuối transaction
-→ writer có thể phải chờ
-
-MVCC-based:
-Giữ một snapshot ổn định cho transaction
-→ writer vẫn có thể commit
-→ TX1 tiếp tục nhìn thấy version 10M
+```d2 title="Repeatable read: lock và snapshot"
+direction: right
+lock: Lock-based {
+  hold: Giữ Shared Row Lock đến cuối transaction
+  wait: Writer có thể phải chờ
+  hold -> wait
+}
+mvcc: MVCC-based {
+  snapshot: Snapshot transaction ổn định
+  writer: Writer vẫn có thể commit
+  reader: TX1 vẫn thấy version 10M
+  snapshot -> reader
+  writer -> reader: không đổi snapshot
+}
 ```
 
 ### Serializable
@@ -611,13 +634,15 @@ WHERE salary BETWEEN 10000000 AND 20000000;
 
 Nếu chỉ khóa các row hiện có, transaction khác vẫn có thể chèn `salary = 15M`, tạo Phantom Read.
 
-```text
-Isolation requirement:
-Ngăn hoặc phát hiện Phantom Read
-        │
-        ├── MySQL: Gap/Next-Key Lock trên index
-        ├── SQL Server: Key-Range Lock
-        └── PostgreSQL: MVCC + SSI Predicate Lock ở SERIALIZABLE
+```d2 title="Các cách ngăn hoặc phát hiện Phantom Read"
+direction: right
+p: "Ngăn hoặc phát hiện Phantom Read"
+mysql: "MySQL: Gap / Next-Key Lock trên index"
+sqlserver: "SQL Server: Key-Range Lock"
+pg: "PostgreSQL: MVCC + SSI Predicate Lock ở SERIALIZABLE"
+p -> mysql
+p -> sqlserver
+p -> pg
 ```
 
 Trong mô hình ba thành phần:
@@ -632,17 +657,21 @@ Xem giải thích chi tiết tại [Range, Gap, Next-Key và Predicate Lock](/fu
 
 Optimistic/Pessimistic không phải Locking Type hoặc Locking Level. Chúng là **chiến lược xử lý conflict** thường do developer hoặc ORM lựa chọn.
 
-```text
-Pessimistic:
-Cho rằng conflict dễ xảy ra
-→ yêu cầu database lock trước
-→ transaction khác chờ
-
-Optimistic:
-Cho rằng conflict hiếm
-→ không giữ explicit lock từ lúc đọc đến lúc ghi
-→ kiểm tra version khi UPDATE
-→ conflict thì retry/báo lỗi
+```d2 title="Pessimistic và optimistic"
+direction: right
+pessimistic: Pessimistic {
+  expect: Conflict dễ xảy ra
+  lock: Lock trước
+  wait: Transaction khác chờ
+  expect -> lock -> wait
+}
+optimistic: Optimistic {
+  expect: Conflict hiếm
+  read: Đọc mà không giữ explicit lock tới lúc ghi
+  check: Kiểm tra version khi UPDATE
+  retry: Conflict thì retry hoặc báo lỗi
+  expect -> read -> check -> retry
+}
 ```
 
 Một câu Pessimistic Locking có thể được mô tả theo nhiều chiều:
@@ -699,14 +728,18 @@ A → B → C → ...
 
 Nếu hai transaction cùng đọc snapshot cũ và cùng ghi:
 
-```text
-stock = 10 (phiên bản A)
-
-T1 đọc snapshot: thấy 10
-T2 đọc snapshot: thấy 10
-
-T1: UPDATE → tạo phiên bản B (stock = 9)  ← "mới nhất"
-T2: UPDATE → tạo phiên bản... gì đây?      ← không thể có "B thứ hai"
+```d2 title="Hai writer đọc cùng snapshot"
+direction: right
+a: "Version A: stock = 10"
+t1: "T1 đọc 10"
+t2: "T2 đọc 10"
+b: "T1 UPDATE: version B, stock = 9"
+check: "T2 UPDATE: phải giải quyết write conflict, không tạo B thứ hai"
+a -> t1
+a -> t2
+t1 -> b
+t2 -> check
+b -> check: "version mới nhất"
 ```
 
 Nếu T2 vẫn ghi dựa trên hiểu biết cũ (đọc 10, ghi 9), kết quả của T1 bị mất — đây chính là **lost update**. Mỗi bên đều có snapshot "hoàn hảo" của riêng mình; vấn đề là cả hai snapshot đều đã cũ vào thời điểm ghi.
@@ -991,15 +1024,21 @@ Locking Level
 
 Mối quan hệ đầy đủ hơn:
 
-```text
-Isolation requirement
-        ↓
-Database implementation
-├── Locking Type
-├── Locking Level
-├── Lock Duration
-├── MVCC Snapshot
-└── Conflict Detection / Retry
+```d2 title="Isolation và database implementation"
+direction: right
+iso: "Isolation requirement: transaction cần an toàn đến mức nào?"
+db: "Database implementation"
+type: "Locking Type: Shared / Exclusive / Intent"
+level: "Locking Level: Row / Page / Table / Range"
+duration: "Lock Duration: statement / transaction"
+snapshot: "MVCC Snapshot: version được thấy"
+conflict: "Conflict Detection: block / deadlock / abort / retry"
+iso -> db
+db -> type
+db -> level
+db -> duration
+db -> snapshot
+db -> conflict
 ```
 
 Điểm cần nhớ nhất:

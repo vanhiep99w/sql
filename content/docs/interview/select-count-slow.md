@@ -123,11 +123,15 @@ Index entry trỏ về heap tuple, nhưng **bản thân index không lưu thông
 
 Postgres giữ một **visibility map** — một bitmap nhỏ đánh dấu những heap page mà **mọi tuple trong page đều visible với mọi transaction** ("all-visible"). Nếu page đã all-visible, index-only scan **không cần** quay về heap.
 
-```diagram
-Index-only scan đếm:
-   với mỗi entry index → page heap tương ứng có "all-visible" trong VM?
-     ├─ CÓ  → tin index, không đọc heap  → nhanh
-     └─ KHÔNG → phải đọc heap kiểm tra    → chậm phần này
+```d2 title="Index-only scan vẫn cần visibility check"
+direction: right
+entry: Mỗi entry index
+check: Heap page có all-visible trong VM? { shape: diamond }
+fast: Có — tin index, không đọc heap
+heap: Không — đọc heap kiểm tra visibility
+entry -> check
+check -> fast: Có
+check -> heap: Không
 ```
 
 ```sql

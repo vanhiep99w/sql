@@ -11,6 +11,12 @@ Phần nguyên lý áp dụng rộng rãi. Cú pháp và lab chính dùng **Post
 
 </Callout>
 
+<SourceRef project="fundamentals-view-vs-materialized-view" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [1. Bài toán và câu trả lời ngắn](#1-bài-toán-và-câu-trả-lời-ngắn)
@@ -105,13 +111,21 @@ Nếu nhiều màn hình dùng chung logic này, bạn muốn đặt tên cho n�
 - **View** đặt tên và đóng gói một truy vấn. View thông thường lưu **định nghĩa truy vấn**, không lưu một bộ kết quả để tái sử dụng giữa các request.
 - **Materialized View** lưu **kết quả đã tính** cùng với định nghĩa truy vấn. Cách giữ kết quả đó cập nhật phụ thuộc database.
 
-```text
-View thông thường:
-SELECT từ View → thực thi logic trên dữ liệu nguồn
-
-Materialized View trong PostgreSQL:
-REFRESH        → thực thi logic → lưu kết quả vào MV
-SELECT từ MV   → đọc kết quả đã lưu
+```d2 title="View chạy logic, MV đọc kết quả đã lưu"
+direction: right
+view: View thông thường {
+  select: SELECT View
+  query: Thực thi logic trên dữ liệu nguồn
+  select -> query
+}
+mv: Materialized View — PostgreSQL {
+  refresh: REFRESH
+  query: Thực thi logic
+  storage: Lưu kết quả vào MV { shape: cylinder }
+  read: SELECT MV
+  refresh -> query -> storage
+  read -> storage: đọc kết quả đã lưu
+}
 ```
 
 Trong ví dụ dashboard:
@@ -245,16 +259,24 @@ Nếu hàng triệu đơn gom thành vài chục nghìn nhóm, MV có thể giú
 
 ### 3.2. Luồng đọc và luồng cập nhật tách nhau
 
-```mermaid
-flowchart LR
-    App["Ứng dụng"] -->|SELECT View| V["View: định nghĩa SQL"]
-    V --> P["Planner và executor"]
-    P --> T[("Bảng nguồn")]
-    App -->|SELECT MV| M[("MV: kết quả đã lưu")]
-    Job["Job refresh"] --> R["Chạy truy vấn định nghĩa"]
-    R --> T
-    R -->|Công bố kết quả mới| M
-    Writer["INSERT / UPDATE / DELETE"] --> T
+```d2 title="3.2. Luồng đọc và luồng cập nhật tách nhau"
+direction: right
+App: "Ứng dụng"
+V: "View: định nghĩa SQL"
+P: "Planner và executor"
+T: "Bảng nguồn" { shape: cylinder }
+M: "MV: kết quả đã lưu" { shape: cylinder }
+Job: "Job refresh"
+R: "Chạy truy vấn định nghĩa"
+Writer: "INSERT / UPDATE / DELETE"
+App -> V: "SELECT View"
+V -> P
+P -> T
+App -> M: "SELECT MV"
+Job -> R
+R -> T
+R -> M: "Công bố kết quả mới"
+Writer -> T
 ```
 
 Sơ đồ thể hiện PostgreSQL core. Ghi vào bảng nguồn **không tự động cập nhật** MV.
@@ -402,6 +424,10 @@ VALUES
     (2, '2026-05-02 10:00:00+00', 'paid',     80.00);
 ```
 
+<SourceRef project="fundamentals-view-vs-materialized-view" file="51-tạo-bảng-và-dữ-liệu-mẫu/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 Ở đây “doanh thu” là tổng `amount` của các đơn có trạng thái hiện tại là `paid`. Lab không mô hình hóa refund, nhiều loại tiền tệ hoặc thời điểm ghi nhận kế toán.
 
 </Step>
@@ -431,6 +457,10 @@ ON mv_view_lab.mv_daily_revenue (customer_id, order_day);
 ANALYZE mv_view_lab.orders;
 ANALYZE mv_view_lab.mv_daily_revenue;
 ```
+
+<SourceRef project="fundamentals-view-vs-materialized-view" file="52-tạo-view-và-mv-cùng-logic/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 MV có thể lấy nguồn từ một View. Trong lab, cách này giúp chỉ định nghĩa phép tổng hợp tại một nơi. Nó cũng tạo dependency: MV phụ thuộc vào View nguồn.
 
@@ -556,18 +586,22 @@ REFRESH MATERIALIZED VIEW CONCURRENTLY mv_view_lab.mv_lazy;
 
 Với truy vấn doanh thu, plan qua View có thể có dạng:
 
-```text
-Đọc các dòng orders phù hợp
-  → nhóm theo customer_id và order_day
-  → tính COUNT và SUM
-  → trả kết quả
+```d2 title="Truy vấn báo cáo từ nguồn"
+direction: right
+n0: "Đọc orders phù hợp"
+n1: "Nhóm theo customer_id và order_day"
+n2: "Tính COUNT và SUM"
+n3: "Trả kết quả"
+n0 -> n1 -> n2 -> n3
 ```
 
 Plan qua MV có thể có dạng:
 
-```text
-Đọc các dòng mv_daily_revenue phù hợp
-  → trả kết quả
+```d2 title="Truy vấn báo cáo từ MV"
+direction: right
+n0: "Đọc mv_daily_revenue phù hợp"
+n1: "Trả kết quả"
+n0 -> n1
 ```
 
 Đây là sơ đồ các bước, **không phải output benchmark thực tế**. Planner có thể chọn index scan, bitmap scan hoặc sequential scan tùy dữ liệu và điều kiện.
@@ -991,6 +1025,10 @@ SELECT pg_try_advisory_xact_lock(81731, 1) AS got_refresh_lock
 COMMIT;
 ```
 
+<SourceRef project="fundamentals-view-vs-materialized-view" file="102-ghi-metadata-thành-công-cùng-transaction-với-refresh/2.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 **Advisory lock** là lock do ứng dụng tự quy ước để phối hợp công việc. `pg_try_advisory_xact_lock` không chờ nếu lock đã được giữ, và tự giải phóng ở cuối transaction.
 
 Nếu refresh thất bại, transaction rollback. Mốc thành công cũ được giữ nguyên. Nếu script thành công, dữ liệu MV và metadata được công bố trong cùng một commit.
@@ -1261,23 +1299,37 @@ Với `CREATE OR REPLACE VIEW`, các cột hiện có phải giữ tên, thứ t
 
 ### 13.1. Quy trình ra quyết định
 
-```mermaid
-flowchart TD
-    A["Cần tái sử dụng logic truy vấn?"] -->|Có| V["View là một lớp giao diện phù hợp"]
-    A -->|Không| B["Bắt đầu từ truy vấn trực tiếp"]
-    V --> C["Độ trễ đọc đã đạt mục tiêu?"]
-    B --> C
-    C -->|Có| K["Chưa cần MV chỉ vì muốn dùng MV"]
-    C -->|Không| D["Đã đo plan và tối ưu query/index nguồn?"]
-    D -->|Chưa| O["Tối ưu và đo lại"]
-    O --> C
-    D -->|Rồi| E["Công việc đắt được lặp lại đủ nhiều?"]
-    E -->|Không| F["Xem lại workload và kiến trúc xử lý"]
-    E -->|Có| G["Chấp nhận độ trễ cập nhật đã định nghĩa?"]
-    G -->|Có| H["Refresh đáp ứng freshness và ngân sách tài nguyên?"]
-    H -->|Có| M["MV là ứng viên tốt: triển khai và giám sát"]
-    H -->|Không| I["Đánh giá incremental, summary table hoặc hệ analytics"]
-    G -->|Không| J["Đọc nguồn hoặc cơ chế duy trì đồng bộ; đo chi phí ghi"]
+```d2 title="13.1. Quy trình ra quyết định"
+direction: down
+A: "Cần tái sử dụng logic truy vấn?"
+V: "View là một lớp giao diện phù hợp"
+B: "Bắt đầu từ truy vấn trực tiếp"
+C: "Độ trễ đọc đã đạt mục tiêu?"
+K: "Chưa cần MV chỉ vì muốn dùng MV"
+D: "Đã đo plan và tối ưu query/index nguồn?"
+O: "Tối ưu và đo lại"
+E: "Công việc đắt được lặp lại đủ nhiều?"
+F: "Xem lại workload và kiến trúc xử lý"
+G: "Chấp nhận độ trễ cập nhật đã định nghĩa?"
+H: "Refresh đáp ứng freshness và ngân sách tài nguyên?"
+M: "MV là ứng viên tốt: triển khai và giám sát"
+I: "Đánh giá incremental, summary table hoặc hệ analytics"
+J: "Đọc nguồn hoặc cơ chế duy trì đồng bộ; đo chi phí ghi"
+A -> V: "Có"
+A -> B: "Không"
+V -> C
+B -> C
+C -> K: "Có"
+C -> D: "Không"
+D -> O: "Chưa"
+O -> C
+D -> E: "Rồi"
+E -> F: "Không"
+E -> G: "Có"
+G -> H: "Có"
+H -> M: "Có"
+H -> I: "Không"
+G -> J: "Không"
 ```
 
 View và MV không nhất thiết loại trừ nhau. Lab đã dùng View để đóng gói logic, rồi dùng MV để lưu kết quả của logic đó.
@@ -1339,12 +1391,21 @@ WHERE customer_id = 1
 
 `COALESCE` đưa kết quả về 0 nếu không có dòng phù hợp. Trong ứng dụng, bind khách hàng và hai mốc thời gian bằng tham số thay vì ghép chuỗi SQL.
 
-```text
-Cộng trong Java:
-DB → nhiều giá trị amount → Java cộng → một giá trị revenue
-
-Cộng bằng SQL, dù SQL được gọi từ Java:
-DB đọc và cộng → một giá trị revenue → Java nhận kết quả
+```d2 title="Giảm dữ liệu ở database hay cộng trong Java"
+direction: right
+java: Cộng trong Java {
+  db: DB
+  amounts: Nhiều giá trị amount
+  sum: Java cộng
+  result: Một giá trị revenue
+  db -> amounts -> sum -> result
+}
+sql: Cộng bằng SQL gọi từ Java {
+  sum: DB đọc và cộng
+  result: Một giá trị revenue
+  app: Java nhận kết quả
+  sum -> result -> app
+}
 ```
 
 SQL trực tiếp hoặc một truy vấn JPQL có `SUM` cũng có thể đi theo cách B. **JPQL** là ngôn ngữ truy vấn trên các entity, tức đối tượng ánh xạ với dữ liệu quan hệ, của Java Persistence API (JPA).
@@ -1449,10 +1510,12 @@ Nhiều ứng dụng cũng chọn tính trong Java do quy ước của ORM, tứ
 
 Một thiết kế thường hợp lý cho hệ thống bán hàng là:
 
-```text
-Java: quyết định chính sách và xử lý checkout
-  → Database: lưu giao dịch cùng các giá trị đã chốt
-  → SQL / View / MV: tổng hợp để phục vụ báo cáo
+```d2 title="Phân chia trách nhiệm giữa Java và database"
+direction: right
+n0: "Java: quyết định chính sách, xử lý checkout"
+n1: "Database: lưu giao dịch và giá trị đã chốt"
+n2: "SQL / View / MV: tổng hợp báo cáo"
+n0 -> n1 -> n2
 ```
 
 Ví dụ:

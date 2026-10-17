@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { RootProvider } from 'fumadocs-ui/provider/next';
+import { DocsSourceProvider } from '@/components/docs-source-provider';
 import './globals.css';
 
 export const metadata = {
@@ -12,7 +13,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="vi" suppressHydrationWarning>
       <body suppressHydrationWarning>
         <RootProvider search={{ options: { type: 'static' } }}>
-          {children}
+          <DocsSourceProvider>{children}</DocsSourceProvider>
         </RootProvider>
       </body>
     </html>

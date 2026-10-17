@@ -5,6 +5,12 @@ description: "Đọc hiểu execution plan tường tận — EXPLAIN vs EXPLAIN
 
 # EXPLAIN & EXPLAIN ANALYZE — Deep Dive
 
+<SourceRef project="optimization-explain-analyze-deep-dive" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Bối cảnh: Query chậm mà không biết vì sao](#1-bối-cảnh-query-chậm-mà-không-biết-vì-sao)
@@ -103,11 +109,15 @@ Plan **không** đọc từ trên xuống như code. Nó là **cây**, đọc t�
 
 Thứ tự thực thi thật: (1) → (2) → (3) → (4). Dữ liệu chảy **từ lá lên gốc**.
 
-```mermaid
-graph BT
-    A["Seq Scan orders (1)"] --> C["Hash Join (3)"]
-    B["Seq Scan customers (2)"] --> C
-    C --> D["Sort (4) — kết quả cuối"]
+```d2 title="3. Execution Plan là một cái cây — Cách đọc"
+direction: up
+A: "Seq Scan orders (1)"
+C: "Hash Join (3)"
+B: "Seq Scan customers (2)"
+D: "Sort (4) — kết quả cuối"
+A -> C
+B -> C
+C -> D
 ```
 
 **Cách nhận diện quan hệ cha–con:** node con thụt vào sâu hơn và bắt đầu bằng `->`. Mỗi node nhận input từ (các) node con và trả output cho node cha.
@@ -381,16 +391,25 @@ DB đọc **50 triệu row** rồi vứt gần hết, chỉ giữ 100. Rõ ràng
 
 ## 11. Workflow đọc plan trong 60 giây
 
-```mermaid
-graph TD
-    A["Chạy EXPLAIN<br/>(ANALYZE, BUFFERS)"] --> B["Tìm node<br/>tốn thời gian nhất<br/>(actual time × loops)"]
-    B --> C{"est rows vs<br/>actual rows<br/>lệch nhiều?"}
-    C -->|Có| D["ANALYZE bảng<br/>+ extended stats"]
-    C -->|Không| E{"Node đó là<br/>Seq Scan trên<br/>bảng lớn?"}
-    E -->|Có| F["Thêm index<br/>phù hợp"]
-    E -->|Không| G{"Sort/Hash<br/>tràn đĩa?"}
-    G -->|Có| H["Tăng work_mem"]
-    G -->|Không| I["Xem lại join order<br/>/ viết lại query"]
+```d2 title="11. Workflow đọc plan trong 60 giây"
+direction: down
+A: "Chạy EXPLAIN\n(ANALYZE, BUFFERS)"
+B: "Tìm node\ntốn thời gian nhất\n(actual time × loops)"
+C: "est rows vs\nactual rows\nlệch nhiều?" { shape: diamond }
+D: "ANALYZE bảng\n+ extended stats"
+E: "Node đó là\nSeq Scan trên\nbảng lớn?" { shape: diamond }
+F: "Thêm index\nphù hợp"
+G: "Sort/Hash\ntràn đĩa?" { shape: diamond }
+H: "Tăng work_mem"
+I: "Xem lại join order\n/ viết lại query"
+A -> B
+B -> C
+C -> D: "Có"
+C -> E: "Không"
+E -> F: "Có"
+E -> G: "Không"
+G -> H: "Có"
+G -> I: "Không"
 ```
 
 **Các bước cụ thể:**

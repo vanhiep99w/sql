@@ -91,13 +91,13 @@ SELECT user_id, status          SELECT *
 
 Postgres lưu mỗi tuple trong page 8KB. Giá trị **quá lớn** (text dài, jsonb, bytea) không vừa → được nén và lưu **ngoài** ở **TOAST table** riêng, trong dòng chính chỉ giữ con trỏ.
 
-```diagram
-Heap tuple (orders):
-   [ id | user_id | status | ... | jsonb_payload → TOAST pointer ]
-                                                       │
-                                                       ▼
-   TOAST table (lưu riêng, đọc thêm page khi cần)
-   [ chunk 1 | chunk 2 | ... ]   ← jsonb 50KB nằm ở đây
+```d2 title="Payload lớn có thể nằm trong TOAST"
+direction: right
+n0: "Heap tuple orders: id, user_id, status, ..."
+n1: "jsonb_payload → TOAST pointer"
+n2: "TOAST table: chunk 1, chunk 2, ..."
+n3: "Đọc thêm page khi cần payload JSONB 50 KB"
+n0 -> n1 -> n2 -> n3
 ```
 
 - `SELECT id, status` → **không** đụng TOAST → nhanh.

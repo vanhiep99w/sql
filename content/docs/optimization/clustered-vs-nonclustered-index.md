@@ -7,6 +7,12 @@ description: "Giải thích mối quan hệ giữa clustered, nonclustered, B+Tr
   Sau tài liệu này, bạn sẽ biết vì sao `CREATE INDEX` thường tạo nonclustered index, vì sao bạn không cần tự tạo clustered index trong nhiều hệ quản trị, và vì sao một index có thể đồng thời là clustered, B+Tree, composite và unique.
 </Callout>
 
+<SourceRef project="optimization-clustered-vs-nonclustered-index" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Vấn đề nằm ở cách phân loại](#vấn-đề-nằm-ở-cách-phân-loại)
@@ -147,18 +153,12 @@ Clustered index tổ chức row data của bảng tại leaf level theo clustere
 
 Ví dụ một bảng được cluster theo `id`:
 
-```text
-                         Root page
-                      [ 100 | 200 ]
-                     /      |      \
-                    ▼       ▼       ▼
-               Internal pages nếu cây lớn
-                    │       │
-                    ▼       ▼
-
-Leaf level cũng là data pages:
-
-[ id=1, toàn bộ row ] ⇄ [ id=2, toàn bộ row ] ⇄ ... ⇄ [ id=300, toàn bộ row ]
+```d2 title="Clustered B+Tree: leaf cũng là data page"
+direction: down
+root: "Root: 100 | 200"
+internal: Internal pages nếu cây lớn
+leaf: "Leaf level = data pages\n[id=1, toàn bộ row] ↔ [id=2, toàn bộ row] ↔ ... ↔ [id=300, toàn bộ row]"
+root -> internal -> leaf
 ```
 
 Khi tìm `id = 200`, database đi qua B+Tree và tới thẳng row data ở leaf. Không cần một cấu trúc bảng khác để lấy row đó.
@@ -212,14 +212,12 @@ Cụm từ “clustered index sắp xếp dữ liệu vật lý” dễ làm ta 
 
 Giả sử clustered key là `id`. Về mặt logic, các leaf page có thứ tự:
 
-```text
-Page chứa id 1–100
-          │
-          ▼
-Page chứa id 101–200
-          │
-          ▼
-Page chứa id 201–300
+```d2 title="Thứ tự logic các data page"
+direction: down
+n0: "Page id 1–100"
+n1: "Page id 101–200"
+n2: "Page id 201–300"
+n0 -> n1 -> n2
 ```
 
 Nhưng vị trí của các page trong data file có thể phân tán:
@@ -279,15 +277,15 @@ Nonclustered index là một B+Tree tách khỏi nơi chứa row data.
 
 Ví dụ index trên `email`:
 
-```text
-Nonclustered B+Tree trên email
-
-'a@example.com' → row locator
-'b@example.com' → row locator
-'c@example.com' → row locator
-                         │
-                         ▼
-                 Nơi chứa row thật
+```d2 title="Nonclustered index trỏ tới nơi lưu row"
+direction: right
+a: "a@example.com → row locator"
+b: "b@example.com → row locator"
+c: "c@example.com → row locator"
+data: "Nơi chứa row thật"
+a -> data
+b -> data
+c -> data
 ```
 
 Leaf entry thường chứa:
@@ -329,14 +327,12 @@ ON users (email);
 
 Database thực hiện:
 
-```text
-Bước 1: tìm 'an@example.com' trong idx_users_email
-                         │
-                         ▼
-Bước 2: lấy row locator
-                         │
-                         ▼
-Bước 3: đọc row thật để lấy name và address
+```d2 title="Bookmark lookup"
+direction: right
+n0: "Tìm an@example.com trong idx_users_email"
+n1: "Lấy row locator"
+n2: "Đọc row thật để lấy name và address"
+n0 -> n1 -> n2
 ```
 
 Trên SQL Server, bước 3 có thể xuất hiện trong execution plan dưới tên:
@@ -457,23 +453,23 @@ Có hai trường hợp chính.
 
 **Trường hợp một — base table là heap:**
 
-```text
-Nonclustered index leaf
-'paid' → RID (file_id, page_id, slot_id)
-                    │
-                    ▼
-              Row trong heap
+```d2 title="SQL Server: nonclustered index trên heap"
+direction: right
+n0: "Nonclustered leaf: paid"
+n1: "RID: file_id, page_id, slot_id"
+n2: "Row trong heap"
+n0 -> n1 -> n2
 ```
 
 **Trường hợp hai — base table có clustered index:**
 
-```text
-Nonclustered index leaf
-'paid' → clustered key id=42
-                    │
-                    ▼
-Clustered B+Tree trên id
-42 → toàn bộ row
+```d2 title="SQL Server: nonclustered index trên clustered table"
+direction: right
+n0: "Nonclustered leaf: paid"
+n1: "Clustered key id=42"
+n2: "Clustered B+Tree trên id"
+n3: "42 → toàn bộ row"
+n0 -> n1 -> n2 -> n3
 ```
 
 Đây là lý do clustered key quá rộng làm các nonclustered index lớn hơn. Giá trị clustered key phải xuất hiện như row locator trong các nonclustered index.
@@ -526,14 +522,11 @@ CREATE TABLE users (
 
 InnoDB tổ chức row data tại leaf của primary-key B+Tree:
 
-```text
-Primary-key B+Tree
-
-Root và internal pages
-          │
-          ▼
-Leaf pages:
-[id=1, email=..., name=...] ⇄ [id=2, email=..., name=...] ⇄ ...
+```d2 title="InnoDB: primary-key tree chứa row"
+direction: right
+n0: "Primary-key B+Tree: root / internal"
+n1: "Leaf pages: [id=1, email, name...] ↔ [id=2, email, name...] ↔ ..."
+n0 -> n1
 ```
 
 Nói ngắn gọn: trong InnoDB, bảng được tổ chức theo primary key.
@@ -549,15 +542,13 @@ ON users (email);
 
 Leaf của secondary index thường lưu `email` và primary key:
 
-```text
-Secondary index idx_users_email
-
-'an@example.com' → id=42
-                       │
-                       ▼
-Primary-key B+Tree
-
-id=42 → toàn bộ row
+```d2 title="InnoDB: lookup từ email tới row"
+direction: right
+n0: "Secondary index idx_users_email"
+n1: "an@example.com → id=42"
+n2: "Primary-key B+Tree"
+n3: "id=42 → toàn bộ row"
+n0 -> n1 -> n2 -> n3
 ```
 
 Nếu query chỉ cần `email` và `id`, secondary index có thể đã đủ dữ liệu:
@@ -609,15 +600,13 @@ PostgreSQL không duy trì clustered index theo nghĩa của SQL Server hoặc I
 
 Table row của PostgreSQL thường nằm trong heap. Một B-tree index là cấu trúc tách riêng và giữ TID trỏ tới heap tuple.
 
-```text
-PostgreSQL B-tree index trên email
-
-'an@example.com' → TID (block 917, item 4)
-                               │
-                               ▼
-PostgreSQL heap
-
-block 917, item 4 → row thật
+```d2 title="PostgreSQL: index độc lập với heap"
+direction: right
+n0: "B-tree email: an@example.com"
+n1: "TID: block 917, item 4"
+n2: "PostgreSQL heap: block 917, item 4"
+n3: "Row thật"
+n0 -> n1 -> n2 -> n3
 ```
 
 Vì update có thể tạo phiên bản row mới theo cơ chế MVCC, vị trí tuple trong heap có thể thay đổi qua thời gian. Index vẫn là cấu trúc riêng trỏ tới các tuple phù hợp.

@@ -3,6 +3,12 @@ title: "Lock trong Database"
 description: "Cơ chế khóa trong SQL — Shared/Exclusive Lock, Optimistic/Pessimistic Locking, Deadlock"
 ---
 
+<SourceRef project="fundamentals-lock" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Lock là gì và tại sao cần Lock](#lock-là-gì-và-tại-sao-cần-lock)
@@ -68,14 +74,16 @@ Database hỗ trợ nhiều **mức độ khóa** (lock granularity). Mức càn
 
 ### Granularity Trade-offs
 
-```
-Coarse-grained (Database/Table lock)
-├── Ít lock hơn → overhead thấp
-├── Nhưng block nhiều transaction → throughput thấp
-│
-Fine-grained (Row/Column lock)
-├── Nhiều lock hơn → overhead cao (memory, CPU)
-├── Nhưng ít block → throughput cao
+```d2 title="Lock granularity và chi phí"
+direction: right
+coarse: Coarse-grained — Database / Table lock {
+  few: Ít lock — overhead thấp
+  block: Block nhiều transaction — throughput có thể thấp
+}
+fine: Fine-grained — Row / Column lock {
+  many: Nhiều lock — overhead memory / CPU cao
+  concurrent: Ít block — có thể tăng throughput
+}
 ```
 
 Hầu hết các RDBMS hiện đại (MySQL InnoDB, PostgreSQL) mặc định sử dụng **row-level locking** để tối ưu concurrency cho OLTP workload.
@@ -321,17 +329,16 @@ UPDATE orders SET ...            UPDATE accounts SET ...
 
 ### Mermaid Diagram minh họa
 
-```mermaid
-graph TD
-    A[Transaction A] -->|Giữ lock| R1[accounts id=1]
-    B[Transaction B] -->|Giữ lock| R2[orders id=100]
-    A -->|Chờ lock| R2
-    B -->|Chờ lock| R1
-
-    style A fill:#ff6b6b,color:#fff
-    style B fill:#4ecdc4,color:#fff
-    style R1 fill:#ffe66d,color:#333
-    style R2 fill:#ffe66d,color:#333
+```d2 title="Mermaid Diagram minh họa"
+direction: down
+A: "Transaction A"
+R1: "accounts id=1"
+B: "Transaction B"
+R2: "orders id=100"
+A -> R1: "Giữ lock"
+B -> R2: "Giữ lock"
+A -> R2: "Chờ lock"
+B -> R1: "Chờ lock"
 ```
 
 ### Cách phát hiện
@@ -462,6 +469,10 @@ def update_stock_optimistic(product_id, quantity):
             return  # Thành công
         # affected == 0 → conflict, retry
 ```
+
+<SourceRef project="fundamentals-lock" file="code-ví-dụ-đầy-đủ/1.py" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 **Pessimistic Lock — Database level**:
 

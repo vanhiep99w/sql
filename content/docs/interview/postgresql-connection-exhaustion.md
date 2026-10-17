@@ -3,6 +3,12 @@ title: "PostgreSQL hết connection khi flash sale — Too Many Clients"
 description: "Câu hỏi phỏng vấn thực chiến về max_connections, connection pool, idle in transaction, pg_stat_activity, PgBouncer, autoscaling, timeout và thiết kế payment an toàn."
 ---
 
+<SourceRef project="interview-postgresql-connection-exhaustion" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [1. Câu hỏi phỏng vấn](#1-câu-hỏi-phỏng-vấn)
@@ -107,13 +113,20 @@ Phần vượt giới hạn            = 280 - 200 = 80
 
 Sơ đồ:
 
-```mermaid
-graph LR
-    A[10 app instances] -->|10 đến 20 mỗi instance| P1[100 đến 200 connections]
-    B[Autoscaler thêm 4] --> C[14 app instances]
-    C -->|10 đến 20 mỗi instance| P2[140 đến 280 connections]
-    P2 --> D[PostgreSQL chỉ nhận tối đa 200]
-    D --> E[Too many clients]
+```d2 title="3.2. Sau khi autoscaler thêm 4 server"
+direction: right
+A: "10 app instances"
+P1: "100 đến 200 connections"
+B: "Autoscaler thêm 4"
+C: "14 app instances"
+P2: "140 đến 280 connections"
+D: "PostgreSQL chỉ nhận tối đa 200"
+E: "Too many clients"
+A -> P1: "10 đến 20 mỗi instance"
+B -> C
+C -> P2: "10 đến 20 mỗi instance"
+P2 -> D
+D -> E
 ```
 
 ### 3.3. Công thức tổng quát
@@ -147,16 +160,16 @@ Khi client mở một connection trực tiếp đến PostgreSQL, nó thường 
 6. parse/execute query;
 7. giữ socket cho tới khi client disconnect.
 
-```mermaid
-sequenceDiagram
-    participant App
-    participant PG as PostgreSQL
-    App->>PG: TCP/TLS connect
-    App->>PG: Authenticate
-    PG-->>App: Tạo backend process
-    App->>PG: Query/transaction
-    PG-->>App: Result
-    Note over App,PG: Connection có thể tồn tại lâu để tái sử dụng
+```d2 title="4. Connection PostgreSQL thực sự là gì?"
+shape: sequence_diagram
+App: "App"
+PG: "PostgreSQL"
+App -> PG: "TCP/TLS connect"
+App -> PG: "Authenticate"
+PG -> App: "Tạo backend process" { style.stroke-dash: 3 }
+App -> PG: "Query/transaction"
+PG -> App: "Result" { style.stroke-dash: 3 }
+App.note8: "App / PG: Connection có thể tồn tại lâu để tái sử dụng"
 ```
 
 PostgreSQL dùng mô hình **một backend process cho mỗi client connection**. Vì vậy connection không hoàn toàn miễn phí:
@@ -235,17 +248,25 @@ Tăng có kiểm soát khác hoàn toàn với tăng từ 200 lên 500 trong lú
 
 Application pool giữ sẵn một số connection để tránh chi phí connect/authenticate cho mỗi request.
 
-```mermaid
-graph LR
-    R1[Request 1] --> P[Application connection pool]
-    R2[Request 2] --> P
-    R3[Request 3] --> P
-    P --> C1[DB connection 1]
-    P --> C2[DB connection 2]
-    P --> C3[DB connection 3]
-    C1 --> DB[(PostgreSQL)]
-    C2 --> DB
-    C3 --> DB
+```d2 title="6. Connection pool hoạt động như thế nào?"
+direction: right
+R1: "Request 1"
+P: "Application connection pool"
+R2: "Request 2"
+R3: "Request 3"
+C1: "DB connection 1"
+C2: "DB connection 2"
+C3: "DB connection 3"
+DB: "PostgreSQL" { shape: cylinder }
+R1 -> P
+R2 -> P
+R3 -> P
+P -> C1
+P -> C2
+P -> C3
+C1 -> DB
+C2 -> DB
+C3 -> DB
 ```
 
 Một pool thường có các tham số:
@@ -283,15 +304,22 @@ Pool chỉ tái sử dụng được connection sau khi code **release** nó. Po
 
 Application autoscaling thường nhìn vào CPU, request rate hoặc queue length. Nó không tự hiểu database chỉ còn vài connection.
 
-```mermaid
-flowchart TD
-    T[Traffic tăng] --> A[Autoscaler thêm instance]
-    A --> P[Mỗi instance tạo pool mới]
-    P --> C[Connection đến PostgreSQL tăng]
-    C --> L[DB latency tăng hoặc hết slot]
-    L --> R[Request giữ lâu hơn]
-    R --> Q[Queue và CPU app tăng]
-    Q --> A
+```d2 title="7. Autoscaling và hiệu ứng nhân pool"
+direction: down
+T: "Traffic tăng"
+A: "Autoscaler thêm instance"
+P: "Mỗi instance tạo pool mới"
+C: "Connection đến PostgreSQL tăng"
+L: "DB latency tăng hoặc hết slot"
+R: "Request giữ lâu hơn"
+Q: "Queue và CPU app tăng"
+T -> A
+A -> P
+P -> C
+C -> L
+L -> R
+R -> Q
+Q -> A
 ```
 
 Đây là **positive feedback loop**:
@@ -486,19 +514,19 @@ await db.transaction(async (tx) => {
 
 Timeline:
 
-```mermaid
-sequenceDiagram
-    participant App
-    participant DB as PostgreSQL
-    participant Pay as Payment Provider
-    App->>DB: BEGIN
-    App->>DB: INSERT order PENDING
-    DB-->>App: OK
-    App->>Pay: Charge payment
-    Note over App,DB: Connection + transaction bị giữ khoảng 20 giây
-    Pay-->>App: Success
-    App->>DB: UPDATE order PAID
-    App->>DB: COMMIT
+```d2 title="9.1. Code có vấn đề"
+shape: sequence_diagram
+App: "App"
+DB: "PostgreSQL"
+Pay: "Payment Provider"
+App -> DB: "BEGIN"
+App -> DB: "INSERT order PENDING"
+DB -> App: "OK" { style.stroke-dash: 3 }
+App -> Pay: "Charge payment"
+App.note8: "App / DB: Connection + transaction bị giữ khoảng 20 giây"
+Pay -> App: "Success" { style.stroke-dash: 3 }
+App -> DB: "UPDATE order PAID"
+App -> DB: "COMMIT"
 ```
 
 Trong 20 giây chờ payment provider:
@@ -650,6 +678,10 @@ FROM pg_stat_activity
 WHERE backend_type = 'client backend'
 ORDER BY xact_start NULLS LAST;
 ```
+
+<SourceRef project="interview-postgresql-connection-exhaustion" file="114-bước-3--chụp-bằng-chứng-trước-khi-terminate/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 Bằng chứng này giúp trả lời sau incident:
 
@@ -866,6 +898,10 @@ await db.transaction(async (tx) => {
 });
 ```
 
+<SourceRef project="interview-postgresql-connection-exhaustion" file="142-bản-sửa-tối-thiểu/1.ts" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 Connection giờ được giữ ở hai khoảng ngắn quanh SQL, không bị giữ trong lúc chờ network.
 
 ### 14.3. Luôn rollback/release trong `finally`
@@ -945,18 +981,19 @@ nhưng:
 
 ### 16.1. Payment state machine
 
-```mermaid
-stateDiagram-v2
-    [*] --> PENDING
-    PENDING --> PROCESSING
-    PROCESSING --> SUCCEEDED
-    PROCESSING --> FAILED
-    PROCESSING --> UNKNOWN
-    UNKNOWN --> SUCCEEDED: reconcile với provider
-    UNKNOWN --> FAILED: reconcile xác nhận thất bại
-    FAILED --> PROCESSING: retry hợp lệ
-    SUCCEEDED --> REFUND_PENDING
-    REFUND_PENDING --> REFUNDED
+```d2 title="16.1. Payment state machine"
+direction: down
+start: Bắt đầu { shape: circle }
+start -> PENDING
+PENDING -> PROCESSING
+PROCESSING -> SUCCEEDED
+PROCESSING -> FAILED
+PROCESSING -> UNKNOWN
+UNKNOWN -> SUCCEEDED: "reconcile với provider"
+UNKNOWN -> FAILED: "reconcile xác nhận thất bại"
+FAILED -> PROCESSING: "retry hợp lệ"
+SUCCEEDED -> REFUND_PENDING
+REFUND_PENDING -> REFUNDED
 ```
 
 Không nên chỉ dùng boolean `paid = true/false`, vì nó không biểu diễn được `PENDING`, `UNKNOWN`, retry hay refund.
@@ -999,21 +1036,21 @@ Có thể dùng `SELECT ... FOR UPDATE SKIP LOCKED` cho queue trong PostgreSQL, 
 
 Nếu muốn gọi payment bất đồng bộ:
 
-```mermaid
-sequenceDiagram
-    participant API
-    participant DB
-    participant Worker
-    participant Pay as Payment Provider
-    API->>DB: BEGIN
-    API->>DB: INSERT order/payment PENDING
-    API->>DB: INSERT outbox event PaymentRequested
-    API->>DB: COMMIT
-    DB-->>API: Accepted
-    Worker->>DB: Đọc/claim outbox
-    Worker->>Pay: Charge với idempotency key
-    Pay-->>Worker: Result
-    Worker->>DB: Transaction cập nhật payment/order
+```d2 title="16.4. Transactional Outbox"
+shape: sequence_diagram
+API: "API"
+DB: "DB"
+Worker: "Worker"
+Pay: "Payment Provider"
+API -> DB: "BEGIN"
+API -> DB: "INSERT order/payment PENDING"
+API -> DB: "INSERT outbox event PaymentRequested"
+API -> DB: "COMMIT"
+DB -> API: "Accepted" { style.stroke-dash: 3 }
+Worker -> DB: "Đọc/claim outbox"
+Worker -> Pay: "Charge với idempotency key"
+Pay -> Worker: "Result" { style.stroke-dash: 3 }
+Worker -> DB: "Transaction cập nhật payment/order"
 ```
 
 Order/payment row và outbox event được ghi trong cùng transaction, nên không có trường hợp DB commit order nhưng quên tạo việc cần xử lý.
@@ -1039,12 +1076,17 @@ Reconciliation không phải workaround tạm thời; nó là thành phần bắ
 
 PgBouncer là connection pooler nhẹ nằm giữa application và PostgreSQL.
 
-```mermaid
-graph LR
-    A1[App instance 1] -->|nhiều client connections| B[PgBouncer]
-    A2[App instance 2] -->|nhiều client connections| B
-    A3[App instance N] -->|nhiều client connections| B
-    B -->|ít server connections cố định| D[(PostgreSQL)]
+```d2 title="17. PgBouncer giải quyết điều gì?"
+direction: right
+A1: "App instance 1"
+B: "PgBouncer"
+A2: "App instance 2"
+A3: "App instance N"
+D: "PostgreSQL" { shape: cylinder }
+A1 -> B: "nhiều client connections"
+A2 -> B: "nhiều client connections"
+A3 -> B: "nhiều client connections"
+B -> D: "ít server connections cố định"
 ```
 
 Phân biệt hai loại connection:
@@ -1140,6 +1182,10 @@ auth_file = /etc/pgbouncer/userlist.txt
 admin_users = pgbouncer_admin
 stats_users = pgbouncer_stats
 ```
+
+<SourceRef project="interview-postgresql-connection-exhaustion" file="19-cấu-hình-pgbouncer-minh-họa/1.ini" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 > [!WARNING]
 > Đây là cấu hình minh họa, không phải cấu hình copy-paste cho mọi production. Pool size phải dựa trên benchmark, số PgBouncer replica, số database/user pair và phần capacity dành cho workload khác.

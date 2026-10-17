@@ -43,16 +43,17 @@ Nếu bất kỳ câu lệnh nào trong block trên thất bại, toàn bộ tra
 
 **ACID** là bốn tính chất mà mọi transaction trong database quan hệ phải đảm bảo:
 
-```
-┌───────────────────────────────────────────────────────┐
-│                    ACID Properties                    │
-├──────────────┬──────────────┬───────────┬─────────────┤
-│  Atomicity   │ Consistency  │ Isolation │ Durability  │
-│  (Nguyên tử) │ (Nhất quán)  │ (Cô lập)  │ (Bền vững)  │
-│              │              │           │             │
-│  Tất cả hoặc │ Dữ liệu      │ Các TX    │ Dữ liệu     │
-│  không gì    │ luôn hợp lệ  │ độc lập   │ không mất   │
-└──────────────┴──────────────┴───────────┴─────────────┘
+```d2 title="Bốn thuộc tính ACID"
+direction: right
+acid: "ACID Properties"
+a: "Atomicity: nguyên tử — tất cả hoặc không gì"
+c: "Consistency: nhất quán — dữ liệu hợp lệ"
+i: "Isolation: cô lập — kiểm soát tương tác giữa transaction"
+d: "Durability: bền vững — dữ liệu commit không mất theo cam kết"
+acid -> a
+acid -> c
+acid -> i
+acid -> d
 ```
 
 ### Atomicity — Tính nguyên tử
@@ -65,24 +66,21 @@ Giả sử A chuyển 5.000.000₫ cho B. Transaction gồm 2 bước:
 1. Trừ 5.000.000₫ từ tài khoản A
 2. Cộng 5.000.000₫ vào tài khoản B
 
-```
-Trường hợp KHÔNG có Atomicity:
-┌─────────────────────────────────────────────────┐
-│ Bước 1: A: 10M → 5M        ✅ Thành công        │
-│ Bước 2: B: 3M → ???        ❌ Lỗi hệ thống!     │
-│                                                 │
-│ Kết quả: A mất 5M, B không nhận được gì         │
-│ → 5M biến mất khỏi hệ thống! 💸                 │
-└─────────────────────────────────────────────────┘
-
-Trường hợp CÓ Atomicity:
-┌─────────────────────────────────────────────────┐
-│ Bước 1: A: 10M → 5M        ✅ Thành công        │
-│ Bước 2: B: 3M → ???        ❌ Lỗi hệ thống!     │
-│                                                 │
-│ → ROLLBACK: A: 5M → 10M    ↩️  Hoàn tác         │
-│ Kết quả: A vẫn 10M, B vẫn 3M — không mất tiền   │
-└─────────────────────────────────────────────────┘
+```d2 title="Atomicity bảo vệ giao dịch chuyển tiền"
+direction: right
+without: Không có Atomicity {
+  debit: A từ 10M còn 5M — thành công
+  fail: Cộng B từ 3M — lỗi hệ thống
+  lost: A còn 5M, B vẫn 3M — mất 5M
+  debit -> fail -> lost
+}
+with_atomicity: Có Atomicity {
+  debit: A từ 10M còn 5M — thành công
+  fail: Cộng B từ 3M — lỗi hệ thống
+  rollback: ROLLBACK — A từ 5M về 10M
+  safe: A vẫn 10M, B vẫn 3M — không mất tiền
+  debit -> fail -> rollback -> safe
+}
 ```
 
 **Cơ chế hoạt động**: Database sử dụng **undo log** (rollback segment) để ghi lại trạng thái trước khi thay đổi. Nếu transaction fail, database dùng undo log để phục hồi dữ liệu về trạng thái ban đầu.
@@ -143,20 +141,13 @@ Durability đảm bảo rằng khi transaction đã **COMMIT thành công**, d�
 
 WAL (Write-Ahead Logging) là kỹ thuật cốt lõi: mọi thay đổi được ghi vào **log file trước** khi ghi vào data file thực tế.
 
-```
-Quy trình ghi dữ liệu với WAL:
-
-1. Transaction thực thi UPDATE
-2. Ghi thay đổi vào WAL (redo log) trên đĩa  ← Bắt buộc trước COMMIT
-3. Trả về COMMIT OK cho client
-4. Background process ghi dữ liệu từ buffer vào data file (checkpoint)
-
-┌──────────┐    ┌──────────┐    ┌──────────────┐
-│  Client  │───→│ WAL Log  │───→│  Data Files  │
-│          │    │ (on disk)│    │  (on disk)   │
-└──────────┘    └──────────┘    └──────────────┘
-                 Ghi trước ↑      Ghi sau ↑
-                 (đồng bộ)        (bất đồng bộ)
+```d2 title="Write-ahead logging: ghi log trước"
+direction: right
+n0: "Transaction thực thi UPDATE"
+n1: "Ghi thay đổi và flush WAL xuống disk trước xác nhận commit"
+n2: "Trả COMMIT OK cho client"
+n3: "Background process ghi buffer xuống data file — checkpoint"
+n0 -> n1 -> n2 -> n3
 ```
 
 **Nếu hệ thống crash** sau bước 3 nhưng trước bước 4:

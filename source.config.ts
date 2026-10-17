@@ -1,4 +1,6 @@
 import { defineDocs, defineConfig } from 'fumadocs-mdx/config';
+import { remarkD2 } from '@vanhiep99w/docs-kit/d2';
+import { remarkSourceRefs } from './scripts/remark-source-refs.mjs';
 import { visit } from 'unist-util-visit';
 
 const admonitionTypeMap: Record<string, string> = {
@@ -45,33 +47,20 @@ function remarkGithubCallouts() {
   };
 }
 
-function remarkMermaid() {
-  return (tree: import('mdast').Root) => {
-    visit(tree, 'code', (node, index, parent) => {
-      if (node.lang !== 'mermaid' || index === undefined || !parent) return;
-      (parent.children as unknown[])[index] = {
-        type: 'mdxJsxFlowElement',
-        name: 'MermaidDiagram',
-        attributes: [
-          {
-            type: 'mdxJsxAttribute',
-            name: 'chart',
-            value: node.value,
-          },
-        ],
-        children: [],
-      };
-    });
-  };
-}
-
 export const docs = defineDocs({
   dir: 'content/docs',
 });
 
 export default defineConfig({
   mdxOptions: {
-    remarkPlugins: [remarkGithubCallouts, remarkMermaid],
+    remarkPlugins: [
+      remarkGithubCallouts,
+      remarkSourceRefs,
+      [remarkD2, {
+        cacheDir: '.next/cache/docs-kit/d2',
+        defaultCaption: 'Sơ đồ',
+      }],
+    ],
     rehypeCodeOptions: {
       themes: {
         light: 'github-light',

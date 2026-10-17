@@ -37,20 +37,14 @@ description: "Câu hỏi phỏng vấn: LIMIT 20 OFFSET 0 nhanh, nhưng LIMIT 20
 
 ## 3. OFFSET thật sự làm gì — quét rồi vứt bỏ
 
-```diagram
-SELECT * FROM events ORDER BY created_at DESC LIMIT 20 OFFSET 1000000;
-
-  Index idx_events_created (created_at DESC)
-       │
-       ▼
-   Đọc entry #1 → lấy row → đếm (1)      ┐
-   Đọc entry #2 → lấy row → đếm (2)      │
-   ...                                   │  VỨT BỎ
-   Đọc entry #1,000,000 → đếm            ┘  (1 triệu dòng!)
-   ───────────────────────────────────
-   Đọc entry #1,000,001 → GIỮ            ┐
-   ...                                   │  TRẢ VỀ (20 dòng)
-   Đọc entry #1,000,020 → GIỮ            ┘
+```d2 title="OFFSET bỏ qua một triệu rows trước khi trả trang"
+direction: right
+n0: "Index idx_events_created: created_at DESC"
+n1: "Đọc entry 1, 2, ... và lấy row khi plan yêu cầu"
+n2: "Bỏ entry 1 tới 1.000.000"
+n3: "Giữ entry 1.000.001 tới 1.000.020"
+n4: "Trả 20 rows"
+n0 -> n1 -> n2 -> n3 -> n4
 ```
 
 Database **không có cách nào** biết dòng thứ 1,000,001 nằm ở đâu mà không đi qua 1,000,000 dòng trước đó — vì thứ tự được quyết định bởi `ORDER BY`, và để biết "dòng nào đứng thứ một-triệu-lẻ-một theo created_at" thì phải duyệt từ đầu. Kể cả khi dùng index, nó vẫn phải **đi qua từng entry** của index.
@@ -121,14 +115,14 @@ ORDER BY created_at DESC, id DESC
 LIMIT 20;
 ```
 
-```diagram
-Keyset: dùng index để NHẢY THẲNG tới mốc, không quét bỏ:
-
-  Index (created_at DESC, id DESC)
-       │
-       ▼  WHERE (created_at,id) < (mốc)  → tìm vị trí mốc bằng B-Tree (log n)
-   [mốc] → đọc 20 entry kế tiếp → trả về
-   (không đọc, không vứt 1 triệu dòng nào)
+```d2 title="Keyset tìm mốc bằng B-Tree"
+direction: right
+n0: "Index: created_at DESC, id DESC"
+n1: "WHERE (created_at, id) < mốc"
+n2: "Tìm vị trí mốc bằng B-Tree"
+n3: "Đọc 20 entry kế tiếp và trả về"
+n4: "Không quét bỏ một triệu entry phía trước"
+n0 -> n1 -> n2 -> n3 -> n4
 ```
 
 `EXPLAIN` cho keyset ở "trang 50,000" trông **giống hệt** trang đầu — vẫn chỉ `rows=20`, vài page, ~0.1ms. **Hiệu năng không đổi dù ở trang nào** (O(log n) tìm mốc + O(LIMIT) đọc).

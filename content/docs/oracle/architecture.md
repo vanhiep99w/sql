@@ -3,6 +3,12 @@ title: "Oracle Database Architecture"
 description: "Kiến trúc Oracle Database — SGA, PGA, Background Processes, Tablespace và cách Oracle quản lý bộ nhớ, storage"
 ---
 
+<SourceRef project="oracle-architecture" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Tổng quan](#tổng-quan)
@@ -33,42 +39,26 @@ Oracle phân biệt rõ ràng giữa Instance (đang chạy trong memory) và Da
 
 ## Kiến trúc tổng thể
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                        Oracle Instance                           │
-│                                                                  │
-│  ┌─────────────────────────────────────────────────────────────┐ │
-│  │              System Global Area (SGA)                       │ │
-│  │                                                             │ │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐   │ │
-│  │  │  DB Buffer   │  │   Shared     │  │  Redo Log Buffer │   │ │
-│  │  │   Cache      │  │    Pool      │  │                  │   │ │
-│  │  └──────────────┘  └──────────────┘  └──────────────────┘   │ │
-│  │  ┌──────────────┐  ┌──────────────┐                         │ │
-│  │  │  Large Pool  │  │  Java Pool   │                         │ │
-│  │  └──────────────┘  └──────────────┘                         │ │
-│  └─────────────────────────────────────────────────────────────┘ │
-│                                                                  │
-│  ┌─────────────────────────────────────────────────────────────┐ │
-│  │              Program Global Area (PGA)                      │ │
-│  │  (Per-session: sort area, hash area, session info)          │ │
-│  └─────────────────────────────────────────────────────────────┘ │
-│                                                                  │
-│  Background Processes: DBWn, LGWR, CKPT, SMON, PMON, ARCn...     │
-└──────────────────────────────────────────────────────────────────┘
-                          │
-┌─────────────────────────▼────────────────────────────────────────┐
-│                        Oracle Database                           │
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐            │
-│  │  Datafiles   │  │ Control File │  │  Redo Log    │            │
-│  │  (.dbf)      │  │              │  │  Files       │            │
-│  └──────────────┘  └──────────────┘  └──────────────┘            │
-│  ┌──────────────┐                                                │
-│  │  Archive Log │                                                │
-│  │  Files       │                                                │
-│  └──────────────┘                                                │
-└──────────────────────────────────────────────────────────────────┘
+```d2 title="Oracle Instance và Database"
+direction: down
+instance: Oracle Instance {
+  sga: System Global Area — SGA {
+    buffer: DB Buffer Cache
+    shared: Shared Pool
+    redo: Redo Log Buffer
+    large: Large Pool
+    java: Java Pool
+  }
+  pga: "PGA — per-session\nSort area, hash area, session info"
+  background: "Background Processes\nDBWn, LGWR, CKPT, SMON, PMON, ARCn..."
+}
+database: Oracle Database {
+  data: Datafiles .dbf { shape: cylinder }
+  control: Control File
+  redo: Redo Log Files { shape: cylinder }
+  archive: Archive Log Files { shape: cylinder }
+}
+instance -> database
 ```
 
 ---
@@ -243,12 +233,14 @@ ALTER DATABASE OPEN;
 
 ### Hierarchy
 
-```
-Tablespace (logical)
-└── Segment (logical — 1 object = 1+ segments)
-    └── Extent (logical — tập hợp các data blocks liên tiếp)
-        └── Data Block (logical — đơn vị I/O của Oracle)
-            └── OS Block (physical — 512 bytes hoặc 4KB)
+```d2 title="Oracle: từ tablespace tới OS block"
+direction: down
+n0: "Tablespace: logical"
+n1: "Segment: logical, một object có một hoặc nhiều segments"
+n2: "Extent: các data blocks liên tiếp"
+n3: "Data Block: đơn vị I/O của Oracle"
+n4: "OS Block: physical, 512 bytes hoặc 4 KB"
+n0 -> n1 -> n2 -> n3 -> n4
 ```
 
 | Đơn vị | Kích thước | Mô tả |

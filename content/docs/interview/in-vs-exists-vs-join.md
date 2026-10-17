@@ -6,6 +6,12 @@ description: "Cách trả lời câu hỏi IN hay EXISTS nhanh hơn: phân biệ
 > [!IMPORTANT]
 > Đây là một câu hỏi phỏng vấn về **cách suy luận**, không chỉ về việc nhớ câu “`EXISTS` nhanh hơn `IN`”. Câu trả lời tốt phải tách ba chuyện: **kết quả**, **kế hoạch thực thi**, và **dữ liệu thực tế**.
 
+<SourceRef project="interview-in-vs-exists-vs-join" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Câu hỏi phỏng vấn](#câu-hỏi-phỏng-vấn)
@@ -80,12 +86,17 @@ CREATE TABLE orders (
 
 Ta cần lấy những user đã có ít nhất một order đã thanh toán.
 
-```mermaid
-flowchart LR
-    U[users] --> Q{Có order paid phù hợp?}
-    O[orders] --> Q
-    Q -->|Có| R[Trả user một lần]
-    Q -->|Không| X[Loại user]
+```d2 title="Bài toán mẫu"
+direction: right
+U: "users"
+Q: "Có order paid phù hợp?" { shape: diamond }
+O: "orders"
+R: "Trả user một lần"
+X: "Loại user"
+U -> Q
+O -> Q
+Q -> R: "Có"
+Q -> X: "Không"
 ```
 
 Có thể viết bằng `IN`:
@@ -202,21 +213,32 @@ Nhưng `DISTINCT` phải khử các dòng trùng bằng sort hoặc hash. Nếu 
 
 **Semi-join** là phép nối chỉ trả về dòng bên trái nếu có ít nhất một dòng match bên phải. Nó không lấy cột bên phải và không nhân bản dòng bên trái.
 
-```mermaid
-flowchart TD
-    A[SQL: IN hoặc EXISTS] --> B[Parser]
-    B --> C[Optimizer]
-    C --> D{Có thể viết lại không?}
-    D -->|Có| E[Semi-join]
-    D -->|Không| F[Plan riêng theo cú pháp]
-    E --> G{Chọn thuật toán}
-    G --> H[Hash semi-join]
-    G --> I[Nested-loop semi-join]
-    G --> J[Merge semi-join]
-    F --> K[Đo và kiểm tra plan]
-    H --> K
-    I --> K
-    J --> K
+```d2 title="Semi-join: vì sao hai câu có thể thành cùng một plan"
+direction: down
+A: "SQL: IN hoặc EXISTS"
+B: "Parser"
+C: "Optimizer"
+D: "Có thể viết lại không?" { shape: diamond }
+E: "Semi-join"
+F: "Plan riêng theo cú pháp"
+G: "Chọn thuật toán" { shape: diamond }
+H: "Hash semi-join"
+I: "Nested-loop semi-join"
+J: "Merge semi-join"
+K: "Đo và kiểm tra plan"
+A -> B
+B -> C
+C -> D
+D -> E: "Có"
+D -> F: "Không"
+E -> G
+G -> H
+G -> I
+G -> J
+F -> K
+H -> K
+I -> K
+J -> K
 ```
 
 Với hai câu sau:
@@ -241,6 +263,10 @@ WHERE EXISTS (
       AND o.status = 'paid'
 );
 ```
+
+<SourceRef project="interview-in-vs-exists-vs-join" file="semi-join-vì-sao-hai-câu-có-thể-thành-cùng-một-plan/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 optimizer có thể nhận ra rằng cả hai chỉ cần kiểm tra sự tồn tại. Kế hoạch có thể trở thành dạng tương đương với:
 
@@ -303,14 +329,20 @@ Optimizer cũng có thể chọn hash join hoặc sequential scan nếu:
 - Statistics không phản ánh đúng dữ liệu.
 - Chi phí random I/O cao.
 
-```mermaid
-flowchart LR
-    A[Query có EXISTS] --> B{Có index phù hợp?}
-    B -->|Có| C[Nested loop + index lookup có thể phù hợp]
-    B -->|Không| D[Quét bảng hoặc hash join có thể được chọn]
-    C --> E[Kiểm tra EXPLAIN]
-    D --> E
-    E --> F[Đo trên data và workload thật]
+```d2 title="Index trên cột nối"
+direction: right
+A: "Query có EXISTS"
+B: "Có index phù hợp?" { shape: diamond }
+C: "Nested loop + index lookup có thể phù hợp"
+D: "Quét bảng hoặc hash join có thể được chọn"
+E: "Kiểm tra EXPLAIN"
+F: "Đo trên data và workload thật"
+A -> B
+B -> C: "Có"
+B -> D: "Không"
+C -> E
+D -> E
+E -> F
 ```
 
 Index là nhân vật quan trọng, nhưng không nên nói “thiếu index thì `EXISTS` luôn vô dụng”. Một hash semi-join vẫn có thể là lựa chọn tốt khi bảng lớn và tỷ lệ match cao.

@@ -3,6 +3,12 @@ title: "MySQL Replication"
 description: "MySQL Replication — Binary Log, Source-Replica setup, GTID, semi-sync và các topology phổ biến"
 ---
 
+<SourceRef project="mysql-replication" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Tổng quan](#tổng-quan)
@@ -83,22 +89,14 @@ Mỗi thay đổi được ghi thành một **event** trong binlog:
 
 ## Cơ chế Replication
 
-```
-SOURCE (Master)                    REPLICA (Slave)
-─────────────────                  ────────────────────────────
-  Transaction                        IO Thread
-  ↓                                  ↓
-  Commit                             Connects to Source
-  ↓                                  ↓
-  Write to Binary Log  ──────────►  Read Binary Log events
-                                     ↓
-                                     Write to Relay Log
-                                     ↓
-                                     SQL Thread
-                                     ↓
-                                     Execute events from Relay Log
-                                     ↓
-                                     Apply to Replica DB
+```d2 title="MySQL replication: binlog tới replica"
+direction: right
+n0: "Source: transaction / commit và ghi binlog"
+n1: "Replica IO thread kết nối source, đọc binlog events"
+n2: "Ghi Relay Log"
+n3: "SQL thread đọc và execute relay events"
+n4: "Apply vào Replica DB"
+n0 -> n1 -> n2 -> n3 -> n4
 ```
 
 ### 3 Thread tham gia replication
@@ -247,45 +245,65 @@ SHOW REPLICA STATUS\G  -- xem Executed_Gtid_Set và Retrieved_Gtid_Set
 
 ### 1. Single Source — Single Replica
 
-```
-[Source] ──► [Replica]
+```d2 title="Source và một replica"
+direction: right
+n0: "Source"
+n1: "Replica"
+n0 -> n1
 ```
 
 Đơn giản nhất. Replica dùng cho read scaling hoặc backup.
 
 ### 2. Single Source — Multiple Replicas
 
-```
-              ┌──► [Replica 1]  (read queries)
-[Source] ─────┼──► [Replica 2]  (analytics)
-              └──► [Replica 3]  (backup)
+```d2 title="Một source, nhiều replica"
+direction: right
+s: "Source"
+r1: "Replica 1: read queries"
+r2: "Replica 2: analytics"
+r3: "Replica 3: backup"
+s -> r1
+s -> r2
+s -> r3
 ```
 
 Read scale-out. Source là single point of failure.
 
 ### 3. Source — Source (Active-Active)
 
-```
-[Source 1] ◄──► [Source 2]
+```d2 title="Dual-source replication"
+direction: right
+s1: Source 1
+s2: Source 2
+s1 <-> s2
 ```
 
 Cả 2 đều nhận write. Cần xử lý **conflict resolution** — phức tạp, dễ gây data inconsistency. Không khuyến khích trừ khi có sharding theo region.
 
 ### 4. Source — Replica với Relay (Chained / Hierarchical)
 
-```
-[Source] ──► [Relay Replica] ──► [Replica 1]
-                              └──► [Replica 2]
+```d2 title="Replication qua relay"
+direction: right
+s: "Source"
+relay: "Relay Replica"
+a: "Replica 1"
+b: "Replica 2"
+s -> relay
+relay -> a
+relay -> b
 ```
 
 Giảm tải cho Source khi có nhiều Replica. Relay Replica phân phối binlog cho các Replica downstream.
 
 ### 5. Semi-Sync + Multi-Source (Production Grade)
 
-```
-                    ┌──► [Replica 1]
-[Source] ──Semi──►──┤
-                    └──► [Replica 2]
+```d2 title="Semi-synchronous replication"
+direction: right
+s: "Source"
+a: "Replica 1"
+b: "Replica 2"
+s -> a: "Semi-sync"
+s -> b: "Semi-sync"
 ```
 
 Multi-Source Replication (MySQL 5.7+): 1 Replica nhận dữ liệu từ nhiều Source — dùng cho consolidation.
@@ -296,10 +314,15 @@ Multi-Source Replication (MySQL 5.7+): 1 Replica nhận dữ liệu từ nhiều
 
 ### Asynchronous (mặc định)
 
-```
-Client → Source: COMMIT
-Source: ghi binlog → trả về OK cho client
-Replica: nhận và apply (sau đó, không biết khi nào)
+```d2 title="Asynchronous commit và replica"
+shape: sequence_diagram
+client: Client
+source: Source
+replica: Replica
+client -> source: COMMIT
+source -> source: Ghi binlog
+source -> client: OK
+source -> replica: Nhận và apply sau — không cam kết thời điểm
 ```
 
 - **Ưu:** Latency thấp cho write.
@@ -307,11 +330,16 @@ Replica: nhận và apply (sau đó, không biết khi nào)
 
 ### Semi-Synchronous
 
-```
-Client → Source: COMMIT
-Source: ghi binlog
-Source: chờ ít nhất 1 Replica xác nhận đã nhận (không cần apply)
-Source: trả về OK cho client
+```d2 title="Semi-sync chờ nhận, không chờ apply"
+shape: sequence_diagram
+client: Client
+source: Source
+replica: Ít nhất một Replica
+client -> source: COMMIT
+source -> source: Ghi binlog
+source -> replica: Gửi binlog
+replica -> source: Xác nhận đã nhận — chưa cần apply
+source -> client: OK
 ```
 
 ```sql

@@ -48,27 +48,31 @@ Phần còn lại của doc giải thích **tại sao** và **các thủ phạm 
 
 Nhiều người nghĩ pipeline của một query chỉ có:
 
-```diagram
-❌ Mô hình sai (thiếu một nửa):
-   Query  →  Optimizer chọn plan  →  Chạy plan  →  Kết quả
-                  (index tốt!)        (nhanh!)
+```d2 title="Mô hình thiếu cache: index tốt chưa đủ"
+direction: right
+n0: "Query"
+n1: "Optimizer chọn plan: index tốt"
+n2: "Chạy plan: chưa chắc nhanh"
+n3: "Kết quả"
+n0 -> n1 -> n2 -> n3
 ```
 
 Thực tế, giữa "chạy plan" và "kết quả" có một bước **đọc dữ liệu vật lý** mà plan không kiểm soát được:
 
-```diagram
-✅ Mô hình đúng:
-   Query
-     ▼
-   Parse + Plan        ← EXPLAIN cho bạn thấy phần NÀY
-     ▼
-   Execute plan
-     ▼
-   Cần page P?  ──► Page P có trong buffer pool (RAM)?
-                     ├─ CÓ  (cache HIT)  → đọc RAM   → ~nano giây
-                     └─ KHÔNG (cache MISS) → đọc ĐĨA → ~mili giây  ← 2s nằm ở đây!
-     ▼
-   Kết quả
+```d2 title="Cache HIT và cache MISS trong execution"
+direction: down
+query: Query
+plan: Parse + Plan — phần EXPLAIN mô tả
+execute: Execute plan cần page P
+check: Page P có trong Buffer Pool? { shape: diamond }
+hit: HIT — đọc RAM
+miss: MISS — đọc disk
+result: Kết quả
+query -> plan -> execute -> check
+check -> hit: Có
+check -> miss: Không
+hit -> result
+miss -> result: I/O có thể chi phối latency
 ```
 
 `EXPLAIN` đánh giá plan dựa trên **cost ước lượng** — số trừu tượng, **không** tính tới việc page đang nóng hay lạnh. Cùng một plan, cùng một index:
@@ -248,18 +252,14 @@ Nghịch lý quan trọng: **index scan sinh ra random I/O**. Khi cold cache, m�
 
 Trong MVCC, mỗi tuple có `xmin`/`xmax` (transaction tạo/xóa nó). Để biết một tuple có "visible" không, Postgres phải kiểm tra trạng thái commit của transaction đó trong `pg_xact` (commit log) — một thao tác tốn kém. Để khỏi kiểm tra lại mỗi lần, lần **đầu tiên** một tuple được đọc sau khi commit, Postgres ghi một **hint bit** vào header tuple ("transaction này đã commit rồi").
 
-```diagram
-INSERT/UPDATE 1 triệu row, COMMIT.
-   ▼
-SELECT lần đầu trên các row đó:
-   - Với mỗi tuple: kiểm tra pg_xact → set hint bit
-   - Set hint bit = SỬA page → page thành DIRTY
-   - Page dirty phải được GHI xuống đĩa (bởi checkpoint/bgwriter)
-   → Lần SELECT đầu vừa ĐỌC vừa GHI → chậm bất ngờ
-
-SELECT lần sau:
-   - Hint bit đã có → không cần kiểm tra pg_xact, không sửa page
-   → Nhanh
+```d2 title="Lần SELECT đầu có thể ghi hint bits"
+direction: right
+n0: "INSERT / UPDATE nhiều row rồi COMMIT"
+n1: "SELECT lần đầu: kiểm tra pg_xact cho tuple"
+n2: "Set hint bit → sửa page → page dirty"
+n3: "Checkpoint / bgwriter ghi dirty page"
+n4: "SELECT sau dùng hint bits: bớt kiểm tra và sửa page"
+n0 -> n1 -> n2 -> n3 -> n4
 ```
 
 Triệu chứng đặc trưng: bạn vừa `INSERT`/`COPY` một lượng lớn data, rồi `SELECT count(*)` lần đầu **chậm và sinh write I/O** (thấy `Buffers: ... dirtied=N` và `written=N` trong `EXPLAIN (ANALYZE, BUFFERS)`), dù chỉ là một câu đọc.

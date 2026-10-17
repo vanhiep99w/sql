@@ -3,6 +3,12 @@ title: "SQL Partitioning"
 description: "Deep dive vào SQL Partitioning — Range, List, Hash, Partition Pruning, Global vs Local Index"
 ---
 
+<SourceRef project="optimization-sql-partition-deep-dive" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Nền tảng Partitioning](#1-nền-tảng-partitioning)
@@ -95,33 +101,44 @@ description: "Deep dive vào SQL Partitioning — Range, List, Hash, Partition P
 
 ### Khi nào nên dùng Partitioning
 
-```mermaid
-flowchart TD
-    A[Should I Partition This Table?] --> B{Table size > 10GB?}
-    B -->|No| C[❌ Probably not needed]
-    B -->|Yes| D{Clear partition key?}
-    
-    D -->|No| E{Can derive partition key?}
-    D -->|Yes| F{Query patterns match partition key?}
-    
-    E -->|No| C
-    E -->|Yes| F
-    
-    F -->|No| G[⚠️ Partitioning may not help]
-    F -->|Yes| H{Need to delete old data?}
-    
-    H -->|Yes| I[✅ Strong candidate for partitioning]
-    H -->|No| J{Need parallel processing?}
-    
-    J -->|Yes| I
-    J -->|No| K[⚠️ Consider carefully]
-    
-    I --> L[Choose Partition Type]
-    L --> M{Time-based data?}
-    M -->|Yes| N[RANGE partition by date]
-    M -->|No| O{Discrete categories?}
-    O -->|Yes| P[LIST partition]
-    O -->|No| Q[HASH partition for distribution]
+```d2 title="Khi nào nên dùng Partitioning"
+direction: down
+A: "Should I Partition This Table?"
+B: "Table size > 10GB?" { shape: diamond }
+C: "❌ Probably not needed"
+D: "Clear partition key?" { shape: diamond }
+E: "Can derive partition key?" { shape: diamond }
+F: "Query patterns match partition key?" { shape: diamond }
+G: "⚠️ Partitioning may not help"
+H: "Need to delete old data?" { shape: diamond }
+I: "✅ Strong candidate for partitioning"
+J: "Need parallel processing?" { shape: diamond }
+K: "⚠️ Consider carefully"
+L: "Choose Partition Type"
+M: "Time-based data?" { shape: diamond }
+N: "RANGE partition by date"
+O: "Discrete categories?" { shape: diamond }
+P: "LIST partition"
+Q: "HASH partition for distribution"
+A -> B
+B -> C: "No"
+B -> D: "Yes"
+D -> E: "No"
+D -> F: "Yes"
+E -> C: "No"
+E -> F: "Yes"
+F -> G: "No"
+F -> H: "Yes"
+H -> I: "Yes"
+H -> J: "No"
+J -> I: "Yes"
+J -> K: "No"
+I -> L
+L -> M
+M -> N: "Yes"
+M -> O: "No"
+O -> P: "Yes"
+O -> Q: "No"
 ```
 
 ### Khi nào KHÔNG nên dùng Partitioning
@@ -205,39 +222,15 @@ flowchart TD
 
 Range partitioning divides data based on value ranges. Each partition holds rows where the partition key falls within a specified range.
 
+```d2 title="RANGE partition route theo khoảng ngày"
+direction: right
+n0: "INSERT id=1, order_date=2023-06-15, amount=100"
+n1: "Kiểm tra 2023-01-01 ≤ order_date < 2024-01-01"
+n2: "Route tới partition p_2023"
+n0 -> n1 -> n2
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    RANGE PARTITION INTERNAL STRUCTURE                           │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   CREATE TABLE orders (                                                         │
-│       id INT,                                                                   │
-│       order_date DATE,                                                          │
-│       amount DECIMAL(10,2)                                                      │
-│   ) PARTITION BY RANGE (order_date);                                            │
-│                                                                                 │
-│   Partition Boundaries:                                                         │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │                                                                         │   │
-│   │  -∞ ──────┬──────────┬──────────┬──────────┬──────────┬────────── +∞    │   │
-│   │           │          │          │          │          │                 │   │
-│   │       2022-01-01 2023-01-01 2024-01-01 2025-01-01  MAXVALUE             │   │
-│   │           │          │          │          │          │                 │   │
-│   │    p_2022 │  p_2023  │  p_2024  │  p_2025  │ p_future │                 │   │
-│   │           │          │          │          │          │                 │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   Row Routing:                                                                  │
-│   INSERT (id=1, order_date='2023-06-15', amount=100)                            │
-│          │                                                                      │
-│          ▼                                                                      │
-│   Check: '2023-06-15' >= '2023-01-01' AND '2023-06-15' < '2024-01-01'           │
-│          │                                                                      │
-│          ▼                                                                      │
-│   Route to: p_2023 partition                                                    │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Bảng ví dụ có `id INT`, `order_date DATE`, `amount DECIMAL(10,2)` và partition key `order_date`. Các mốc được quản lý từ khoảng lịch sử tới `MAXVALUE`; các phần SQL bên dưới định nghĩa chính xác boundary theo database.
 
 ### Cú pháp Range Partition
 
@@ -275,6 +268,10 @@ CREATE TABLE orders_2024 PARTITION OF orders
 CREATE TABLE orders_default PARTITION OF orders DEFAULT;
 ```
 
+<SourceRef project="optimization-sql-partition-deep-dive" file="cú-pháp-range-partition/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ### Range Partition theo tháng (Pattern phổ biến)
 
 ```sql
@@ -307,6 +304,10 @@ CREATE TABLE logs_2024_02 PARTITION OF logs
 -- ... etc
 ```
 
+<SourceRef project="optimization-sql-partition-deep-dive" file="range-partition-theo-tháng-pattern-phổ-biến/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ### Ví dụ query với Range Partition
 
 ```sql
@@ -328,49 +329,23 @@ EXPLAIN SELECT * FROM orders WHERE order_date = '2024-03-15';
 
 List partitioning assigns rows to partitions based on discrete values. Each partition contains rows matching specific values in a list.
 
+```d2 title="LIST partition ánh xạ giá trị tới partition"
+direction: right
+us: "US / CA / MX"
+eu: "UK / DE / FR"
+asia: "JP / CN / KR"
+other: "Giá trị khác"
+pa: "p_americas"
+pe: "p_europe"
+ps: "p_asia"
+po: "p_other — catch-all"
+us -> pa
+eu -> pe
+asia -> ps
+other -> po
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    LIST PARTITION INTERNAL STRUCTURE                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   CREATE TABLE customers (                                                      │
-│       id INT,                                                                   │
-│       name VARCHAR(100),                                                        │
-│       country VARCHAR(2)                                                        │
-│   ) PARTITION BY LIST (country);                                                │
-│                                                                                 │
-│   Partition Value Mapping:                                                      │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │                                                                         │   │
-│   │   country     Partition                                                 │   │
-│   │   ─────────   ─────────                                                 │   │
-│   │   'US'    ─┐                                                            │   │
-│   │   'CA'    ─┼──► p_americas                                              │   │
-│   │   'MX'    ─┘                                                            │   │
-│   │                                                                         │   │
-│   │   'UK'    ─┐                                                            │   │
-│   │   'DE'    ─┼──► p_europe                                                │   │
-│   │   'FR'    ─┘                                                            │   │
-│   │                                                                         │   │
-│   │   'JP'    ─┐                                                            │   │
-│   │   'CN'    ─┼──► p_asia                                                  │   │
-│   │   'KR'    ─┘                                                            │   │
-│   │                                                                         │   │
-│   │   Others  ───► p_other (catch-all)                                      │   │
-│   │                                                                         │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   Row Routing:                                                                  │
-│   INSERT (id=1, name='John', country='DE')                                      │
-│          │                                                                      │
-│          ▼                                                                      │
-│   Check: 'DE' IN ('UK', 'DE', 'FR') → TRUE                                      │
-│          │                                                                      │
-│          ▼                                                                      │
-│   Route to: p_europe partition                                                  │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Bảng `customers(id INT, name VARCHAR(100), country VARCHAR(2))` dùng `PARTITION BY LIST (country)`. Ví dụ insert `(1, 'John', 'DE')`: `DE IN (UK, DE, FR)` nên route tới `p_europe`. Cú pháp catch-all/default tùy database.
 
 ### Cú pháp List Partition
 
@@ -404,6 +379,10 @@ CREATE TABLE customers_asia PARTITION OF customers
 CREATE TABLE customers_other PARTITION OF customers DEFAULT;
 ```
 
+<SourceRef project="optimization-sql-partition-deep-dive" file="cú-pháp-list-partition/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ### Các trường hợp dùng List Partition
 
 | Use Case | Partition Key | Partition Values |
@@ -422,43 +401,25 @@ CREATE TABLE customers_other PARTITION OF customers DEFAULT;
 
 Hash partitioning distributes rows across partitions using a hash function. This ensures even distribution when there's no natural range or list key.
 
+```d2 title="HASH partition: mô hình hash modulo bốn"
+direction: right
+u101: user_id 101
+u102: user_id 102
+u103: user_id 103
+u104: user_id 104
+u105: user_id 105
+p0: P0 — user 103, 105
+p1: P1 — user 102
+p2: P2 — user 101
+p3: P3 — user 104
+u101 -> p2: 2847362 mod 4 = 2
+u102 -> p1: 9283741 mod 4 = 1
+u103 -> p0: 1827364 mod 4 = 0
+u104 -> p3: 5738291 mod 4 = 3
+u105 -> p0: 8273648 mod 4 = 0
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    HASH PARTITION INTERNAL STRUCTURE                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   CREATE TABLE user_sessions (                                                  │
-│       session_id VARCHAR(64),                                                   │
-│       user_id INT                                                               │
-│   ) PARTITION BY HASH (user_id) PARTITIONS 4;                                   │
-│                                                                                 │
-│   Hash Distribution Formula:                                                    │
-│   partition_number = HASH(user_id) MOD number_of_partitions                     │
-│                                                                                 │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │                                                                         │   │
-│   │   user_id=101  ──► HASH(101)=2847362 ──► 2847362 MOD 4 = 2 ──► P2       │   │
-│   │   user_id=102  ──► HASH(102)=9283741 ──► 9283741 MOD 4 = 1 ──► P1       │   │
-│   │   user_id=103  ──► HASH(103)=1827364 ──► 1827364 MOD 4 = 0 ──► P0       │   │
-│   │   user_id=104  ──► HASH(104)=5738291 ──► 5738291 MOD 4 = 3 ──► P3       │   │
-│   │   user_id=105  ──► HASH(105)=8273648 ──► 8273648 MOD 4 = 0 ──► P0       │   │
-│   │                                                                         │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   Resulting Distribution:                                                       │
-│   ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐                       │
-│   │    P0     │ │    P1     │ │    P2     │ │    P3     │                       │
-│   │ user_id:  │ │ user_id:  │ │ user_id:  │ │ user_id:  │                       │
-│   │ 103, 105  │ │ 102       │ │ 101       │ │ 104       │                       │
-│   │ ~25% data │ │ ~25% data │ │ ~25% data │ │ ~25% data │                       │
-│   └───────────┘ └───────────┘ └───────────┘ └───────────┘                       │
-│                                                                                 │
-│   ✅ Advantage: Even distribution across partitions                             │
-│   ❌ Disadvantage: Can't predict which partition holds specific data            │
-│   ❌ Disadvantage: Range queries scan ALL partitions                            │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Bảng ví dụ là `user_sessions(session_id VARCHAR(64), user_id INT)`. Các hash trên là **số minh họa**, không phải công thức hash cụ thể của mọi engine. Hash có thể phân bố gần đều ở quy mô lớn, nhưng không bảo đảm đúng 25% từng partition. Biết key và hàm routing thì xác định được partition; range trên key thường không prune được về một partition như RANGE partitioning.
 
 ### Cú pháp Hash Partition
 
@@ -497,6 +458,10 @@ CREATE TABLE user_sessions_p2 PARTITION OF user_sessions
 CREATE TABLE user_sessions_p3 PARTITION OF user_sessions
     FOR VALUES WITH (MODULUS 4, REMAINDER 3);
 ```
+
+<SourceRef project="optimization-sql-partition-deep-dive" file="cú-pháp-hash-partition/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ### Hash vs Linear Hash (MySQL)
 
@@ -541,6 +506,10 @@ CREATE TABLE items (
 ) PARTITION BY KEY () PARTITIONS 4;  -- Uses PRIMARY KEY
 ```
 
+<SourceRef project="optimization-sql-partition-deep-dive" file="key-partitioning-chỉ-mysql/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ### So sánh Key và Hash Partitioning
 
 | Aspect | KEY | HASH |
@@ -559,39 +528,35 @@ CREATE TABLE items (
 
 Composite partitioning combines two partitioning methods. The table is first partitioned by one method, then each partition is further divided (subpartitioned) by another method.
 
+```d2 title="Composite partition: RANGE rồi HASH"
+direction: down
+sales: sales
+p2023: RANGE year 2023 {
+  s0: sp0
+  s1: sp1
+  s2: sp2
+  s3: sp3
+}
+p2024: RANGE year 2024 {
+  s0: sp0
+  s1: sp1 — đích trong ví dụ
+  s2: sp2
+  s3: sp3
+}
+p2025: RANGE year 2025 {
+  s0: sp0
+  s1: sp1
+  s2: sp2
+  s3: sp3
+}
+sales -> p2023
+sales -> p2024
+sales -> p2025
+query: WHERE year = 2024 AND store_id = 5
+query -> p2024.s1: pruning theo routing minh họa
 ```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│                    COMPOSITE PARTITION STRUCTURE                               │
-├────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                │
-│   Table: sales (RANGE by year, then HASH by store_id)                          │
-│                                                                                │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │                           RANGE by year                                 │  │
-│   │                                                                         │  │
-│   │   ┌───────────────────┐  ┌───────────────────┐  ┌───────────────────┐   │  │
-│   │   │      p_2023       │  │      p_2024       │  │      p_2025       │   │  │
-│   │   │  (year = 2023)    │  │  (year = 2024)    │  │  (year = 2025)    │   │  │
-│   │   ├───────────────────┤  ├───────────────────┤  ├───────────────────┤   │  │
-│   │   │ HASH by store_id  │  │ HASH by store_id  │  │ HASH by store_id  │   │  │
-│   │   │                   │  │                   │  │                   │   │  │
-│   │   │ ┌────┐ ┌────┐     │  │ ┌────┐ ┌────┐     │  │ ┌────┐ ┌────┐     │   │  │
-│   │   │ │sp0 │ │sp1 │     │  │ │sp0 │ │sp1 │     │  │ │sp0 │ │sp1 │     │   │  │
-│   │   │ └────┘ └────┘     │  │ └────┘ └────┘     │  │ └────┘ └────┘     │   │  │
-│   │   │ ┌────┐ ┌────┐     │  │ ┌────┐ ┌────┐     │  │ ┌────┐ ┌────┐     │   │  │
-│   │   │ │sp2 │ │sp3 │     │  │ │sp2 │ │sp3 │     │  │ │sp2 │ │sp3 │     │   │  │
-│   │   │ └────┘ └────┘     │  │ └────┘ └────┘     │  │ └────┘ └────┘     │   │  │
-│   │   └───────────────────┘  └───────────────────┘  └───────────────────┘   │  │
-│   │                                                                         │  │
-│   │   Total: 3 partitions × 4 subpartitions = 12 physical segments          │  │
-│   │                                                                         │  │
-│   └─────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                │
-│   Query: WHERE year = 2024 AND store_id = 5                                    │
-│   Pruning: Scans only p_2024_sp1 (1 of 12 segments)                            │
-│                                                                                │
-└────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Ba partition năm × bốn subpartition hash = 12 vùng dữ liệu. Với quy tắc hash trong ví dụ đưa store 5 tới sp1, query chỉ cần `p_2024_sp1`. Kiểm tra routing thực tế của engine, không mặc định mọi hash là `store_id % 4`.
 
 ### Cú pháp Composite Partition
 
@@ -652,52 +617,27 @@ SUBPARTITION BY LIST COLUMNS (region) (
 
 **Partition pruning** is the database optimizer's ability to skip partitions that cannot contain matching rows. This is the PRIMARY performance benefit of partitioning.
 
+```d2 title="Partition pruning loại bỏ vùng không liên quan"
+direction: right
+q1: "Q1: order_date = 2024-06-15"
+q2: "Q2: 2023-01-01 ≤ order_date < 2024-07-01"
+q3: "Q3: customer_id = 12345 — không lọc partition key"
+p0: p_2020 — 20M
+p1: p_2021 — 25M
+p2: p_2022 — 30M
+p3: p_2023 — 35M
+p4: p_2024 — 40M
+q1 -> p4
+q2 -> p3
+q2 -> p4
+q3 -> p0
+q3 -> p1
+q3 -> p2
+q3 -> p3
+q3 -> p4
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         PARTITION PRUNING EXPLAINED                             │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Table: orders (partitioned by RANGE on order_date)                            │
-│   ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐              │
-│   │  p_2020  │ │  p_2021  │ │  p_2022  │ │  p_2023  │ │  p_2024  │              │
-│   │  20M     │ │  25M     │ │  30M     │ │  35M     │ │  40M     │              │
-│   └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘              │
-│       Total: 150 million rows                                                   │
-│                                                                                 │
-│   ───────────────────────────────────────────────────────────────────────────   │
-│                                                                                 │
-│   Query 1: SELECT * FROM orders WHERE order_date = '2024-06-15';                │
-│                                                                                 │
-│   Without Pruning: Scan all 150M rows                                           │
-│   With Pruning:    Scan only p_2024 (40M rows)                                  │
-│   ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐              │
-│   │  SKIP    │ │  SKIP    │ │  SKIP    │ │  SKIP    │ │ ✅ SCAN  │              │
-│   └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘              │
-│   Improvement: 3.75x faster (40M vs 150M)                                       │
-│                                                                                 │
-│   ───────────────────────────────────────────────────────────────────────────   │
-│                                                                                 │
-│   Query 2: SELECT * FROM orders                                                 │
-│            WHERE order_date >= '2023-01-01' AND order_date < '2024-07-01';      │
-│                                                                                 │
-│   ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐              │
-│   │  SKIP    │ │  SKIP    │ │  SKIP    │ │ ✅ SCAN  │ │ ✅ SCAN  │              │
-│   └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘              │
-│   Scans: p_2023 (35M) + p_2024 (40M) = 75M rows                                 │
-│   Improvement: 2x faster (75M vs 150M)                                          │
-│                                                                                 │
-│   ───────────────────────────────────────────────────────────────────────────   │
-│                                                                                 │
-│   Query 3: SELECT * FROM orders WHERE customer_id = 12345;                      │
-│            (customer_id is NOT the partition key!)                              │
-│                                                                                 │
-│   ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐              │
-│   │ ✅ SCAN  │ │ ✅ SCAN  │ │ ✅ SCAN  │ │ ✅ SCAN  │ │ ✅ SCAN  │              │
-│   └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘              │
-│   ❌ NO PRUNING - Must scan ALL partitions!                                     │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Tổng dữ liệu minh họa là 150 triệu rows. Q1 giữ partition 40M rows; Q2 giữ 35M + 40M = 75M rows; Q3 không loại bỏ partition bằng điều kiện `customer_id` này. Tỷ lệ 150/40 hoặc 150/75 chỉ mô tả lượng dữ liệu trong các partition, **không cam kết query nhanh hơn cùng tỷ lệ**; index trong partition còn có thể giảm lượng rows thực đọc.
 
 ### Điều kiện để Pruning hoạt động
 
@@ -841,54 +781,37 @@ WHERE order_date >= '2024-01-01'   -- Partition pruning
 
 ### Hiểu về Global vs Local Index
 
+```d2 title="Local index và global index"
+direction: down
+local: Local indexes {
+  p1: Partition 1 {
+    index1: Index 1
+    data1: Data
+    index1 -> data1
+  }
+  p2: Partition 2 {
+    index2: Index 2
+    data2: Data
+    index2 -> data2
+  }
+  p3: Partition 3 {
+    index3: Index 3
+    data3: Data
+    index3 -> data3
+  }
+}
+global: Global index — engine có hỗ trợ {
+  index: customer_id → partition + row pointer
+  p1: Partition 1 data
+  p2: Partition 2 data
+  p3: Partition 3 data
+  index -> p1
+  index -> p2
+  index -> p3
+}
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    GLOBAL VS LOCAL INDEX COMPARISON                             │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   LOCAL INDEX (Per Partition)                                                   │
-│   ─────────────────────────────                                                 │
-│   Each partition has its own index                                              │
-│                                                                                 │
-│   ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐                 │
-│   │   Partition 1   │  │   Partition 2   │  │   Partition 3   │                 │
-│   │ ┌─────────────┐ │  │ ┌─────────────┐ │  │ ┌─────────────┐ │                 │
-│   │ │   Index 1   │ │  │ │   Index 2   │ │  │ │   Index 3   │ │                 │
-│   │ └─────────────┘ │  │ └─────────────┘ │  │ └─────────────┘ │                 │
-│   │ ┌─────────────┐ │  │ ┌─────────────┐ │  │ ┌─────────────┐ │                 │
-│   │ │    Data     │ │  │ │    Data     │ │  │ │    Data     │ │                 │
-│   │ └─────────────┘ │  │ └─────────────┘ │  │ └─────────────┘ │                 │
-│   └─────────────────┘  └─────────────────┘  └─────────────────┘                 │
-│                                                                                 │
-│   ✅ Partition operations are fast (only local index affected)                  │
-│   ✅ Index maintenance is distributed                                           │
-│   ❌ Query without partition key must search ALL indexes                        │
-│                                                                                 │
-│   ═══════════════════════════════════════════════════════════════════════════   │
-│                                                                                 │
-│   GLOBAL INDEX (Spans All Partitions) - Oracle/PostgreSQL                       │
-│   ─────────────────────────────────────                                         │
-│   Single index covers all partitions                                            │
-│                                                                                 │
-│          ┌─────────────────────────────────────────────────┐                    │
-│          │              Global Index                       │                    │
-│          │  customer_id → (partition, row_pointer)         │                    │
-│          └─────────────────────────────────────────────────┘                    │
-│                     │                │                │                         │
-│                     ▼                ▼                ▼                         │
-│   ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐                 │
-│   │   Partition 1   │  │   Partition 2   │  │   Partition 3   │                 │
-│   │ ┌─────────────┐ │  │ ┌─────────────┐ │  │ ┌─────────────┐ │                 │
-│   │ │    Data     │ │  │ │    Data     │ │  │ │    Data     │ │                 │
-│   │ └─────────────┘ │  │ └─────────────┘ │  │ └─────────────┘ │                 │
-│   └─────────────────┘  └─────────────────┘  └─────────────────┘                 │
-│                                                                                 │
-│   ✅ Query by indexed column is fast (single index lookup)                      │
-│   ❌ Partition operations may invalidate/rebuild global index                   │
-│   ❌ Index maintenance is centralized (potential bottleneck)                    │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Local index được duy trì theo partition; query không prune được có thể phải xét nhiều index. Global index bao phủ nhiều partition, nhưng partition maintenance còn phải xử lý tính hợp lệ của index toàn cục. **Oracle hỗ trợ global index; PostgreSQL core không có global index xuyên partition tương đương** — index trên partitioned table đại diện cho các index cục bộ của partition.
 
 ### Bảng so sánh
 
@@ -1503,15 +1426,23 @@ WHERE order_date < '2023-01-01' AND status = 'cancelled';
 
 ### Chọn loại Partition
 
-```mermaid
-flowchart TD
-    A[Choose Partition Type] --> B{Data has time component?}
-    B -->|Yes| C[RANGE by date/timestamp]
-    B -->|No| D{Discrete categories?}
-    D -->|Yes| E[LIST by category]
-    D -->|No| F{Need even distribution?}
-    F -->|Yes| G[HASH by ID]
-    F -->|No| H[Reconsider partitioning]
+```d2 title="Chọn loại Partition"
+direction: down
+A: "Choose Partition Type"
+B: "Data has time component?" { shape: diamond }
+C: "RANGE by date/timestamp"
+D: "Discrete categories?" { shape: diamond }
+E: "LIST by category"
+F: "Need even distribution?" { shape: diamond }
+G: "HASH by ID"
+H: "Reconsider partitioning"
+A -> B
+B -> C: "Yes"
+B -> D: "No"
+D -> E: "Yes"
+D -> F: "No"
+F -> G: "Yes"
+F -> H: "No"
 ```
 
 ### Cú pháp tham chiếu nhanh

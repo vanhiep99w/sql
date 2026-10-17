@@ -16,3 +16,8 @@ src/content/docs/
 __pycache__/
 .next/
 .source/
+
+# Generated docs assets and renderer cache
+.cache/
+public/source-examples/
+*.tsbuildinfo

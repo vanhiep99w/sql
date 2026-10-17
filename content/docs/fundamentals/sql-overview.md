@@ -3,6 +3,12 @@ title: "Tổng quan SQL"
 description: "Các khái niệm cơ bản về SQL — loại câu lệnh, stored procedures, triggers, views và CTE"
 ---
 
+<SourceRef project="fundamentals-sql-overview" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [SQL là gì và tại sao quan trọng](#sql-là-gì-và-tại-sao-quan-trọng)
@@ -71,6 +77,10 @@ DROP TABLE employees;
 TRUNCATE TABLE employees;
 ```
 
+<SourceRef project="fundamentals-sql-overview" file="ddl--data-definition-language/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ### DML — Data Manipulation Language
 
 DML dùng để thêm, sửa, xóa dữ liệu bên trong bảng. Khác với DDL, các lệnh DML **có thể rollback** nếu nằm trong transaction.
@@ -114,6 +124,10 @@ FROM employees
 GROUP BY department
 HAVING AVG(salary) > 15000000;
 ```
+
+<SourceRef project="fundamentals-sql-overview" file="dql--data-query-language/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ### DCL — Data Control Language
 
@@ -159,6 +173,10 @@ UPDATE accounts SET balance = balance - 300000 WHERE id = 1;
 ROLLBACK TO SAVEPOINT sp1;
 COMMIT;
 ```
+
+<SourceRef project="fundamentals-sql-overview" file="tcl--transaction-control-language/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ## Stored Procedures
 
@@ -209,6 +227,10 @@ DELIMITER ;
 CALL transfer_money(1, 2, 5000000);
 ```
 
+<SourceRef project="fundamentals-sql-overview" file="cú-pháp-mysql/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ### Cú pháp PostgreSQL
 
 ```sql
@@ -236,6 +258,10 @@ $$ LANGUAGE plpgsql;
 -- Gọi function
 SELECT transfer_money(1, 2, 5000000);
 ```
+
+<SourceRef project="fundamentals-sql-overview" file="cú-pháp-postgresql/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ## Trigger
 
@@ -421,21 +447,32 @@ Công ty ABC                 | 0
 
 ### Diagram so sánh
 
-```
-Binary Tree (mỗi node tối đa 2 con):
-
-          [50]
-         /    \
-      [30]    [70]
-      /  \    /  \
-   [20] [40][60] [80]
-
-
-B-Tree bậc 3 (mỗi node tối đa 3 key, 4 con):
-
-            [30 | 60]
-           /    |    \
-    [10|20]  [40|50]  [70|80|90]
+```d2 title="Binary Tree và B-Tree"
+direction: down
+binary: Binary Tree — tối đa 2 con {
+  root: "50"
+  a: "30"
+  b: "70"
+  c: "20"
+  d: "40"
+  e: "60"
+  f: "80"
+  root -> a
+  root -> b
+  a -> c
+  a -> d
+  b -> e
+  b -> f
+}
+btree: B-Tree — tối đa 3 key và 4 con trong ví dụ {
+  root: "30 | 60"
+  a: "10 | 20"
+  b: "40 | 50"
+  c: "70 | 80 | 90"
+  root -> a
+  root -> b
+  root -> c
+}
 ```
 
 ### Tại sao Database dùng B-Tree thay vì Binary Tree?
@@ -446,17 +483,20 @@ B-Tree bậc 3 (mỗi node tối đa 3 key, 4 con):
 
 3. **Tận dụng page size**: Database đọc dữ liệu theo page (thường 4KB-16KB). Mỗi node B-Tree được thiết kế vừa 1 page → tối ưu I/O.
 
+```d2 title="B+Tree và truy vấn khoảng"
+direction: down
+root: "Internal: 30 | 60"
+a: "Leaf: 10 | 20\nkey + data pointer"
+b: "Leaf: 30 | 40 | 50\nkey + data pointer"
+c: "Leaf: 60 | 70 | 80\nkey + data pointer"
+root -> a
+root -> b
+root -> c
+a <-> b: liên kết leaf
+b <-> c: liên kết leaf
 ```
-B+Tree (biến thể dùng trong database):
 
-         [30 | 60]              ← Internal nodes (chỉ chứa key)
-        /    |    \
-  [10|20] [30|40|50] [60|70|80] ← Leaf nodes (chứa key + data pointer)
-     ↔         ↔         ↔     ← Leaf nodes liên kết nhau (doubly linked list)
-
-→ Range query WHERE id BETWEEN 20 AND 50:
-  Tìm leaf chứa 20, sau đó duyệt tuần tự qua linked list đến 50.
-```
+Với `WHERE id BETWEEN 20 AND 50`, tìm leaf chứa 20 rồi duyệt liên kết leaf đến 50.
 
 ### Các loại Index trong Database
 

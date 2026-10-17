@@ -5,6 +5,12 @@ description: "Chọn và triển khai optimistic lock, transaction lock, advisor
 
 > Phạm vi bài này là **concurrency control ở tầng application**: dữ liệu cũ ghi đè dữ liệu mới, nhiều worker cùng chạy một job, và nghiệp vụ phải giữ invariant trên nhiều bản ghi. Để hiểu lock mode, MVCC và isolation level của database, xem [Lock trong Database](/fundamentals/lock/) và [Mối quan hệ giữa Locking Level, Locking Type và Isolation Level](/fundamentals/locking-isolation-relationship/).
 
+<SourceRef project="fundamentals-application-concurrency-locking" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Vấn đề cần giải quyết](#vấn-đề-cần-giải-quyết)
@@ -112,18 +118,29 @@ Ví dụ, tăng version của root category cho mọi thay đổi có thể bả
 
 ### Cây quyết định
 
-```mermaid
-flowchart TD
-  A[Viết invariant và phạm vi dữ liệu cần bảo vệ] --> B{Có thể diễn đạt bằng một câu UPDATE/constraint atomic?}
-  B -->|Có| C[Ưu tiên conditional UPDATE hoặc constraint]
-  B -->|Không| D{Conflict hiếm và người dùng có thể refresh/merge?}
-  D -->|Có| E[Optimistic locking: version hoặc ETag]
-  D -->|Không| F{Có thể giữ transaction DB rất ngắn, không gọi I/O ngoài?}
-  F -->|Có| G[Row lock: SELECT ... FOR UPDATE]
-  F -->|Không| H{Cần single-flight job hoặc lock đi qua API/worker?}
-  H -->|Có, lock logic ngắn| I[DB advisory lock]
-  H -->|Có, job dài hoặc đa process| J[Lease lock: DB hoặc Redis + TTL + fencing]
-  H -->|Không| K[Thiết kế lại workflow: queue, staging, state machine hoặc saga]
+```d2 title="Cây quyết định"
+direction: down
+A: "Viết invariant và phạm vi dữ liệu cần bảo vệ"
+B: "Có thể diễn đạt bằng một câu UPDATE/constraint atomic?" { shape: diamond }
+C: "Ưu tiên conditional UPDATE hoặc constraint"
+D: "Conflict hiếm và người dùng có thể refresh/merge?" { shape: diamond }
+E: "Optimistic locking: version hoặc ETag"
+F: "Có thể giữ transaction DB rất ngắn, không gọi I/O ngoài?" { shape: diamond }
+G: "Row lock: SELECT ... FOR UPDATE"
+H: "Cần single-flight job hoặc lock đi qua API/worker?" { shape: diamond }
+I: "DB advisory lock"
+J: "Lease lock: DB hoặc Redis + TTL + fencing"
+K: "Thiết kế lại workflow: queue, staging, state machine hoặc saga"
+A -> B
+B -> C: "Có"
+B -> D: "Không"
+D -> E: "Có"
+D -> F: "Không"
+F -> G: "Có"
+F -> H: "Không"
+H -> I: "Có, lock logic ngắn"
+H -> J: "Có, job dài hoặc đa process"
+H -> K: "Không"
 ```
 
 ### Bảng so sánh
@@ -625,18 +642,29 @@ Không giữ database transaction và row locks suốt ba phút. Không gọi ex
 
 Luồng khuyến nghị:
 
-```mermaid
-flowchart LR
-  A[Upload file] --> B[Parse và validate cú pháp]
-  B --> C[Staging tables theo import_id]
-  C --> D[Validate tham chiếu, duplicate, business rules]
-  D --> E{Hợp lệ?}
-  E -->|Không| F[Mark failed, trả lỗi theo dòng]
-  E -->|Có| G[Acquire lock theo tenant/import scope]
-  G --> H[Revalidate dữ liệu live cần thiết]
-  H --> I[Apply bằng set-based SQL trong transaction ngắn]
-  I --> J[Commit + publish outbox event]
-  J --> K[Release lock]
+```d2 title="Import 20.000 dòng"
+direction: right
+A: "Upload file"
+B: "Parse và validate cú pháp"
+C: "Staging tables theo import_id"
+D: "Validate tham chiếu, duplicate, business rules"
+E: "Hợp lệ?" { shape: diamond }
+F: "Mark failed, trả lỗi theo dòng"
+G: "Acquire lock theo tenant/import scope"
+H: "Revalidate dữ liệu live cần thiết"
+I: "Apply bằng set-based SQL trong transaction ngắn"
+J: "Commit + publish outbox event"
+K: "Release lock"
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F: "Không"
+E -> G: "Có"
+G -> H
+H -> I
+I -> J
+J -> K
 ```
 
 Các điểm quyết định:

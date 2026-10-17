@@ -59,18 +59,29 @@ description: "Hướng dẫn system design về database sharding: khi nào cầ
 
 Ví dụ, thay vì lưu toàn bộ `users`, `posts` và `likes` trên một PostgreSQL primary, hệ thống có thể đặt user có `user_id` khác nhau trên các shard khác nhau:
 
-```mermaid
-flowchart LR
-    Client[Mobile / Web client] --> API[API service]
-    API --> Router[Shard router]
-    Router -->|hash user_id = 0| S0[(Shard 0 primary)]
-    Router -->|hash user_id = 1| S1[(Shard 1 primary)]
-    Router -->|hash user_id = 2| S2[(Shard 2 primary)]
-    Router -->|hash user_id = 3| S3[(Shard 3 primary)]
-    S0 --> R0[(Replica 0)]
-    S1 --> R1[(Replica 1)]
-    S2 --> R2[(Replica 2)]
-    S3 --> R3[(Replica 3)]
+```d2 title="Sharding là gì?"
+direction: right
+Client: "Mobile / Web client"
+API: "API service"
+Router: "Shard router"
+S0: "Shard 0 primary" { shape: cylinder }
+S1: "Shard 1 primary" { shape: cylinder }
+S2: "Shard 2 primary" { shape: cylinder }
+S3: "Shard 3 primary" { shape: cylinder }
+R0: "Replica 0" { shape: cylinder }
+R1: "Replica 1" { shape: cylinder }
+R2: "Replica 2" { shape: cylinder }
+R3: "Replica 3" { shape: cylinder }
+Client -> API
+API -> Router
+Router -> S0: "hash user_id = 0"
+Router -> S1: "hash user_id = 1"
+Router -> S2: "hash user_id = 2"
+Router -> S3: "hash user_id = 3"
+S0 -> R0
+S1 -> R1
+S2 -> R2
+S3 -> R3
 ```
 
 Nếu một shard chịu được khoảng 10.000 write/giây và write được phân bố gần đều, bốn shard có thể phục vụ xấp xỉ 40.000 write/giây. Đây chỉ là ước lượng năng lực thô. Throughput thực tế còn bị giới hạn bởi replication, network, index, transaction log, lock contention và traffic không đều.
@@ -138,22 +149,33 @@ Một kiến trúc sharded production thường có ba lớp: **control plane**,
 - **Data plane** xử lý request thật: API service, shard router, primary, replica, cache và queue.
 - **Observability** theo dõi độ lệch tải, latency, error, replication lag và tiến độ migration.
 
-```mermaid
-flowchart TB
-    Client --> API[API services]
-    API --> Cache[(Cache)]
-    API --> Router[Shard router / client library]
-    Router --> Map[(Shard map / control plane)]
-    Router --> P0[(Physical shard A)]
-    Router --> P1[(Physical shard B)]
-    Router --> P2[(Physical shard C)]
-    P0 --> Q[(Event stream / outbox)]
-    P1 --> Q
-    P2 --> Q
-    Q --> Feed[Feed / search / analytics builders]
-    P0 --> Replicas[Read replicas]
-    P1 --> Replicas
-    P2 --> Replicas
+```d2 title="Kiến trúc tổng quát"
+direction: down
+Client: "Client"
+API: "API services"
+Cache: "Cache" { shape: cylinder }
+Router: "Shard router / client library"
+Map: "Shard map / control plane" { shape: cylinder }
+P0: "Physical shard A" { shape: cylinder }
+P1: "Physical shard B" { shape: cylinder }
+P2: "Physical shard C" { shape: cylinder }
+Q: "Event stream / outbox" { shape: cylinder }
+Feed: "Feed / search / analytics builders"
+Replicas: "Read replicas"
+Client -> API
+API -> Cache
+API -> Router
+Router -> Map
+Router -> P0
+Router -> P1
+Router -> P2
+P0 -> Q
+P1 -> Q
+P2 -> Q
+Q -> Feed
+P0 -> Replicas
+P1 -> Replicas
+P2 -> Replicas
 ```
 
 Shard map không nên nằm trong một file cấu hình deploy thủ công. Nó phải được versioned, cache được và có cơ chế cập nhật an toàn. Router có thể cache shard map trong vài giây, nhưng cần làm mới khi nhận lỗi stale routing.
@@ -315,14 +337,21 @@ Hash modulo chỉ hợp lý khi số shard gần như cố định hoặc khi n�
 
 Cách phổ biến hơn trong database sharding là dùng **virtual shard** (còn gọi logical shard, bucket, tablet):
 
-```mermaid
-flowchart LR
-    K[user_id] --> H[hash user_id]
-    H --> V[virtual shard 0..1023]
-    V --> M[shard map]
-    M --> A[(Physical shard A)]
-    M --> B[(Physical shard B)]
-    M --> C[(Physical shard C)]
+```d2 title="Consistent hashing và virtual shards"
+direction: right
+K: "user_id"
+H: "hash user_id"
+V: "virtual shard 0..1023"
+M: "shard map"
+A: "Physical shard A" { shape: cylinder }
+B: "Physical shard B" { shape: cylinder }
+C: "Physical shard C" { shape: cylinder }
+K -> H
+H -> V
+V -> M
+M -> A
+M -> B
+M -> C
 ```
 
 Ví dụ có 1.024 virtual shard và 4 physical shard. Mỗi physical shard sở hữu khoảng 256 virtual shard. Khi shard B nóng, chỉ cần move một số virtual shard từ B sang shard mới D. Router vẫn tính vShard như cũ; chỉ shard map thay đổi.
@@ -384,14 +413,22 @@ Một phân chia khả thi:
 | Home feed | `viewer_id` | Read path theo viewer cần một lookup |
 | Search | Search index riêng | Full-text/global search không hợp SQL scatter-gather |
 
-```mermaid
-flowchart TB
-    U[User 42 creates post] --> PostShard[Posts shard: owner = author_id 42]
-    A[User 87 likes post] --> LikeShard[Like events shard: owner = actor_id 87]
-    LikeShard --> Outbox[Outbox event]
-    Outbox --> Counter[Post counter projection: owner = post_id]
-    Outbox --> Feed[Home-feed projection: owner = viewer_id]
-    Reader[Viewer opens feed] --> Feed
+```d2 title="Mô hình dữ liệu và ownership"
+direction: down
+U: "User 42 creates post"
+PostShard: "Posts shard: owner = author_id 42"
+A: "User 87 likes post"
+LikeShard: "Like events shard: owner = actor_id 87"
+Outbox: "Outbox event"
+Counter: "Post counter projection: owner = post_id"
+Feed: "Home-feed projection: owner = viewer_id"
+Reader: "Viewer opens feed"
+U -> PostShard
+A -> LikeShard
+LikeShard -> Outbox
+Outbox -> Counter
+Outbox -> Feed
+Reader -> Feed
 ```
 
 Điểm quan trọng: like raw event và like counter có thể không ở cùng shard. Hệ thống chấp nhận eventual consistency cho counter để đổi lấy write scale và read locality.
@@ -599,16 +636,24 @@ Request retry cùng key được route cùng shard của actor. Transaction ki�
 
 Sharding và read scaling bổ sung cho nhau:
 
-```mermaid
-flowchart LR
-    Request[Read request] --> C{Cache hit?}
-    C -->|Yes| Cache[(Redis / CDN)]
-    C -->|No| Route[Route to one shard]
-    Route --> R{Consistency needed?}
-    R -->|Read-your-write| P[(Shard primary)]
-    R -->|Stale accepted| Replica[(Shard replica)]
-    P --> Fill[Populate cache]
-    Replica --> Fill
+```d2 title="Read scaling: replica, cache và derived data"
+direction: right
+Request: "Read request"
+C: "Cache hit?" { shape: diamond }
+Cache: "Redis / CDN" { shape: cylinder }
+Route: "Route to one shard"
+R: "Consistency needed?" { shape: diamond }
+P: "Shard primary" { shape: cylinder }
+Replica: "Shard replica" { shape: cylinder }
+PopulateCache: "Populate cache"
+Request -> C
+C -> Cache: "Yes"
+C -> Route: "No"
+Route -> R
+R -> P: "Read-your-write"
+R -> Replica: "Stale accepted"
+P -> PopulateCache
+Replica -> PopulateCache
 ```
 
 ### Replica
@@ -658,21 +703,21 @@ Virtual shard làm việc này nhỏ hơn: thêm physical shard chỉ cần move
 
 Giả sử vShard 517 đang ở shard A và cần chuyển sang shard D.
 
-```mermaid
-sequenceDiagram
-    participant R as Router
-    participant A as Source shard A
-    participant D as Destination shard D
-    participant M as Shard map
-    R->>D: Create destination schema / capacity
-    A->>D: Backfill snapshot of vShard 517
-    A->>D: Replicate change stream / dual-write deltas
-    D->>D: Validate count, checksum, lag
-    M->>M: Change routing version: 517 → D
-    R->>M: Refresh shard map
-    R->>D: New reads/writes route to D
-    A->>A: Keep source read-only grace copy
-    A->>A: Cleanup after verification window
+```d2 title="Quy trình migrate một virtual shard"
+shape: sequence_diagram
+R: "Router"
+A: "Source shard A"
+D: "Destination shard D"
+M: "Shard map"
+R -> D: "Create destination schema / capacity"
+A -> D: "Backfill snapshot of vShard 517"
+A -> D: "Replicate change stream / dual-write deltas"
+D -> D: "Validate count, checksum, lag"
+M -> M: "Change routing version: 517 → D"
+R -> M: "Refresh shard map"
+R -> D: "New reads/writes route to D"
+A -> A: "Keep source read-only grace copy"
+A -> A: "Cleanup after verification window"
 ```
 
 Các bước cụ thể:

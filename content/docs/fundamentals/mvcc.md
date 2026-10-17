@@ -57,24 +57,22 @@ Nếu chỉ dùng lock thuần túy (không có MVCC):
 - Reader block writer, writer block reader → **throughput giảm mạnh**.
 - Hệ thống concurrent cao sẽ trở nên **rất chậm** vì hầu hết thời gian dành cho việc chờ lock.
 
-```
-Không có MVCC:
-┌──────────────┐     ┌──────────────┐
-│ Transaction A│     │ Transaction B│
-│  UPDATE row  │     │  SELECT row  │
-│  (giữ X lock)│     │  ⏳ BLOCKED  │
-│              │     │  chờ A xong  │
-│  COMMIT      │     │  mới đọc được│
-└──────────────┘     └──────────────┘
-
-Có MVCC:
-┌──────────────┐     ┌──────────────┐
-│ Transaction A│     │ Transaction B│
-│  UPDATE row  │     │  SELECT row  │
-│  (tạo v2)    │     │  (đọc v1 cũ) │
-│              │     │  ✅ không chờ│
-│  COMMIT      │     │              │
-└──────────────┘     └──────────────┘
+```d2 title="Reader chờ lock hay đọc version cũ"
+direction: right
+locking: Không có MVCC — mô hình đọc bằng lock {
+  a: A UPDATE, giữ X lock
+  b: B SELECT bị chặn
+  commit: A COMMIT
+  read: B mới đọc được
+  a -> b -> commit -> read
+}
+mvcc: Có MVCC — snapshot read {
+  a: A UPDATE tạo v2
+  b: B SELECT đọc v1 cũ, không chờ A
+  commit: A COMMIT
+  a -> commit
+  b
+}
 ```
 
 ### MVCC giải quyết thế nào
@@ -132,17 +130,19 @@ Ngay cả khi B commit trong lúc câu `SELECT` của A đang chạy, A vẫn gi
 
 Mỗi row có thể tồn tại **nhiều phiên bản** đồng thời. Database sử dụng thông tin transaction để quyết định phiên bản nào **visible** cho từng statement hoặc transaction.
 
-```mermaid
-graph LR
-    V3["Row v3 (newest)"] --> V2["Row v2"] --> V1["Row v1 (oldest)"]
-
-    T1["Tx 100 — thấy v1"]
-    T2["Tx 200 — thấy v2"]
-    T3["Tx 300 — thấy v3"]
-
-    T1 -.-> V1
-    T2 -.-> V2
-    T3 -.-> V3
+```d2 title="Version Chain"
+direction: right
+V3: "Row v3 (newest)"
+V2: "Row v2"
+V1: "Row v1 (oldest)"
+T1: "Tx 100 — thấy v1"
+T2: "Tx 200 — thấy v2"
+T3: "Tx 300 — thấy v3"
+V3 -> V2
+V2 -> V1
+T1 -> V1 { style.stroke-dash: 3 }
+T2 -> V2 { style.stroke-dash: 3 }
+T3 -> V3 { style.stroke-dash: 3 }
 ```
 
 ## MVCC trong PostgreSQL
@@ -270,11 +270,15 @@ COMMIT;
 
 Một statement đang chạy không đổi snapshot giữa chừng. Nếu một `SELECT` chạy 10 giây và transaction khác commit ở giây thứ 5, câu `SELECT` đó vẫn dùng snapshot ban đầu cho đủ 10 giây. Statement tiếp theo mới lấy snapshot mới.
 
-```text
-Transaction
-├── Statement 1 → Snapshot A, cố định trong statement 1
-├── Statement 2 → Snapshot B, cố định trong statement 2
-└── Statement 3 → Snapshot C, cố định trong statement 3
+```d2 title="READ COMMITTED: snapshot theo statement"
+direction: right
+tx: "Transaction"
+s1: "Statement 1: Snapshot A cố định"
+s2: "Statement 2: Snapshot B cố định"
+s3: "Statement 3: Snapshot C cố định"
+tx -> s1
+tx -> s2
+tx -> s3
 ```
 
 #### REPEATABLE READ — một snapshot ổn định
@@ -417,24 +421,16 @@ Dead tuple tích lũy dẫn đến:
 
 ### ASCII Diagram: Row Versioning trong Heap
 
-```
-PostgreSQL Heap (Table File)
-┌──────────────────────────────────────────────────┐
-│  Page 0                                          │
-│  ┌──────────────────────────────────────────┐    │
-│  │ Row: id=1, name='Alice', salary=5000     │    │
-│  │ xmin=100, xmax=105  ← DEAD (đã UPDATE)   │    │
-│  ├──────────────────────────────────────────┤    │
-│  │ Row: id=1, name='Alice', salary=6000     │    │
-│  │ xmin=105, xmax=0    ← ALIVE (bản mới)    │    │
-│  ├──────────────────────────────────────────┤    │
-│  │ Row: id=2, name='Bob', salary=4000       │    │
-│  │ xmin=101, xmax=0    ← ALIVE              │    │
-│  └──────────────────────────────────────────┘    │
-│                                                  │
-│  → VACUUM sẽ dọn row id=1 có xmax=105            │
-│  → Giải phóng slot cho row mới                   │
-└──────────────────────────────────────────────────┘
+```d2 title="PostgreSQL lưu row versions trong heap"
+direction: right
+heap: PostgreSQL Heap — Page 0 {
+  old: "id=1, Alice, salary=5000\nxmin=100, xmax=105 — bản cũ"
+  current: "id=1, Alice, salary=6000\nxmin=105, xmax=0 — bản mới"
+  bob: "id=2, Bob, salary=4000\nxmin=101, xmax=0 — live"
+}
+vacuum: VACUUM dọn khi không còn snapshot cần bản cũ
+free: Slot có thể tái sử dụng
+heap.old -> vacuum -> free
 ```
 
 ## MVCC trong MySQL InnoDB
@@ -456,19 +452,16 @@ Khi transaction cần đọc snapshot:
 1. InnoDB tạo **Read View** chứa danh sách transaction đang active.
 2. Nếu row hiện tại bị sửa bởi transaction chưa commit → InnoDB **đi ngược** qua Undo Log để tìm phiên bản visible.
 
-```
-MySQL InnoDB Architecture
-┌─────────────────────────────┐
-│  Table Heap                 │
-│  ┌───────────────────────┐  │
-│  │ id=1, salary=6000     │──┼──→ Undo Log
-│  │ (bản mới nhất)        │  │    ┌─────────────────────┐
-│  └───────────────────────┘  │    │ id=1, salary=5000   │
-│  ┌───────────────────────┐  │    │(bản cũ, cho snapshot│
-│  │ id=2, salary=4000     │  │    │  read hoặc rollback)│
-│  │ (chưa bị sửa)         │  │    └─────────────────────┘
-│  └───────────────────────┘  │
-└─────────────────────────────┘
+```d2 title="InnoDB giữ phiên bản cũ trong Undo Log"
+direction: right
+table: Bảng InnoDB {
+  alice: "id=1, salary=6000 — bản mới nhất"
+  bob: "id=2, salary=4000 — chưa sửa"
+}
+undo: Undo Log {
+  old: "id=1, salary=5000\ncho snapshot read hoặc rollback"
+}
+table.alice -> undo.old
 ```
 
 ### Purge Thread
@@ -509,18 +502,15 @@ Oracle tự động quản lý vùng Undo:
 - Nếu undo bị ghi đè quá sớm → lỗi **ORA-01555: snapshot too old**.
 - DBA tune bằng `UNDO_RETENTION` parameter và sizing Undo Tablespace.
 
-```
-Oracle Architecture
-┌─────────────────────┐     ┌──────────────────────┐
-│  Table Heap         │     │  Undo Tablespace     │
-│  ┌───────────────┐  │     │  ┌────────────────┐  │
-│  │ id=1          │  │     │  │ SCN 1000:      │  │
-│  │ salary=6000   │──┼────→│  │ id=1           │  │
-│  │ SCN: 1050     │  │     │  │ salary=5000    │  │
-│  └───────────────┘  │     │  └────────────────┘  │
-│                     │     │  Auto-managed by     │
-│                     │     │  Undo Retention      │
-└─────────────────────┘     └──────────────────────┘
+```d2 title="Oracle dựng dữ liệu cũ từ Undo"
+direction: right
+heap: Table Heap {
+  row: "id=1, salary=6000\nSCN 1050"
+}
+undo: Undo Tablespace — Undo Retention {
+  old: "SCN 1000\nid=1, salary=5000"
+}
+heap.row -> undo.old
 ```
 
 ## So sánh chi tiết 3 Database
@@ -620,65 +610,47 @@ Giả sử ta thực hiện: `UPDATE employees SET salary = 6000 WHERE id = 1` (
 
 ### PostgreSQL
 
-```
-Heap TRƯỚC UPDATE:
-┌────────────────────────────────────┐
-│ id=1, salary=5000                  │
-│ xmin=100, xmax=0   ← ALIVE         │
-└────────────────────────────────────┘
-
-Heap SAU UPDATE (transaction 105):
-┌────────────────────────────────────┐
-│ id=1, salary=5000                  │
-│ xmin=100, xmax=105  ← DEAD         │
-├────────────────────────────────────┤
-│ id=1, salary=6000                  │
-│ xmin=105, xmax=0    ← ALIVE        │
-└────────────────────────────────────┘
-→ Cả hai version nằm trong heap
-→ VACUUM sẽ dọn row dead (xmax=105) sau khi không còn tx cần
+```d2 title="PostgreSQL UPDATE để lại version cũ trong heap"
+direction: down
+before: Heap trước UPDATE {
+  row: "id=1, salary=5000\nxmin=100, xmax=0"
+}
+after: Heap sau UPDATE {
+  old: "id=1, salary=5000\nxmin=100, xmax=105 — bản cũ"
+  current: "id=1, salary=6000\nxmin=105, xmax=0 — bản mới"
+}
+vacuum: VACUUM dọn bản cũ khi không còn cần
+before.row -> after.current: UPDATE transaction 105
+after.old -> vacuum
 ```
 
 ### MySQL InnoDB
 
-```
-Table TRƯỚC UPDATE:
-┌────────────────────────┐
-│ id=1, salary=5000      │
-└────────────────────────┘
-
-Table SAU UPDATE:
-┌────────────────────────┐     Undo Log:
-│ id=1, salary=6000      │──→  ┌──────────────────────┐
-│ (bản mới, in-place)    │     │ id=1, salary=5000    │
-└────────────────────────┘     │(cho rollback/snapshot│
-                               │ purge thread dọn sau)│
-                               └──────────────────────┘
-→ Table chỉ chứa bản mới nhất
-→ Purge thread tự động dọn undo khi không cần
+```d2 title="InnoDB UPDATE giữ bản cũ trong undo"
+direction: right
+before: Table trước UPDATE — id=1, salary=5000
+current: Table sau UPDATE — id=1, salary=6000
+undo: "Undo Log: id=1, salary=5000\ncho rollback / snapshot"
+purge: Purge thread dọn khi không còn cần
+before -> current: UPDATE
+current -> undo: lưu thông tin phiên bản trước
+undo -> purge
 ```
 
 ### Oracle
 
+```d2 title="Oracle UPDATE và undo retention"
+direction: right
+before: "Table trước UPDATE — id=1, salary=5000, SCN=1000"
+current: "Table sau UPDATE\nid=1, salary=6000, SCN=1050"
+undo: "Undo Tablespace\nSCN 1000: id=1, salary=5000"
+retention: Quản lý undo theo retention và nhu cầu đọc
+before -> current: UPDATE
+current -> undo: dựng consistent read
+undo -> retention
 ```
-Table TRƯỚC UPDATE:
-┌────────────────────────┐
-│ id=1, salary=5000      │
-│ SCN: 1000              │
-└────────────────────────┘
 
-Table SAU UPDATE:
-┌────────────────────────┐     Undo Tablespace:
-│ id=1, salary=6000      │──→  ┌──────────────────────┐
-│ SCN: 1050              │     │ SCN 1000:            │
-└────────────────────────┘     │ id=1, salary=5000    │
-                               │ (giữ theo undo       │
-                               │  retention period)   │
-                               └──────────────────────┘
-→ Table chỉ chứa bản hiện tại
-→ Undo tự động quản lý theo retention
-→ Nếu undo hết → ORA-01555
-```
+Nếu consistent read cần phiên bản undo đã bị ghi đè, Oracle có thể báo `ORA-01555` (snapshot too old).
 
 ## Tổng kết xếp hạng theo tiêu chí
 

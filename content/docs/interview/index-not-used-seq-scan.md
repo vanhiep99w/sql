@@ -3,6 +3,12 @@ title: "Tôi đã tạo index rồi mà query vẫn Seq Scan?"
 description: "Câu hỏi phỏng vấn: đã CREATE INDEX trên đúng cột trong WHERE mà optimizer vẫn chọn Seq Scan. Mổ xẻ 10 nguyên nhân: selectivity thấp, type mismatch/implicit cast, function trên cột, LIKE '%x%', statistics cũ, OR, NULL, sai thứ tự composite, bảng nhỏ, và cách chẩn đoán bằng EXPLAIN."
 ---
 
+<SourceRef project="interview-index-not-used-seq-scan" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Câu hỏi phỏng vấn](#1-câu-hỏi-phỏng-vấn)

@@ -38,37 +38,30 @@ InnoDB là storage engine mặc định của MySQL từ phiên bản 5.5+. Đâ
 
 ## Kiến trúc tổng thể
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                     MySQL Server Layer                       │
-│   (Query Parser → Optimizer → Execution Engine)              │
-└──────────────────────────────┬───────────────────────────────┘
-                               │
-┌──────────────────────────────▼───────────────────────────────┐
-│                    InnoDB Storage Engine                     │
-│                                                              │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │                   In-Memory Structures                  │ │
-│  │                                                         │ │
-│  │  ┌──────────────────┐   ┌──────────────┐                │ │
-│  │  │   Buffer Pool    │   │  Redo Log    │                │ │
-│  │  │  (data + index)  │   │   Buffer     │                │ │
-│  │  └──────────────────┘   └──────────────┘                │ │
-│  │  ┌──────────────────┐   ┌──────────────┐                │ │
-│  │  │  Change Buffer   │   │ Data Dict.   │                │ │
-│  │  └──────────────────┘   │    Cache     │                │ │
-│  │                         └──────────────┘                │ │
-│  └─────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │                  On-Disk Structures                     │ │
-│  │                                                         │ │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐               │ │
-│  │  │Tablespace│  │Redo Logs │  │Undo Logs │               │ │
-│  │  │ (.ibd)   │  │(ib_logN) │  │          │               │ │
-│  │  └──────────┘  └──────────┘  └──────────┘               │ │
-│  └─────────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────┘
+```d2 title="MySQL Server và InnoDB"
+direction: down
+server: MySQL Server Layer {
+  parser: Query Parser
+  optimizer: Optimizer
+  executor: Execution Engine
+  parser -> optimizer -> executor
+}
+innodb: InnoDB Storage Engine {
+  memory: In-Memory Structures {
+    buffer: Buffer Pool — data + index
+    redo: Redo Log Buffer
+    change: Change Buffer
+    dictionary: Data Dictionary Cache
+  }
+  disk: On-Disk Structures {
+    tables: Tablespace .ibd { shape: cylinder }
+    redo: Redo Logs { shape: cylinder }
+    undo: Undo Logs { shape: cylinder }
+  }
+  memory.buffer -> disk.tables: flush dirty pages
+  memory.redo -> disk.redo: flush redo
+}
+server.executor -> innodb
 ```
 
 ---
@@ -79,31 +72,38 @@ Buffer Pool là vùng nhớ RAM quan trọng nhất của InnoDB — nơi cache 
 
 ### Cơ chế hoạt động
 
-```
-READ request:
-1. Tìm page trong Buffer Pool → HIT → trả về ngay (RAM speed)
-2. Không tìm thấy → MISS → đọc từ disk → load vào Buffer Pool → trả về
-
-WRITE request:
-1. Ghi vào Buffer Pool (dirty page)
-2. Ghi Redo Log (đảm bảo durability)
-3. Background: flush dirty page xuống disk (checkpoint)
+```d2 title="Buffer Pool: đường đọc và ghi"
+direction: right
+read: READ request {
+  lookup: Tìm page trong Buffer Pool
+  hit: HIT — trả từ RAM
+  disk: MISS — đọc disk
+  load: Load vào Buffer Pool rồi trả về
+  lookup -> hit: có
+  lookup -> disk: không
+  disk -> load
+}
+write: WRITE request {
+  dirty: Ghi Buffer Pool — dirty page
+  redo: Ghi Redo Log để bảo đảm durability
+  flush: Background flush dirty page — checkpoint
+  dirty -> redo -> flush
+}
 ```
 
 ### LRU Algorithm — Quản lý bộ nhớ
 
 InnoDB dùng biến thể LRU (Least Recently Used) gọi là **Midpoint Insertion Strategy**:
 
-```
-Buffer Pool List:
-┌──────────────────────────────────────────────────────┐
-│  NEW sublist (5/8)          │  OLD sublist (3/8)     │
-│  (recently accessed pages)  │  (less accessed pages) │
-│                             │                        │
-│  HEAD ◄─ most recent        │  TAIL ◄─ evict first   │
-└──────────────────────────────────────────────────────┘
-                              ▲
-                    Midpoint (new pages inserted here)
+```d2 title="Buffer Pool midpoint insertion"
+direction: right
+new_pages: Page mới đọc vào
+lru: Buffer Pool List {
+  recent: "NEW sublist — 5/8\nHEAD: most recent"
+  old: "OLD sublist — 3/8\nTAIL: evict first"
+  recent -> old: thứ tự LRU
+}
+new_pages -> lru.old: midpoint insertion
 ```
 
 - Page mới load vào được đặt ở **midpoint** (đầu OLD sublist).
@@ -147,13 +147,14 @@ Redo Log đảm bảo **Durability** trong ACID — khi server crash, InnoDB có
 
 ### Write-Ahead Logging (WAL)
 
-```
-Transaction COMMIT flow:
-1. Ghi thay đổi vào Buffer Pool (in-memory dirty page)
-2. Ghi Redo Log record vào Redo Log Buffer (in-memory)
-3. Flush Redo Log Buffer xuống Redo Log files trên disk  ← commit point
-4. Trả về success cho client
-5. (Sau đó) Background thread flush dirty pages xuống tablespace
+```d2 title="InnoDB commit và flush"
+direction: right
+n0: "Thay đổi Buffer Pool: dirty page"
+n1: "Ghi record vào Redo Log Buffer"
+n2: "Flush Redo Log xuống disk theo cấu hình durability"
+n3: "Trả success cho client"
+n4: "Background flush dirty page xuống tablespace"
+n0 -> n1 -> n2 -> n3 -> n4
 ```
 
 > [!IMPORTANT]
@@ -243,12 +244,14 @@ ORDER BY duration_sec DESC;
 
 InnoDB tổ chức storage theo hierarchy:
 
-```
-Tablespace (.ibd file)
-└── Segment (1 per table: leaf segment + non-leaf segment)
-    └── Extent (1MB = 64 pages)
-        └── Page (16KB mặc định) ← đơn vị I/O cơ bản
-            └── Row data
+```d2 title="Các đơn vị lưu trữ InnoDB"
+direction: down
+n0: "Tablespace .ibd"
+n1: "Segment: leaf và non-leaf segment của table"
+n2: "Extent: 1 MB = 64 pages"
+n3: "Page: mặc định 16 KB, đơn vị I/O"
+n4: "Row data"
+n0 -> n1 -> n2 -> n3 -> n4
 ```
 
 ### System Tablespace vs File-per-Table

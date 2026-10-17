@@ -3,6 +3,12 @@ title: "Query Optimization Patterns"
 description: "Mổ xẻ 15+ anti-pattern SQL phổ biến nhất — SELECT *, N+1, implicit conversion, correlated subquery, OFFSET pagination, OR trap, function-on-column. Kèm benchmark, EXPLAIN ANALYZE và cách fix từng cái."
 ---
 
+<SourceRef project="optimization-query-optimization-patterns" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Bối cảnh: Khi dashboard 200ms biến thành 12 giây](#1-bối-cảnh-khi-dashboard-200ms-biến-thành-12-giây)
@@ -71,6 +77,10 @@ CREATE INDEX idx_orders_created_at ON orders(created_at);
 CREATE INDEX idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX idx_order_items_product_id ON order_items(product_id);
 ```
+
+<SourceRef project="optimization-query-optimization-patterns" file="1-bối-cảnh-khi-dashboard-200ms-biến-thành-12-giây/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 Sprint review, PM nói: "Dashboard admin load chậm quá, trước 200ms giờ mất 12 giây". Bạn mở code ra, thấy một mớ query "trông có vẻ đúng" nhưng lại chậm kinh khủng. Mỗi query chậm **vì một lý do khác nhau**.
 
@@ -216,22 +226,19 @@ SELECT * FROM users WHERE id = 1003;
 
 ### 3.2. Vấn đề cốt lõi
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  N+1 Problem:                                                 │
-│                                                               │
-│  App ──→ DB: "Lấy 50 orders"                    (1 query)     │
-│  App ←── DB: [order1, order2, ..., order50]                   │
-│  App ──→ DB: "User của order1?"                  (query 2)    │
-│  App ←── DB: [user_1001]                                      │
-│  App ──→ DB: "User của order2?"                  (query 3)    │
-│  App ←── DB: [user_1002]                                      │
-│  ...                                                          │
-│  App ──→ DB: "User của order50?"                 (query 51)   │
-│  App ←── DB: [user_1050]                                      │
-│                                                               │
-│  Tổng: 1 + N round-trips (N = số orders)                      │
-╰───────────────────────────────────────────────────────────────╯
+```d2 title="N+1: một query orders và N query users"
+shape: sequence_diagram
+app: App
+db: Database
+app -> db: Lấy 50 orders — query 1
+db -> app: order1, order2, ..., order50
+app -> db: User của order1? — query 2
+db -> app: user_1001
+app -> db: User của order2? — query 3
+db -> app: user_1002
+app -> db: ... User của order50? — query 51
+db -> app: user_1050
+app.note: "Tổng 1 + N round-trips, N là số orders"
 ```
 
 Vấn đề **scale tuyến tính**: 50 orders = 51 queries, 500 orders = 501 queries, 5000 orders = 5001 queries.
@@ -451,17 +458,13 @@ Có index `idx_orders_created_at` trên cột `created_at`. Nhưng:
 > [!IMPORTANT]
 > Khi bạn bọc cột trong **function**, database **không thể** dùng B-Tree index trên cột đó. B-Tree sắp theo giá trị gốc của cột, không phải giá trị sau khi áp function.
 
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│  B-Tree index trên created_at:                               │
-│                                                              │
-│  2023-11-15 → 2023-12-01 → 2024-01-01 → 2024-01-15 → ...     │
-│                                                              │
-│  EXTRACT(MONTH FROM created_at) = 1  →  index thấy gì?       │
-│  → Tháng 1 có thể ở BẤT KỲ đâu trên cây                      │
-│  → 2023-01-xx, 2024-01-xx, 2025-01-xx...                     │
-│  → Không có cách nào range scan → Full Scan                  │
-╰──────────────────────────────────────────────────────────────╯
+```d2 title="Bọc cột bằng EXTRACT làm mất range liên tục"
+direction: right
+n0: "Index created_at: 2023-11-15 → 2023-12-01 → 2024-01-01 → 2024-01-15 → ..."
+n1: "EXTRACT(MONTH FROM created_at) = 1"
+n2: "Tháng 1 rải ở 2023-01, 2024-01, 2025-01..."
+n3: "Không có một range liên tục theo created_at; có thể phải full scan"
+n0 -> n1 -> n2 -> n3
 ```
 
 ### 5.3. Fix: Chuyển thành range condition
@@ -714,16 +717,12 @@ SELECT * FROM orders ORDER BY created_at DESC LIMIT 20 OFFSET 1999980; -- 28,500
 
 `OFFSET N` nghĩa là: **đọc N rows, vứt đi, rồi mới bắt đầu lấy**. Trang 100,000 → database đọc rồi vứt **~2 triệu rows**.
 
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│  OFFSET 1,999,980 LIMIT 20:                                  │
-│                                                              │
-│  ┌─────────────────────────────────────────┐ ┌──┐            │
-│  │        1,999,980 rows bị vứt            │ │20│ ← lấy      │
-│  └─────────────────────────────────────────┘ └──┘            │
-│  ↑                                                           │
-│  Database vẫn phải đọc TẤT CẢ rows này                       │
-╰──────────────────────────────────────────────────────────────╯
+```d2 title="OFFSET lớn vẫn đọc các row bị bỏ"
+direction: right
+n0: "Đọc 2.000.000 rows"
+n1: "OFFSET: bỏ 1.999.980 rows"
+n2: "LIMIT: trả 20 rows"
+n0 -> n1 -> n2
 ```
 
 ### 8.3. Fix: Keyset Pagination (Cursor-based)
@@ -953,17 +952,17 @@ HAVING u.created_at >= '2024-01-01';
 
 Thứ tự thực thi SQL:
 
-```diagram
-╭───────────────────────────────────────────────────╮
-│  1. FROM / JOIN     ← join tất cả bảng            │
-│  2. WHERE           ← lọc rows TRƯỚC aggregation  │
-│  3. GROUP BY        ← gom nhóm                    │
-│  4. Aggregate       ← SUM, COUNT, AVG...          │
-│  5. HAVING          ← lọc SAU aggregation         │
-│  6. SELECT          ← chọn cột                    │
-│  7. ORDER BY        ← sắp xếp                     │
-│  8. LIMIT/OFFSET    ← cắt                         │
-╰───────────────────────────────────────────────────╯
+```d2 title="Lọc trước và sau aggregation"
+direction: down
+n0: "FROM / JOIN: join bảng"
+n1: "WHERE: lọc rows"
+n2: "GROUP BY: gom nhóm"
+n3: "Aggregate: SUM, COUNT, AVG"
+n4: "HAVING: lọc nhóm"
+n5: "SELECT: chọn cột"
+n6: "ORDER BY: sắp xếp"
+n7: "LIMIT / OFFSET: cắt"
+n0 -> n1 -> n2 -> n3 -> n4 -> n5 -> n6 -> n7
 ```
 
 `HAVING` lọc **sau GROUP BY** — nghĩa là database phải:
@@ -1212,6 +1211,10 @@ END;
 $$ LANGUAGE plpgsql;
 ```
 
+<SourceRef project="optimization-query-optimization-patterns" file="143-fix-tuỳ-mức-chính-xác-cần/2.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 **Cách 3 — COUNT với điều kiện thì dùng Index:**
 
 ```sql
@@ -1331,19 +1334,15 @@ COMMIT;
 
 `FOR UPDATE` lock **tất cả rows** match WHERE condition. Lock giữ cho đến `COMMIT/ROLLBACK`. Trong khi transaction này giữ lock trên 500 products (category_id = 5), **mọi transaction khác** muốn update bất kỳ product nào trong category đó phải **đợi**.
 
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│  Transaction A:  SELECT ... WHERE category_id=5 FOR UPDATE   │
-│                  → Lock 500 rows                             │
-│                  → UPDATE 1 row                              │
-│                  → Giữ lock 499 rows THỪA cho đến COMMIT     │
-│                                                              │
-│  Transaction B:  UPDATE products SET stock=stock-1           │
-│                  WHERE id=5678 (cùng category)               │
-│                  → BLOCKED — đợi Transaction A commit        │
-│                                                              │
-│  Transaction C, D, E... → tất cả đợi → QUEUE BUILDUP         │
-╰──────────────────────────────────────────────────────────────╯
+```d2 title="Lock quá rộng làm hàng đợi lan rộng"
+direction: right
+a: "A: SELECT category_id=5 FOR UPDATE → lock 500 rows"
+update: "A chỉ UPDATE 1 row, giữ thêm 499 lock tới COMMIT"
+b: "B UPDATE id=5678 cùng category: BLOCKED"
+others: "C, D, E... cùng chờ → queue buildup"
+a -> update
+update -> b: "chờ A commit"
+b -> others
 ```
 
 ### 16.3. Fix: Lock chỉ row cần thiết
@@ -1423,6 +1422,10 @@ FROM pg_stat_statements
 ORDER BY calls DESC
 LIMIT 10;
 ```
+
+<SourceRef project="optimization-query-optimization-patterns" file="181-postgresql/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ```sql
 -- auto_explain — log plan cho query chậm

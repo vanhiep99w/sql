@@ -3,6 +3,12 @@ title: "JOIN Algorithms"
 description: "Mổ xẻ chi tiết 3 thuật toán JOIN cốt lõi — Nested Loop Join, Hash Join, Merge Join. Kèm EXPLAIN ANALYZE, so sánh hiệu năng, cách optimizer chọn thuật toán, và best practices."
 ---
 
+<SourceRef project="optimization-join-algorithms-deep-dive" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Bối cảnh: Tại sao cần hiểu JOIN algorithms](#1-bối-cảnh-tại-sao-cần-hiểu-join-algorithms)
@@ -363,35 +369,38 @@ Hash Join gồm 2 giai đoạn: **Build** (xây hash table) và **Probe** (dò t
 
 Khi bảng build quá lớn, hash table không vừa `work_mem` (PostgreSQL) hoặc `join_buffer_size` (MySQL). Database dùng **Grace Hash Join** (spill to disk):
 
+```d2 title="Grace Hash Join khi hash table không vừa memory"
+direction: down
+build: Build table
+probe: Probe table
+b0: Build partition 0
+b1: Build partition 1
+b2: Build partition 2
+b3: Build partition 3
+p0: Probe partition 0
+p1: Probe partition 1
+p2: Probe partition 2
+p3: Probe partition 3
+pair: "Từng cặp cùng hash range trên disk\nBuild hash table rồi probe trong memory"
+build -> b0
+build -> b1
+build -> b2
+build -> b3
+probe -> p0
+probe -> p1
+probe -> p2
+probe -> p3
+b0 -> pair
+p0 -> pair
+b1 -> pair
+p1 -> pair
+b2 -> pair
+p2 -> pair
+b3 -> pair
+p3 -> pair
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    GRACE HASH JOIN (Spill to Disk)                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Khi hash table > work_mem:                                                    │
-│                                                                                 │
-│   1. PARTITION phase:                                                           │
-│      Chia cả 2 bảng thành N partitions dùng hash function                       │
-│                                                                                 │
-│      Build table          Probe table                                           │
-│      ┌──────────┐         ┌──────────┐                                          │
-│      │ Part 0   │─────────│ Part 0   │  ← Cùng hash range                       │
-│      │ Part 1   │─────────│ Part 1   │  ← Cùng hash range                       │
-│      │ Part 2   │─────────│ Part 2   │  ← Cùng hash range                       │
-│      │ Part 3   │─────────│ Part 3   │  ← Cùng hash range                       │
-│      └──────────┘         └──────────┘                                          │
-│           │                    │                                                │
-│           └── Write to disk ───┘                                                │
-│                                                                                 │
-│   2. BUILD + PROBE per partition:                                               │
-│      Với mỗi partition pair:                                                    │
-│      - Build hash table từ build partition (giờ vừa memory)                     │
-│      - Probe với probe partition tương ứng                                      │
-│                                                                                 │
-│   ⚠️ Chậm hơn vì disk I/O, nhưng vẫn O(N + M) comparisons                       │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Khi hash table vượt ngân sách memory, chia cả hai input theo cùng hàm hash rồi ghi partition ra disk. Xử lý từng cặp build/probe để hash table nhỏ hơn. Spill thêm disk I/O; partition lệch vẫn có thể cần chia tiếp, không mặc định một lần chia luôn đủ.
 
 ### Cấu hình memory cho Hash Join
 
@@ -655,26 +664,36 @@ Thời gian
 
 ### Ma trận quyết định
 
-```mermaid
-flowchart TD
-    A[Chọn JOIN Algorithm] --> B{Loại join condition?}
-    B -->|"Non-equality (>, <, BETWEEN)"| C[Nested Loop hoặc Merge Join]
-    B -->|"Equality (=)"| D{Có index trên join column?}
-
-    D -->|Có| E{Outer table nhỏ hoặc có LIMIT?}
-    E -->|Có| F["✅ Nested Loop + Index Scan"]
-    E -->|Không| G{Cả 2 bảng có index sort?}
-
-    G -->|Có| H["✅ Merge Join (2 index scans)"]
-    G -->|Không| I["✅ Hash Join"]
-
-    D -->|Không| J{Đủ memory cho hash table?}
-    J -->|Có| I
-    J -->|Không| K["⚠️ Hash Join (spill) hoặc Merge Join (sort)"]
-
-    C --> L{Có index cho sort order?}
-    L -->|Có| M["✅ Merge Join (index scan)"]
-    L -->|Không| N["⚠️ Nested Loop (nếu 1 bảng nhỏ)"]
+```d2 title="Ma trận quyết định"
+direction: down
+A: "Chọn JOIN Algorithm"
+B: "Loại join condition?" { shape: diamond }
+C: "Nested Loop hoặc Merge Join"
+D: "Có index trên join column?" { shape: diamond }
+E: "Outer table nhỏ hoặc có LIMIT?" { shape: diamond }
+F: "✅ Nested Loop + Index Scan"
+G: "Cả 2 bảng có index sort?" { shape: diamond }
+H: "✅ Merge Join (2 index scans)"
+I: "✅ Hash Join"
+J: "Đủ memory cho hash table?" { shape: diamond }
+K: "⚠️ Hash Join (spill) hoặc Merge Join (sort)"
+L: "Có index cho sort order?" { shape: diamond }
+M: "✅ Merge Join (index scan)"
+N: "⚠️ Nested Loop (nếu 1 bảng nhỏ)"
+A -> B
+B -> C: "Non-equality (>, <, BETWEEN)"
+B -> D: "Equality (=)"
+D -> E: "Có"
+E -> F: "Có"
+E -> G: "Không"
+G -> H: "Có"
+G -> I: "Không"
+D -> J: "Không"
+J -> I: "Có"
+J -> K: "Không"
+C -> L
+L -> M: "Có"
+L -> N: "Không"
 ```
 
 ---
@@ -751,6 +770,10 @@ ANALYZE TABLE customers;
 -- Oracle: Cập nhật statistics
 EXEC DBMS_STATS.GATHER_TABLE_STATS('SCHEMA_NAME', 'ORDERS');
 ```
+
+<SourceRef project="optimization-join-algorithms-deep-dive" file="cập-nhật-statistics/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 > ⚠️ **Statistics lỗi thời là nguyên nhân #1 khiến optimizer chọn sai JOIN algorithm.** Luôn chạy `ANALYZE` sau bulk INSERT/UPDATE/DELETE.
 
@@ -890,6 +913,10 @@ SET max_parallel_workers_per_gather = 4;
 -- Optimizer có thể chọn Parallel Hash Join cho bảng lớn
 ```
 
+<SourceRef project="optimization-join-algorithms-deep-dive" file="postgresql--đặc-thù/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ### Oracle — Đặc thù
 
 ```sql
@@ -953,6 +980,10 @@ SELECT ro.*, p.product_name
 FROM recent_orders ro
 JOIN products p ON ro.product_id = p.id;
 ```
+
+<SourceRef project="optimization-join-algorithms-deep-dive" file="lỗi-2-join-quá-nhiều-bảng/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ### Lỗi 3: Function trên join column
 
@@ -1050,6 +1081,10 @@ CREATE INDEX idx_orders_status_created ON orders(status, created_at DESC);
 -- customers.id đã có PK index
 ```
 
+<SourceRef project="optimization-join-algorithms-deep-dive" file="ví-dụ-1-e-commerce--dashboard-đơn-hàng/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ### Ví dụ 2: Reporting — Doanh thu theo khu vực
 
 ```sql
@@ -1078,6 +1113,10 @@ ORDER BY revenue DESC;
 --         → Seq Scan on orders (filter by created_at)
 --         → Hash (build từ customers)
 ```
+
+<SourceRef project="optimization-join-algorithms-deep-dive" file="ví-dụ-2-reporting--doanh-thu-theo-khu-vực/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ### Ví dụ 3: Analytics — Time-series JOIN
 

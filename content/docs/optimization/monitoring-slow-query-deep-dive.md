@@ -5,6 +5,12 @@ description: "Phát hiện, đo lường và xử lý query chậm trong product
 
 # Monitoring & Slow Query — Deep Dive
 
+<SourceRef project="optimization-monitoring-slow-query-deep-dive" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Bối cảnh: 3 giờ sáng, database 100% CPU](#1-bối-cảnh-3-giờ-sáng-database-100-cpu)
@@ -472,18 +478,28 @@ SELECT max(now() - xact_start) FROM pg_stat_activity WHERE state != 'idle';
 
 Khi "database chậm" đang xảy ra, làm theo thứ tự:
 
-```mermaid
-graph TD
-    A["Database chậm/CPU cao"] --> B["pg_stat_activity:<br/>query nào đang chạy lâu?"]
-    B --> C{"Có phiên chờ<br/>Lock?"}
-    C -->|Có| D["pg_blocking_pids:<br/>tìm phiên chặn<br/>→ terminate nếu cần"]
-    C -->|Không| E{"Nhiều phiên<br/>chờ IO?"}
-    E -->|Có| F["Query nào? → EXPLAIN<br/>→ thiếu index / seq scan"]
-    E -->|Không| G["pg_stat_statements:<br/>query nào ngốn total_time?"]
-    G --> H["EXPLAIN ANALYZE<br/>query đó"]
-    F --> H
-    D --> I["Kiểm tra idle in transaction<br/>+ đặt timeout"]
-    H --> J["Fix: index / viết lại /<br/>work_mem / ANALYZE"]
+```d2 title="12. Quy trình điều tra sự cố — Runbook"
+direction: down
+A: "Database chậm/CPU cao"
+B: "pg_stat_activity:\nquery nào đang chạy lâu?"
+C: "Có phiên chờ\nLock?" { shape: diamond }
+D: "pg_blocking_pids:\ntìm phiên chặn\n→ terminate nếu cần"
+E: "Nhiều phiên\nchờ IO?" { shape: diamond }
+F: "Query nào? → EXPLAIN\n→ thiếu index / seq scan"
+G: "pg_stat_statements:\nquery nào ngốn total_time?"
+H: "EXPLAIN ANALYZE\nquery đó"
+I: "Kiểm tra idle in transaction\n+ đặt timeout"
+J: "Fix: index / viết lại /\nwork_mem / ANALYZE"
+A -> B
+B -> C
+C -> D: "Có"
+C -> E: "Không"
+E -> F: "Có"
+E -> G: "Không"
+G -> H
+F -> H
+D -> I
+H -> J
 ```
 
 **Các bước cụ thể:**

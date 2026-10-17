@@ -3,6 +3,12 @@ title: "SQL có thực thi theo thứ tự viết? WHERE, HAVING và JOIN filter
 description: "Câu hỏi phỏng vấn về thứ tự xử lý logic và execution plan vật lý của SQL: WHERE vs HAVING, ON vs WHERE, predicate pushdown, outer join, PostgreSQL, MySQL và distributed query."
 ---
 
+<SourceRef project="interview-logical-vs-physical-query-execution" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [1. Câu hỏi phỏng vấn](#1-câu-hỏi-phỏng-vấn)
@@ -187,26 +193,19 @@ Parser cần câu lệnh tuân theo grammar của hệ quản trị. Không th�
 
 Một mô hình đơn giản:
 
-```text
-FROM / JOIN / ON
-        ↓
-WHERE
-        ↓
-GROUP BY + aggregate
-        ↓
-HAVING
-        ↓
-Window functions
-        ↓
-SELECT / projection
-        ↓
-DISTINCT
-        ↓
-Set operations
-        ↓
-ORDER BY
-        ↓
-LIMIT / OFFSET / FETCH
+```d2 title="Thứ tự logic xử lý truy vấn"
+direction: down
+n0: "FROM / JOIN / ON"
+n1: "WHERE"
+n2: "GROUP BY + aggregate"
+n3: "HAVING"
+n4: "Window functions"
+n5: "SELECT / projection"
+n6: "DISTINCT"
+n7: "Set operations"
+n8: "ORDER BY"
+n9: "LIMIT / OFFSET / FETCH"
+n0 -> n1 -> n2 -> n3 -> n4 -> n5 -> n6 -> n7 -> n8 -> n9
 ```
 
 Mô hình này giúp trả lời các câu hỏi về **ngữ nghĩa**:
@@ -231,27 +230,38 @@ GROUP BY c.region;
 
 Một physical plan hợp lý có thể là:
 
-```text
-Aggregate theo c.region
-└── Hash Join theo customer_id
-    ├── Scan customers
-    └── Index/Range Scan orders
-        ├── status = 'paid'
-        └── created_at >= 2026-01-01
+```d2 title="Một physical plan khả thi"
+direction: up
+agg: "Aggregate theo c.region"
+join: "Hash Join theo customer_id"
+c: "Scan customers"
+o: "Index / Range Scan orders: status = paid, created_at ≥ 2026-01-01"
+c -> join
+o -> join
+join -> agg
 ```
 
 Predicate trong `WHERE` đã được gắn xuống scan của `orders`, dù theo thứ tự logic `WHERE` đứng sau `FROM/JOIN`.
 
-```mermaid
-flowchart LR
-    SQL[SQL text] --> Parser[Parse và validate]
-    Parser --> Logical[Logical plan]
-    Logical --> Rewrite[Rewrite và normalize]
-    Rewrite --> CBO[Cost-based optimizer]
-    Stats[Statistics và indexes] --> CBO
-    CBO --> Physical[Physical plan]
-    Physical --> Executor[Executor]
-    Executor --> Result[Result set]
+```d2 title="4.3. Thứ tự thực thi vật lý — plan mà database thật sự chạy"
+direction: right
+SQL: "SQL text"
+Parser: "Parse và validate"
+Logical: "Logical plan"
+Rewrite: "Rewrite và normalize"
+CBO: "Cost-based optimizer"
+Stats: "Statistics và indexes"
+Physical: "Physical plan"
+Executor: "Executor"
+Result: "Result set"
+SQL -> Parser
+Parser -> Logical
+Logical -> Rewrite
+Rewrite -> CBO
+Stats -> CBO
+CBO -> Physical
+Physical -> Executor
+Executor -> Result
 ```
 
 > [!IMPORTANT]
@@ -400,14 +410,13 @@ Mô hình logic nói `FROM/JOIN` tạo một virtual table. Điều đó **khôn
 
 Executor thường dùng iterator/pipeline:
 
-```text
-Parent gọi child để xin row tiếp theo
-    ↓
-Child scan/index chỉ trả row phù hợp
-    ↓
-Join node kết hợp row khi cần
-    ↓
-Aggregate tiêu thụ output của join
+```d2 title="Mô hình iterator: parent kéo row từ child"
+direction: right
+n0: "Parent xin row tiếp theo"
+n1: "Child scan / index trả row phù hợp"
+n2: "Join kết hợp row khi cần"
+n3: "Aggregate tiêu thụ output của join"
+n0 -> n1 -> n2 -> n3
 ```
 
 Một số operator là **blocking operator**, ví dụ sort hoặc hash aggregate có thể phải đọc nhiều/toàn bộ input trước khi trả output. Nhưng filter và nhiều scan/join có thể pipeline.
@@ -867,18 +876,15 @@ Nó **không** có nghĩa đơn giản là đặt text predicate ở dòng SQL x
 
 ### 11.2. Các mức pushdown
 
-```text
-Query-level predicate
-        ↓
-Scan-level filter
-        ↓
-Index access condition
-        ↓
-Storage-engine condition
-        ↓
-Partition/shard pruning
-        ↓
-Remote-source predicate
+```d2 title="Các tầng đặt predicate"
+direction: down
+n0: "Query-level predicate"
+n1: "Scan-level filter"
+n2: "Index access condition"
+n3: "Storage-engine condition"
+n4: "Partition / shard pruning"
+n5: "Remote-source predicate"
+n0 -> n1 -> n2 -> n3 -> n4 -> n5
 ```
 
 Càng xuống thấp, càng có khả năng tránh đọc hoặc truyền dữ liệu. Nhưng mỗi mức có điều kiện áp dụng khác nhau.
@@ -977,12 +983,17 @@ Trong hệ phân tán, data transfer thường rất đắt vì có thêm:
 
 Nếu worker có thể loại 99% row trước network exchange, lợi ích có thể rất lớn.
 
-```mermaid
-flowchart LR
-    S1[Shard 1: scan 10M rows] -->|lọc còn 100K| N[Network exchange]
-    S2[Shard 2: scan 10M rows] -->|lọc còn 120K| N
-    S3[Shard 3: scan 10M rows] -->|lọc còn 90K| N
-    N --> A[Final join hoặc aggregate]
+```d2 title="12.1. Phần đúng của nhận định ban đầu"
+direction: right
+S1: "Shard 1: scan 10M rows"
+N: "Network exchange"
+S2: "Shard 2: scan 10M rows"
+S3: "Shard 3: scan 10M rows"
+A: "Final join hoặc aggregate"
+S1 -> N: "lọc còn 100K"
+S2 -> N: "lọc còn 120K"
+S3 -> N: "lọc còn 90K"
+N -> A
 ```
 
 Không pushdown:
@@ -1023,10 +1034,15 @@ Tất cả order row → coordinator → GROUP BY region
 
 Tối ưu:
 
-```text
-Shard 1: SUM theo region ─┐
-Shard 2: SUM theo region ─┼→ coordinator cộng partial sums
-Shard 3: SUM theo region ─┘
+```d2 title="Partial aggregation trước network exchange"
+direction: right
+a: "Shard 1: SUM theo region"
+b: "Shard 2: SUM theo region"
+c: "Shard 3: SUM theo region"
+co: "Coordinator cộng partial sums"
+a -> co
+b -> co
+c -> co
 ```
 
 Từ hàng triệu row qua network có thể giảm còn vài chục aggregate state.
@@ -1483,6 +1499,10 @@ ANALYZE customers;
 ANALYZE orders;
 ```
 
+<SourceRef project="interview-logical-vs-physical-query-execution" file="157-sinh-dữ-liệu-lớn-trên-postgresql/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ### 15.8. Sinh dữ liệu lớn trên MySQL 8.4
 
 MySQL có thể dùng recursive CTE, nhưng recursion depth mặc định thường không đủ cho hàng triệu row. Trong lab nên tạo một bảng số hoặc cross join các digit set:
@@ -1535,6 +1555,10 @@ FROM numbers;
 
 ANALYZE TABLE customers, orders;
 ```
+
+<SourceRef project="interview-logical-vs-physical-query-execution" file="158-sinh-dữ-liệu-lớn-trên-mysql-84/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 Bảng `numbers` ở trên có tối đa một triệu row. Có thể thêm một digit nữa nếu máy lab đủ tài nguyên. Không chạy bulk seed trên production.
 

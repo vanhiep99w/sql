@@ -5,6 +5,12 @@ description: "Deep dive VACUUM trong PostgreSQL — Dead Tuples, AUTOVACUUM, Blo
 
 # PostgreSQL VACUUM
 
+<SourceRef project="postgresql-vacuum" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [VACUUM là gì?](#vacuum-là-gì)
@@ -74,39 +80,29 @@ Khi thực hiện **DELETE**:
 
 **Trước UPDATE** — Table `users` có row `id=1, name='Alice'`:
 
-```
-Heap Page 0
-┌─────────────────────────────────────────────────┐
-│  Tuple 1                                        │
-│  xmin=100  xmax=0  │ id=1 │ name='Alice'        │  ← LIVE
-│                                                 │
-│  (free space)                                   │
-└─────────────────────────────────────────────────┘
+```d2 title="Heap page trước UPDATE"
+page: Heap Page 0 {
+  tuple: "Tuple 1: xmin=100, xmax=0; id=1, Alice — LIVE"
+  free: "Free space"
+}
 ```
 
 **Sau `UPDATE users SET name='Bob' WHERE id=1`** (Transaction ID = 200):
 
-```
-Heap Page 0
-┌─────────────────────────────────────────────────┐
-│  Tuple 1                                        │
-│  xmin=100  xmax=200 │ id=1 │ name='Alice'       │  ← DEAD TUPLE ☠️
-│                                                 │
-│  Tuple 2                                        │
-│  xmin=200  xmax=0   │ id=1 │ name='Bob'         │  ← LIVE ✅
-└─────────────────────────────────────────────────┘
+```d2 title="Heap page sau UPDATE"
+page: Heap Page 0 {
+  old: "Tuple 1: xmin=100, xmax=200; id=1, Alice — DEAD"
+  new: "Tuple 2: xmin=200, xmax=0; id=1, Bob — LIVE"
+}
 ```
 
 **Sau VACUUM**:
 
-```
-Heap Page 0
-┌─────────────────────────────────────────────────┐
-│  (free space — có thể tái sử dụng)              │
-│                                                 │
-│  Tuple 2                                        │
-│  xmin=200  xmax=0   │ id=1 │ name='Bob'         │  ← LIVE ✅
-└─────────────────────────────────────────────────┘
+```d2 title="Heap page sau VACUUM"
+page: Heap Page 0 {
+  free: "Free space — tái sử dụng được"
+  tuple: "Tuple 2: xmin=200, xmax=0; id=1, Bob — LIVE"
+}
 ```
 
 > [!IMPORTANT]
@@ -223,21 +219,33 @@ Free Space Map:  Page 0: 2KB free
 
 ### Quy trình VACUUM thường
 
-```mermaid
-flowchart TD
-    A[VACUUM bắt đầu] --> B[Đọc Visibility Map]
-    B --> C{Page có bit = 0?}
-    C -->|Có| D[Scan page tìm dead tuples]
-    C -->|Không| E[Bỏ qua page]
-    D --> F[Xóa dead tuples]
-    F --> G[Cập nhật Free Space Map]
-    G --> H[Cập nhật Visibility Map]
-    H --> I[Freeze old Transaction IDs]
-    I --> J{Còn page cần quét?}
-    J -->|Có| C
-    J -->|Không| K[Cập nhật pg_class.relfrozenxid]
-    K --> L[VACUUM hoàn tất]
-    E --> J
+```d2 title="Quy trình VACUUM thường"
+direction: down
+A: "VACUUM bắt đầu"
+B: "Đọc Visibility Map"
+C: "Page có bit = 0?" { shape: diamond }
+D: "Scan page tìm dead tuples"
+E: "Bỏ qua page"
+F: "Xóa dead tuples"
+G: "Cập nhật Free Space Map"
+H: "Cập nhật Visibility Map"
+I: "Freeze old Transaction IDs"
+J: "Còn page cần quét?" { shape: diamond }
+K: "Cập nhật pg_class.relfrozenxid"
+L: "VACUUM hoàn tất"
+A -> B
+B -> C
+C -> D: "Có"
+C -> E: "Không"
+D -> F
+F -> G
+G -> H
+H -> I
+I -> J
+J -> C: "Có"
+J -> K: "Không"
+K -> L
+E -> J
 ```
 
 ## Transaction ID Wraparound
@@ -429,23 +437,36 @@ Sự khác biệt **nằm ở kiến trúc storage**:
 
 **PostgreSQL** — row cũ nằm trong heap:
 
-```
-Heap:  [row v1 DEAD ☠️] [row v2 LIVE ✅]
-       └── cần VACUUM để dọn
+```d2 title="PostgreSQL dọn version cũ trong heap"
+direction: right
+heap: Heap {
+  old: Row v1 — DEAD
+  new: Row v2 — LIVE
+}
+vacuum: VACUUM
+heap.old -> vacuum: dọn khi an toàn
 ```
 
 **MySQL InnoDB** — row cũ trong undo log:
 
-```
-Table:    [row v2 LIVE ✅]    ← table luôn sạch
-Undo Log: [row v1]            ← purge thread tự dọn
+```d2 title="InnoDB purge bản cũ trong Undo"
+direction: right
+table: Table — row v2 LIVE
+undo: Undo Log — row v1
+purge: Purge thread
+table -> undo: version trước
+undo -> purge: dọn khi an toàn
 ```
 
 **Oracle** — row cũ trong Undo Tablespace:
 
-```
-Table:           [row v2 LIVE ✅]     ← table luôn sạch
-Undo Tablespace: [row v1 snapshot]    ← tự hết hạn theo retention
+```d2 title="Oracle quản lý phiên bản trong Undo Tablespace"
+direction: right
+table: Table — row v2 LIVE
+undo: Undo Tablespace — row v1 snapshot
+retention: Quản lý theo undo retention và nhu cầu đọc
+table -> undo: version trước
+undo -> retention
 ```
 
 ### Ưu nhược so sánh

@@ -1,4 +1,7 @@
 @import 'fumadocs-ui/style.css';
+@import '@vanhiep99w/docs-kit/styles/d2.css';
+@import '@vanhiep99w/docs-kit/styles/source-explorer.css';
+@import '@vanhiep99w/docs-kit/styles/source-explorer-fumadocs.css';
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {

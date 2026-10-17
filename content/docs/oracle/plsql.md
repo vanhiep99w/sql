@@ -3,6 +3,12 @@ title: "PL/SQL"
 description: "PL/SQL — ngôn ngữ lập trình procedural của Oracle: blocks, procedures, functions, packages, cursors và exception handling"
 ---
 
+<SourceRef project="oracle-plsql" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Tổng quan](#tổng-quan)
@@ -101,6 +107,10 @@ END;
 /
 ```
 
+<SourceRef project="oracle-plsql" file="khai-báo-biến/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 > [!TIP]
 > Dùng `%TYPE` và `%ROWTYPE` thay vì hardcode type — khi column type thay đổi, PL/SQL tự cập nhật, không cần sửa code.
 
@@ -126,6 +136,10 @@ EXCEPTION
 END;
 /
 ```
+
+<SourceRef project="oracle-plsql" file="into-clause--lấy-dữ-liệu-từ-sql/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ---
 
@@ -200,6 +214,10 @@ END;
 /
 ```
 
+<SourceRef project="oracle-plsql" file="loops/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ---
 
 ## Cursors
@@ -253,6 +271,10 @@ BEGIN
 END;
 /
 ```
+
+<SourceRef project="oracle-plsql" file="explicit-cursor/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ### Cursor FOR Loop (khuyến nghị)
 
@@ -331,6 +353,10 @@ EXCEPTION
 END raise_salary;
 /
 ```
+
+<SourceRef project="oracle-plsql" file="stored-procedure/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ```sql
 -- Gọi procedure

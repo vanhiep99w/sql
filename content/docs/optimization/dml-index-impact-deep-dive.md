@@ -3,6 +3,12 @@ title: "Insert, Update, Delete & Index"
 description: "Mổ xẻ chi tiết tác động của Index lên DML: tại sao càng nhiều index, write càng chậm. Cấu trúc B-Tree, page split, WAL, HOT update, MVCC dead tuple, index bloat, FILLFACTOR, bulk load, partial/expression index, deferred maintenance, monitoring & benchmark thực tế."
 ---
 
+<SourceRef project="optimization-dml-index-impact-deep-dive" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Bối cảnh: Một câu UPDATE 30 giây vì... 12 index](#1-bối-cảnh-một-câu-update-30-giây-vì-12-index)
@@ -157,26 +163,15 @@ Một câu INSERT trên bảng **không có index nào** ngoài PK = **2 write**
 
 Mỗi index là **một B-Tree riêng biệt** trên đĩa, hoàn toàn độc lập với heap. Khi một row mới ra đời, **mỗi B-Tree** đều cần một entry mới trỏ về row đó.
 
-```diagram
-              HEAP (table)
-        ╭──────────────────╮
-        │ row #42  (ctid)  │←──────┐
-        ╰──────────────────╯       │
-                                   │
-   INDEX 1 (user_id)               │
-   ╭─────────╮                     │
-   │ ... 42 ─┼─────────────────────┤
-   ╰─────────╯                     │
-                                   │
-   INDEX 2 (total)                 │
-   ╭───────────╮                   │
-   │ ... 99.9 ─┼───────────────────┤
-   ╰───────────╯                   │
-                                   │
-   INDEX 3 (created_at)            │
-   ╭───────────────╮               │
-   │ ... 2024-... ─┼───────────────┘
-   ╰───────────────╯
+```d2 title="Nhiều index trỏ tới cùng heap tuple"
+direction: right
+heap: "HEAP: row #42 (ctid)"
+i1: "INDEX user_id: 42"
+i2: "INDEX total: 99.9"
+i3: "INDEX created_at: 2024-..."
+i1 -> heap
+i2 -> heap
+i3 -> heap
 ```
 
 Mỗi mũi tên = một **entry index** = một **page write** + một **WAL record**. N index = **N+1 writes** cho mỗi INSERT.
@@ -247,21 +242,18 @@ MySQL InnoDB thì khác: clustered index dùng PK làm "địa chỉ", secondary
 
 ### 3.5. Bức tranh tổng thể
 
-```diagram
-╭────────────────────────────────────────────────────────────╮
-│  HEAP                                                      │
-│  ┌─ Page 0 ──────────┐    ┌─ Page 1 ──────────┐            │
-│  │ (0,1) (0,2) (0,3) │    │ (1,1) (1,2) (1,3) │   ...      │
-│  └───────────────────┘    └───────────────────┘            │
-│                                                            │
-│  INDEX idx_user_id           INDEX idx_status              │
-│  ┌──────────────────┐        ┌──────────────────┐          │
-│  │  42  →  (0,1)    │        │ new   → (0,1)    │          │
-│  │  43  →  (0,2)    │        │ paid  → (0,2)    │          │
-│  │  44  →  (0,3)    │        │ ship  → (0,3)    │          │
-│  │  45  →  (1,1)    │        │ new   → (1,1)    │          │
-│  └──────────────────┘        └──────────────────┘          │
-╰────────────────────────────────────────────────────────────╯
+```d2 title="Index entry chứa tuple locator"
+direction: right
+heap: HEAP {
+  p0: "Page 0\n(0,1) | (0,2) | (0,3)"
+  p1: "Page 1\n(1,1) | (1,2) | (1,3)"
+}
+user: "idx_user_id\n42 → (0,1)\n43 → (0,2)\n44 → (0,3)\n45 → (1,1)"
+status: "idx_status\nnew → (0,1)\npaid → (0,2)\nship → (0,3)\nnew → (1,1)"
+user -> heap.p0
+user -> heap.p1
+status -> heap.p0
+status -> heap.p1
 ```
 
 Cùng một row được "trỏ về" bởi **n entry** (n = số index). Đây là background quan trọng cho phần còn lại.
@@ -274,21 +266,16 @@ INSERT là DML đơn giản nhất về mặt logic, nhưng cũng là nơi index
 
 ### 4.1. Các bước của một câu INSERT
 
-```diagram
-╭─────────────────────────────────────────────────────────────╮
-│ 1. Parse + plan                                             │
-│ 2. Check constraint (NOT NULL, CHECK)                       │
-│ 3. Pick heap page có đủ free space (FSM giúp tìm nhanh)     │
-│ 4. WAL: ghi record "INSERT tuple T tại CTID (p, i)"         │
-│ 5. Heap: ghi tuple vào page p, position i                   │
-│ 6. Với mỗi index:                                           │
-│    6a. Tính key từ tuple                                    │
-│    6b. Descend B-Tree để tìm leaf page                      │
-│    6c. Nếu là UNIQUE → kiểm tra duplicate                   │
-│    6d. Nếu leaf còn chỗ: chèn entry → ghi WAL               │
-│    6e. Nếu leaf đầy: PAGE SPLIT → đắt gấp 10-100 lần        │
-│ 7. (Cuối transaction) COMMIT → flush WAL → fsync            │
-╰─────────────────────────────────────────────────────────────╯
+```d2 title="INSERT phải duy trì heap và từng index"
+direction: down
+n0: "Parse và plan"
+n1: "Check NOT NULL, CHECK và constraint liên quan"
+n2: "Chọn heap page đủ free space qua FSM"
+n3: "Ghi heap tuple và WAL tương ứng"
+n4: "Mỗi index: tính key, descend tới leaf, kiểm tra unique"
+n5: "Leaf còn chỗ: insert entry; leaf đầy: split và ghi WAL"
+n6: "COMMIT: flush WAL theo cấu hình durability"
+n0 -> n1 -> n2 -> n3 -> n4 -> n5 -> n6
 ```
 
 Mỗi index → bước 6 chạy lại 1 lần → I/O cộng dồn.
@@ -399,18 +386,18 @@ Tuple A **không bị xóa ngay** — cần đợi `VACUUM` mới thu hồi.
 
 Tuple mới (B) có **CTID khác** tuple cũ (A). Mọi **index entry** đang trỏ về A giờ trở thành **stale** — cần một entry mới trỏ về B.
 
-```diagram
-                  HEAP
-   ╭─────────────────────────────────╮
-   │  (0,1) tuple A  (dead, xmax=200)│←─┐
-   │  (0,5) tuple B  (live, xmin=200)│←─┤
-   ╰─────────────────────────────────╯  │
-                                        │
-   INDEX idx_status                     │
-   ╭──────────────────╮                 │
-   │  'new'  →  (0,1) │ ─── stale ──────┘
-   │  'paid' →  (0,5) │ ─── new entry
-   ╰──────────────────╯
+```d2 title="UPDATE tạo entry mới và để lại entry cũ"
+direction: right
+heap: HEAP {
+  a: "(0,1) tuple A — dead, xmax=200"
+  b: "(0,5) tuple B — live, xmin=200"
+}
+index: idx_status {
+  old: new
+  current: paid
+}
+index.old -> heap.a: stale
+index.current -> heap.b: new entry
 ```
 
 Nếu bảng có **12 index**, cần thêm **12 entry mới** + giữ nguyên 12 entry cũ → bloat index.
@@ -430,13 +417,18 @@ Nếu thỏa cả 2 → Postgres:
 - A có flag `HEAP_HOT_UPDATED`, B có flag `HEAP_ONLY_TUPLE`.
 - Index **không** được cập nhật. Index vẫn trỏ về A; A có pointer trỏ về B (HOT chain).
 
-```diagram
-HOT chain (cùng 1 page):
-
-   Item pointer (0,1) ─→ Tuple A ─→ Tuple B ─→ Tuple C ─→ Tuple D
-                       (dead, HOT) (HOT only)  (HOT only)  (live)
-
-   Index vẫn trỏ về (0,1) — luôn đúng vì chain dẫn về tuple live cuối.
+```d2 title="HOT chain trong cùng một page"
+direction: right
+index: Index
+page: Heap page {
+  item: Item pointer (0,1)
+  a: Tuple A — dead, HOT
+  b: Tuple B — HOT only
+  c: Tuple C — HOT only
+  d: Tuple D — live
+  item -> a -> b -> c -> d
+}
+index -> page.item: index không đổi
 ```
 
 **Kết quả**: UPDATE với HOT chỉ chạm **heap page** + **WAL** — không chạm **bất kỳ index nào**. **Nhanh hơn ~10 lần** so với non-HOT.
@@ -599,23 +591,14 @@ Cần insert entry `k150_new`. Không còn chỗ → **page split**.
 
 ### 7.2. Quy trình page split
 
-```diagram
-Step 1 — Allocate page mới:
-  ┌──────────────────┐    ┌──────────────────┐
-  │  k1 ... k100     │    │  k101 ... k200   │
-  └──────────────────┘    └──────────────────┘
-  (cũ, giữ nửa trái)        (mới, nhận nửa phải)
-
-Step 2 — Cập nhật sibling pointer (linked list):
-  ... ─ [page A] ─ [new page] ─ [page B] ─ ...
-
-Step 3 — Insert entry mới vào page tương ứng:
-  ┌──────────────────┐    ┌──────────────────┐
-  │  k1...k100 k150n │    │  k101 ... k200   │
-  └──────────────────┘    └──────────────────┘
-
-Step 4 — Cập nhật parent node:
-  Parent giờ phải thêm 1 separator key (k101) → có thể TỰ split → đệ quy lên root.
+```d2 title="Các bước split B-Tree page"
+direction: right
+n0: "Allocate page mới: trái k1..k100, phải k101..k200"
+n1: "Cập nhật sibling pointers: A ↔ page mới ↔ B"
+n2: "Insert entry vào page đúng theo key"
+n3: "Parent thêm separator k101"
+n4: "Parent đầy thì split tiếp, có thể lên root"
+n0 -> n1 -> n2 -> n3 -> n4
 ```
 
 ### 7.3. Chi phí page split
@@ -715,11 +698,19 @@ Mỗi thay đổi → 1 WAL record nhỏ:
 
 Để giảm áp lực fsync, Postgres group nhiều commit lại:
 
-```
-Tx A → write WAL → wait
-Tx B → write WAL → wait      ┐
-Tx C → write WAL → wait      ├─→ 1 fsync()  ──→ all 3 commit return
-Tx D → write WAL → wait      ┘
+```d2 title="Group commit dùng chung fsync"
+direction: right
+a: "Tx A: write WAL → wait"
+b: "Tx B: write WAL → wait"
+c: "Tx C: write WAL → wait"
+d: "Tx D: write WAL → wait"
+flush: "Một lần fsync()"
+return: "Các transaction được xác nhận commit"
+a -> flush
+b -> flush
+c -> flush
+d -> flush
+flush -> return
 ```
 
 `commit_delay` + `commit_siblings` điều chỉnh. Tăng throughput nhưng tăng latency.
@@ -897,6 +888,10 @@ CREATE INDEX CONCURRENTLY idx_orders_created ON orders(created_at);
 -- BƯỚC 4: VACUUM ANALYZE
 VACUUM ANALYZE orders;
 ```
+
+<SourceRef project="optimization-dml-index-impact-deep-dive" file="112-cách-đúng--pattern-3-bước/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ### 11.3. Vì sao build index sau lại nhanh hơn?
 

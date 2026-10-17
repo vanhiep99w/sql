@@ -3,6 +3,12 @@ title: "Isolation Levels"
 description: "4 mức độ cô lập trong SQL — Read Uncommitted, Read Committed, Repeatable Read, Serializable"
 ---
 
+<SourceRef project="fundamentals-isolation-levels" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Tại sao cần Isolation Levels](#tại-sao-cần-isolation-levels)
@@ -409,70 +415,60 @@ SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 
 ### Dirty Read (Read Uncommitted)
 
-```mermaid
-sequenceDiagram
-    participant TX1 as Transaction 1
-    participant DB as Database
-    participant TX2 as Transaction 2
-
-    TX1->>DB: BEGIN
-    TX1->>DB: UPDATE salary = 50M (id=1)
-    Note over DB: salary = 50M (uncommitted)
-
-    TX2->>DB: BEGIN
-    TX2->>DB: SELECT salary (id=1)
-    DB-->>TX2: salary = 50M ⚠️ Dirty Read!
-
-    TX1->>DB: ROLLBACK ❌
-    Note over DB: salary trở lại giá trị cũ
-    Note over TX2: Đã dùng 50M để tính toán → SAI!
+```d2 title="Dirty Read (Read Uncommitted)"
+shape: sequence_diagram
+TX1: "Transaction 1"
+DB: "Database"
+TX2: "Transaction 2"
+TX1 -> DB: "BEGIN"
+TX1 -> DB: "UPDATE salary = 50M (id=1)"
+DB.note6: "salary = 50M (uncommitted)"
+TX2 -> DB: "BEGIN"
+TX2 -> DB: "SELECT salary (id=1)"
+DB -> TX2: "salary = 50M ⚠️ Dirty Read!" { style.stroke-dash: 3 }
+TX1 -> DB: "ROLLBACK ❌"
+DB.note11: "salary trở lại giá trị cũ"
+TX2.note12: "Đã dùng 50M để tính toán → SAI!"
 ```
 
 ### Phantom Read (Read Committed hoặc SQL Server Repeatable Read)
 
-```mermaid
-sequenceDiagram
-    participant TX1 as Transaction 1
-    participant DB as Database
-    participant TX2 as Transaction 2
-
-    TX1->>DB: BEGIN
-    TX1->>DB: SELECT COUNT(*) WHERE dept='IT'
-    DB-->>TX1: COUNT = 10
-
-    TX2->>DB: BEGIN
-    TX2->>DB: INSERT INTO employees (dept='IT')
-    TX2->>DB: COMMIT ✅
-    Note over DB: Thêm 1 row mới dept='IT'
-
-    TX1->>DB: SELECT COUNT(*) WHERE dept='IT'
-    DB-->>TX1: COUNT = 11 ⚠️ Phantom Read!
-    Note over TX1: Xảy ra ở Read Committed; cũng có thể xảy ra ở SQL Server Repeatable Read
-    TX1->>DB: COMMIT
+```d2 title="Phantom Read (Read Committed hoặc SQL Server Repeatable Read)"
+shape: sequence_diagram
+TX1: "Transaction 1"
+DB: "Database"
+TX2: "Transaction 2"
+TX1 -> DB: "BEGIN"
+TX1 -> DB: "SELECT COUNT(*) WHERE dept='IT'"
+DB -> TX1: "COUNT = 10" { style.stroke-dash: 3 }
+TX2 -> DB: "BEGIN"
+TX2 -> DB: "INSERT INTO employees (dept='IT')"
+TX2 -> DB: "COMMIT ✅"
+DB.note10: "Thêm 1 row mới dept='IT'"
+TX1 -> DB: "SELECT COUNT(*) WHERE dept='IT'"
+DB -> TX1: "COUNT = 11 ⚠️ Phantom Read!" { style.stroke-dash: 3 }
+TX1.note13: "Xảy ra ở Read Committed; cũng có thể xảy ra ở SQL Server Repeatable Read"
+TX1 -> DB: "COMMIT"
 ```
 
 PostgreSQL `REPEATABLE READ` và MySQL InnoDB consistent read thông thường sẽ trả lại `10`, không đi theo diagram này.
 
 ### Lost Update
 
-```mermaid
-sequenceDiagram
-    participant TX1 as Transaction 1
-    participant DB as Database
-    participant TX2 as Transaction 2
-
-    TX1->>DB: SELECT balance → 10M
-    TX2->>DB: SELECT balance → 10M
-
-    TX1->>DB: UPDATE balance = 10M - 3M = 7M
-    TX1->>DB: COMMIT ✅
-
-    TX2->>DB: UPDATE balance = 10M - 5M = 5M
-    TX2->>DB: COMMIT ✅
-
-    Note over DB: balance = 5M ❌
-    Note over DB: Mất update -3M của TX1
-    Note over DB: Đáng lẽ = 10M - 3M - 5M = 2M
+```d2 title="Lost Update"
+shape: sequence_diagram
+TX1: "Transaction 1"
+DB: "Database"
+TX2: "Transaction 2"
+TX1 -> DB: "SELECT balance → 10M"
+TX2 -> DB: "SELECT balance → 10M"
+TX1 -> DB: "UPDATE balance = 10M - 3M = 7M"
+TX1 -> DB: "COMMIT ✅"
+TX2 -> DB: "UPDATE balance = 10M - 5M = 5M"
+TX2 -> DB: "COMMIT ✅"
+DB.note10: "balance = 5M ❌"
+DB.note11: "Mất update -3M của TX1"
+DB.note12: "Đáng lẽ = 10M - 3M - 5M = 2M"
 ```
 
 ## Sự khác biệt giữa các Database
@@ -652,6 +648,10 @@ SELECT 1 FROM dual;
 
 COMMIT;
 ```
+
+<SourceRef project="fundamentals-isolation-levels" file="chuẩn-bị-dữ-liệu/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 Xác nhận:
 

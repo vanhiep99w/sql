@@ -3,6 +3,12 @@ title: "PostgreSQL Interview Q&A"
 description: "Bộ câu hỏi phỏng vấn PostgreSQL & EnterpriseDB (EPAS) — từ lý thuyết cốt lõi đến tuning, locking, PL/pgSQL và migrate Oracle"
 ---
 
+<SourceRef project="postgresql-interview" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Phần 1 — Lý thuyết cốt lõi](#phần-1--lý-thuyết-cốt-lõi)
@@ -258,6 +264,10 @@ END;
 $$ LANGUAGE plpgsql;
 ```
 
+<SourceRef project="postgresql-interview" file="phần-2--function--stored-procedure/3.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ---
 
 **11. Exception block**
@@ -362,6 +372,10 @@ CREATE OR REPLACE PACKAGE BODY math_pkg AS
 END math_pkg;
 /
 ```
+
+<SourceRef project="postgresql-interview" file="phần-3--enterprisedb-epas-oracle-compatibility/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ```sql
 -- Gọi function trong package
@@ -1138,6 +1152,10 @@ END;
 $$;
 ```
 
+<SourceRef project="postgresql-interview" file="phần-8--coding-test/5.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ---
 
 **50. Tuning query aggregate lớn — 4 bước**
@@ -1541,6 +1559,10 @@ WITH RECURSIVE tree AS (
 SELECT * FROM tree
 ORDER BY level, name;  -- ORDER SIBLINGS BY name
 ```
+
+<SourceRef project="postgresql-interview" file="bonus--migrate-oracle--postgresql/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 Các tính năng Oracle hierarchical query và cách thay thế:
 

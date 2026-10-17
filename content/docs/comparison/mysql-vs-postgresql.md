@@ -40,28 +40,19 @@ description: "So sánh chi tiết MySQL và PostgreSQL — MVCC, JSON, Performan
 
 ### MySQL InnoDB
 
-```
-┌─────────────────────────────────────────────────┐
-│                  MySQL InnoDB                   │
-├─────────────────────────────────────────────────┤
-│                                                 │
-│   ┌──────────────────────────────────────────┐  │
-│   │           Buffer Pool (RAM)              │  │
-│   │  ┌──────────┐ ┌───────────┐ ┌──────────┐ │  │
-│   │  │Data Pages│ │Index Pages│ │Undo Logs │ │  │
-│   │  └──────────┘ └───────────┘ └──────────┘ │  │
-│   └──────────────────────────────────────────┘  │
-│                      │                          │
-│   ┌─────────────┐    │   ┌─────────────────┐    │
-│   │  Redo Log   │    │   │   Undo Log      │    │
-│   │ (WAL)       │    │   │ (MVCC versions) │    │
-│   └─────────────┘    │   └─────────────────┘    │
-│                      ▼                          │
-│   ┌──────────────────────────────────────────┐  │
-│   │         Tablespace (.ibd files)          │  │
-│   │   Data + Clustered Index (B+Tree)        │  │
-│   └──────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────┘
+```d2 title="Các cấu trúc lưu trữ InnoDB"
+direction: down
+innodb: MySQL InnoDB {
+  buffer: Buffer Pool — RAM {
+    data: Data Pages
+    index: Index Pages
+    undo: Undo Pages
+  }
+  redo: Redo Log — WAL { shape: cylinder }
+  undo: Undo Log — MVCC versions { shape: cylinder }
+  tables: "Tablespace .ibd\nData + Clustered B+Tree" { shape: cylinder }
+  buffer -> tables: flush
+}
 ```
 
 - **Clustered Index**: dữ liệu được lưu theo thứ tự Primary Key trong B+Tree.
@@ -70,30 +61,19 @@ description: "So sánh chi tiết MySQL và PostgreSQL — MVCC, JSON, Performan
 
 ### PostgreSQL
 
-```
-┌─────────────────────────────────────────────────┐
-│                 PostgreSQL                      │
-├─────────────────────────────────────────────────┤
-│                                                 │
-│   ┌──────────────────────────────────────────┐  │
-│   │          Shared Buffers (RAM)            │  │
-│   │  ┌──────────┐ ┌───────────┐ ┌──────────┐ │  │
-│   │  │Data Pages│ │Index Pages│ │  CLOG    │ │  │
-│   │  └──────────┘ └───────────┘ └──────────┘ │  │
-│   └──────────────────────────────────────────┘  │
-│                      │                          │
-│   ┌─────────────┐    │   ┌─────────────────┐    │
-│   │    WAL      │    │   │ Visibility Map  │    │
-│   │ (Write-     │    │   │ Free Space Map  │    │
-│   │  Ahead Log) │    │   └─────────────────┘    │
-│   └─────────────┘    │                          │
-│                      ▼                          │
-│   ┌──────────────────────────────────────────┐  │
-│   │              Heap Files                  │  │
-│   │   Row versions (live + dead) trong heap  │  │
-│   │   Index là cấu trúc riêng biệt           │  │
-│   └──────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────┘
+```d2 title="Các cấu trúc lưu trữ PostgreSQL"
+direction: down
+postgres: PostgreSQL {
+  buffer: Shared Buffers — RAM {
+    data: Data Pages
+    index: Index Pages
+  }
+  xact: Transaction status — pg_xact / CLOG
+  wal: Write-Ahead Log { shape: cylinder }
+  maps: Visibility Map + Free Space Map
+  heap: "Heap Files: live + dead row versions\nIndex là cấu trúc riêng" { shape: cylinder }
+  buffer -> heap: flush
+}
 ```
 
 - **Heap-based**: dữ liệu lưu không theo thứ tự, index trỏ đến vị trí trong heap.

@@ -7,6 +7,12 @@ description: "Câu hỏi phỏng vấn thực hành: đọc execution plan Postg
 Bài này tập trung vào **cách đọc một execution plan trong thực tế**. Các con số trong plan là dữ liệu minh họa, nhưng cấu trúc và cách chẩn đoán bám sát output của PostgreSQL.
 </Callout>
 
+<SourceRef project="interview-read-explain-analyze-postgresql" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [1. Câu hỏi phỏng vấn](#1-câu-hỏi-phỏng-vấn)
@@ -119,12 +125,17 @@ Câu lệnh vẫn chạy, vẫn lấy lock, tạo WAL và tiêu thụ I/O trư�
 
 Execution plan là một **cây**, không phải danh sách tuần tự từ trên xuống. Node con thụt vào sâu hơn và cung cấp dữ liệu cho node cha.
 
-```mermaid
-flowchart BT
-  C["Seq Scan customers"] --> N["Nested Loop"]
-  O["Index Scan orders"] --> N
-  N --> S["Sort"]
-  S --> L["Limit"]
+```d2 title="4.1. Đọc từ node lá lên node gốc"
+direction: up
+C: "Seq Scan customers"
+N: "Nested Loop"
+O: "Index Scan orders"
+S: "Sort"
+L: "Limit"
+C -> N
+O -> N
+N -> S
+S -> L
 ```
 
 Trong sơ đồ này:
@@ -526,19 +537,29 @@ Index mới có thể làm SELECT nhanh nhưng tăng write amplification, WAL, t
 
 ## 9. Workflow đọc plan trong 60 giây
 
-```mermaid
-flowchart TD
-  A["Đọc Execution Time và node gốc"] --> B["Đi xuống node lá"]
-  B --> C["So estimated rows với actual rows"]
-  C --> D["Tính actual time × loops cho node lặp"]
-  D --> E{"Đọc thừa hoặc I/O lớn?"}
-  E -->|"Rows Removed cao"| F["Kiểm tra selectivity và index"]
-  E -->|"shared read hoặc temp cao"| G["Kiểm tra cache, scan, sort và hash"]
-  E -->|"Không"| H["Kiểm tra join, CPU, lock và client time"]
-  F --> I["Thay đổi một thứ"]
-  G --> I
-  H --> I
-  I --> J["EXPLAIN lại và so trước–sau"]
+```d2 title="9. Workflow đọc plan trong 60 giây"
+direction: down
+A: "Đọc Execution Time và node gốc"
+B: "Đi xuống node lá"
+C: "So estimated rows với actual rows"
+D: "Tính actual time × loops cho node lặp"
+E: "Đọc thừa hoặc I/O lớn?" { shape: diamond }
+F: "Kiểm tra selectivity và index"
+G: "Kiểm tra cache, scan, sort và hash"
+H: "Kiểm tra join, CPU, lock và client time"
+I: "Thay đổi một thứ"
+J: "EXPLAIN lại và so trước–sau"
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F: "Rows Removed cao"
+E -> G: "shared read hoặc temp cao"
+E -> H: "Không"
+F -> I
+G -> I
+H -> I
+I -> J
 ```
 
 Checklist ngắn:

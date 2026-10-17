@@ -3,6 +3,12 @@ title: "Composite Index & Leftmost Prefix"
 description: "Mổ xẻ chi tiết Concatenated/Composite Index — tuple sort order, Leftmost Prefix Rule, access vs filter predicate, range column blocking, Index Skip Scan, ORDER BY trên composite, covering index, INCLUDE columns. Kèm benchmark, EXPLAIN ANALYZE và playbook thiết kế thứ tự cột."
 ---
 
+<SourceRef project="optimization-composite-index-deep-dive" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Bối cảnh: Câu chuyện 8 giây trên bảng 50 triệu rows](#1-bối-cảnh-câu-chuyện-8-giây-trên-bảng-50-triệu-rows)
@@ -917,38 +923,48 @@ Phương án 2 **tốt hơn** vì `total` không tham gia sort của B-Tree → 
 
 ### 7.7. Decision tree
 
-```mermaid
-flowchart TD
-    A[Thiết kế composite index] --> B{Query có cột chung<br/>cho mọi access pattern?<br/>vd: tenant_id}
-    B -->|Có| C[Cột đó đặt vị trí 1]
-    B -->|Không| D{Có equality predicates?}
-    
-    C --> D
-    D -->|Có| E[Đặt các cột equality<br/>liền nhau sau cột 1]
-    D -->|Không| F[Range column ở đầu]
-    
-    E --> G{Trong số các equality,<br/>có cột nào selectivity cao hơn hẳn?}
-    G -->|Có| H[Đặt cột đó trước trong nhóm equality]
-    G -->|Không| I[Thứ tự nội bộ ít quan trọng]
-    
-    H --> J{Có range/BETWEEN/LIKE prefix?}
-    I --> J
-    F --> J
-    
-    J -->|Có 1 range| K[Đặt range ở cuối]
-    J -->|Có nhiều range| L[Chọn range có selectivity cao hơn]
-    J -->|Không| M{Có ORDER BY?}
-    
-    K --> M
-    L --> M
-    
-    M -->|Có| N[Cột ORDER BY khớp đuôi index<br/>cùng hướng ASC/DESC]
-    M -->|Không| O{Có cột nào trong SELECT<br/>chưa có trong key?}
-    
-    N --> O
-    O -->|Có và nhỏ| P[Thêm vào INCLUDE để covering]
-    O -->|Không| Q[Done]
-    P --> Q
+```d2 title="7.7. Decision tree"
+direction: down
+A: "Thiết kế composite index"
+B: "Query có cột chung\ncho mọi access pattern?\nvd: tenant_id" { shape: diamond }
+C: "Cột đó đặt vị trí 1"
+D: "Có equality predicates?" { shape: diamond }
+E: "Đặt các cột equality\nliền nhau sau cột 1"
+F: "Range column ở đầu"
+G: "Trong số các equality,\ncó cột nào selectivity cao hơn hẳn?" { shape: diamond }
+H: "Đặt cột đó trước trong nhóm equality"
+I: "Thứ tự nội bộ ít quan trọng"
+J: "Có range/BETWEEN/LIKE prefix?" { shape: diamond }
+K: "Đặt range ở cuối"
+L: "Chọn range có selectivity cao hơn"
+M: "Có ORDER BY?" { shape: diamond }
+N: "Cột ORDER BY khớp đuôi index\ncùng hướng ASC/DESC"
+O: "Có cột nào trong SELECT\nchưa có trong key?" { shape: diamond }
+P: "Thêm vào INCLUDE để covering"
+Q: "Done"
+A -> B
+B -> C: "Có"
+B -> D: "Không"
+C -> D
+D -> E: "Có"
+D -> F: "Không"
+E -> G
+G -> H: "Có"
+G -> I: "Không"
+H -> J
+I -> J
+F -> J
+J -> K: "Có 1 range"
+J -> L: "Có nhiều range"
+J -> M: "Không"
+K -> M
+L -> M
+M -> N: "Có"
+M -> O: "Không"
+N -> O
+O -> P: "Có và nhỏ"
+O -> Q: "Không"
+P -> Q
 ```
 
 ---
@@ -1218,6 +1234,10 @@ Looking at the execution plan XML:
   <Predicate>...</Predicate>   <!-- ← các filter còn lại -->
 </IndexScan>
 ```
+
+<SourceRef project="optimization-composite-index-deep-dive" file="94-sql-server--predicate-vs-seek-predicate/2.xml" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 - **SeekPredicates** = access columns.
 - **Predicate** (ngoài seek) = filter.
@@ -1521,14 +1541,17 @@ Bitmap Heap Scan on orders
 
 Quy trình:
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│ 1. Quét ix_a → tạo bitmap A (bit set tại các row match)       │
-│ 2. Quét ix_b → tạo bitmap B                                   │
-│ 3. Quét ix_c → tạo bitmap C                                   │
-│ 4. AND bit-wise: A & B & C → bitmap final                     │
-│ 5. Bitmap final → fetch heap rows                             │
-╰───────────────────────────────────────────────────────────────╯
+```d2 title="BitmapAnd từ nhiều index"
+direction: right
+a: "Quét ix_a → bitmap A"
+b: "Quét ix_b → bitmap B"
+c: "Quét ix_c → bitmap C"
+and: "AND bit-wise: A & B & C"
+heap: "Bitmap final → fetch heap rows"
+a -> and
+b -> and
+c -> and
+and -> heap
 ```
 
 ### 12.3. Vì sao chậm hơn composite
@@ -1707,6 +1730,10 @@ CREATE INDEX ix_orders_user_date
 -- Sometimes duplicating is the right call.
 ```
 
+<SourceRef project="optimization-composite-index-deep-dive" file="141-e-commerce--đơn-hàng-của-tôi/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ### 14.2. SaaS multi-tenant — Mọi query đều có tenant_id
 
 ```sql
@@ -1762,6 +1789,10 @@ CREATE INDEX ix_by_user    ON events (user_id, ts DESC);
 
 -- Hoặc tốt hơn: PARTITION BY ts + nhỏ hơn per partition
 ```
+
+<SourceRef project="optimization-composite-index-deep-dive" file="143-logevent-table--time-series/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 > [!NOTE]
 > Với bảng time-series cực lớn, **partitioning** thường thắng. Composite index riêng cho từng dimension chỉ hữu ích trong từng partition. Xem [SQL Partition Deep Dive](./sql-partition-deep-dive).

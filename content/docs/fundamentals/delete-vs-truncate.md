@@ -3,6 +3,12 @@ title: "DELETE vs TRUNCATE"
 description: "Mổ xẻ chi tiết sự khác nhau giữa DELETE và TRUNCATE trong SQL — không chỉ syntax, mà là cách database thực thi từng lệnh ở tầng heap, page, WAL, MVCC, dead tuple, sequence, lock, trigger, FK. Kèm execution plan, benchmark, rollback, ON DELETE, và decision framework."
 ---
 
+<SourceRef project="fundamentals-delete-vs-truncate" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Bối cảnh: Câu DELETE chạy 40 phút mà bảng vẫn đầy 80 GB](#1-bối-cảnh-câu-delete-chạy-40-phút-mà-bảng-vẫn-đầy-80-gb)
@@ -190,16 +196,12 @@ Tuple A **vẫn nằm nguyên đó**, chiếm nguyên chỗ cũ. Nó chỉ "vô 
 
 Khi `DELETE` một dòng, các **index entry** trỏ về dòng đó **không bị xóa ngay**. Index vẫn còn entry trỏ về tuple đã dead:
 
-```diagram
-                  HEAP
-   ╭─────────────────────────────────╮
-   │  (0,1) tuple A  (dead, xmax=205)│←─┐
-   ╰─────────────────────────────────╯  │
-                                        │
-   INDEX idx_events_created             │
-   ╭──────────────────────────╮         │
-   │  '2023-01-01' →  (0,1)   │ ── vẫn trỏ về tuple dead ──┘
-   ╰──────────────────────────╯
+```d2 title="DELETE để lại index entry tới tuple cũ"
+direction: right
+n0: "idx_events_created: 2023-01-01"
+n1: "Tuple locator (0,1)"
+n2: "HEAP tuple A: dead, xmax=205"
+n0 -> n1 -> n2
 ```
 
 Entry index này trở thành rác. `VACUUM` về sau phải:
@@ -262,17 +264,15 @@ WHERE oi.order_id = o.id AND o.status = 'cancelled';
 
 Thay vì đi qua từng tuple, `TRUNCATE` thao tác ở mức **file**. Trong Postgres, dữ liệu một bảng nằm trong file gọi là `relfilenode`. Khi truncate:
 
-```diagram
-╭─────────────────────────────────────────────────────────────╮
-│  TRUNCATE TABLE events;                                     │
-│                                                             │
-│  1. Lấy ACCESS EXCLUSIVE lock trên bảng                     │
-│  2. Tạo một relfilenode MỚI (file rỗng) cho bảng + index    │
-│  3. Cập nhật catalog: bảng giờ trỏ tới file rỗng mới        │
-│  4. File CŨ (chứa 80GB data) được lên lịch xóa khi COMMIT   │
-│  5. Ghi WAL: chỉ một ít record metadata (không từng dòng)   │
-│  6. COMMIT → file cũ bị unlink → OS trả disk ngay           │
-╰─────────────────────────────────────────────────────────────╯
+```d2 title="TRUNCATE trong PostgreSQL"
+direction: down
+n0: "TRUNCATE TABLE events"
+n1: "ACCESS EXCLUSIVE lock"
+n2: "Tạo relfilenode rỗng mới cho bảng và index"
+n3: "Catalog trỏ file mới; lên lịch xóa file cũ 80 GB"
+n4: "Ghi WAL metadata thay vì từng dòng"
+n5: "COMMIT: unlink file cũ, giải phóng disk"
+n0 -> n1 -> n2 -> n3 -> n4 -> n5
 ```
 
 Mấu chốt: nó **không đọc**, **không sửa**, **không đánh dấu** một tuple nào. Nó chỉ nói với hệ thống file: *"cái file 80GB kia? Bỏ đi. Đây là file rỗng mới."* Vì thao tác không phụ thuộc số dòng, `TRUNCATE` gần như **O(1)** — xóa 200 triệu dòng cũng nhanh như xóa 200 dòng.
@@ -642,22 +642,26 @@ Hệ quả dây chuyền:
 - **PITR phình**: kho lưu WAL (archive) tăng vọt.
 - **Checkpoint dồn dập**: nhiều dirty page → I/O spike.
 
-```diagram
-DELETE 180M dòng:
-   primary ──[~60 GB WAL]──► archive (PITR phình)
-                  │
-                  └─────────► replica (replay 60 GB → lag 20 phút)
+```d2 title="DELETE 180M dòng — số liệu minh họa"
+direction: right
+primary: "DELETE 180M dòng trên primary"
+archive: "Archive / PITR phình"
+replica: "Replica replay 60 GB → lag 20 phút"
+primary -> archive: "~60 GB WAL"
+primary -> replica: "~60 GB WAL"
 ```
 
 ### 11.2. TRUNCATE — WAL tối thiểu
 
 `TRUNCATE` chỉ ghi vài record metadata ("bảng X giờ trỏ relfilenode mới, file cũ unlink khi commit"). Dù bảng có 200 triệu dòng, WAL chỉ vài KB.
 
-```diagram
-TRUNCATE bảng 200M dòng:
-   primary ──[~vài KB WAL]──► archive (gần như không tăng)
-                  │
-                  └──────────► replica (replay tức thì → lag ~0)
+```d2 title="TRUNCATE bảng 200M dòng — số liệu minh họa"
+direction: right
+primary: "TRUNCATE bảng 200M dòng trên primary"
+archive: "Archive gần như không tăng"
+replica: "Replica replay ít WAL → lag gần 0 trong ví dụ"
+primary -> archive: "~vài KB WAL"
+primary -> replica: "~vài KB WAL"
 ```
 
 > [!NOTE]
@@ -849,29 +853,26 @@ VACUUM FULL events;     -- hoặc: pg_repack -t events
 
 ## 16. Decision Framework — Flowchart chọn đúng lệnh
 
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│  Bạn cần xóa dữ liệu?                                        │
-│                                                              │
-│  ┌─ Xóa MỘT PHẦN (có điều kiện WHERE)?                        │
-│  │  └─ Có → DELETE  (không có lựa chọn khác)                  │
-│  │         └─ Khối lượng lớn? → chia batch / partition        │
-│  │                                                            │
-│  ├─ Xóa TOÀN BỘ bảng?                                         │
-│  │  │                                                         │
-│  │  ├─ Cần trigger DELETE chạy (audit)? → DELETE              │
-│  │  │                                                         │
-│  │  ├─ MySQL/Oracle & cần rollback an toàn? → DELETE          │
-│  │  │                                                         │
-│  │  └─ Còn lại → TRUNCATE  (nhanh, trả disk)                  │
-│  │         └─ Cần reset id? → TRUNCATE ... RESTART IDENTITY   │
-│  │         └─ Có FK trỏ tới? → liệt kê bảng / CASCADE (cẩn thận)│
-│  │                                                            │
-│  └─ Không cần bảng nữa (xóa cả cấu trúc)? → DROP TABLE        │
-│                                                              │
-│  ┌─ Dọn dữ liệu cũ ĐỊNH KỲ trên bảng lớn?                     │
-│  │  └─ Thiết kế PARTITION → DROP/DETACH PARTITION (tốt nhất)  │
-╰──────────────────────────────────────────────────────────────╯
+```d2 title="Chọn DELETE, TRUNCATE hay DROP"
+direction: down
+need: Cần xóa gì? { shape: diamond }
+partial: Một phần dữ liệu — có WHERE
+all: Toàn bộ rows, giữ cấu trúc
+structure: Không cần cả cấu trúc nữa
+periodic: Dữ liệu cũ định kỳ trên bảng lớn
+delete: DELETE — khối lượng lớn thì chia batch
+check: Cần DELETE trigger hoặc rollback ở MySQL / Oracle? { shape: diamond }
+truncate: TRUNCATE
+extra: "PostgreSQL: RESTART IDENTITY nếu cần reset ID\nCó FK: liệt kê bảng hoặc CASCADE cẩn thận"
+drop: DROP TABLE
+partition: Thiết kế partition để DROP / DETACH partition
+need -> partial -> delete
+need -> all -> check
+check -> delete: Có
+check -> truncate: Không
+truncate -> extra
+need -> structure -> drop
+need -> periodic -> partition
 ```
 
 ### Bảng quyết định nhanh

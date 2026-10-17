@@ -5,6 +5,12 @@ description: "Optimizer chọn plan bằng cách nào — cost-based optimizatio
 
 # Statistics & Query Planner — Deep Dive
 
+<SourceRef project="optimization-statistics-query-planner-deep-dive" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Bối cảnh: Vì sao cùng query lúc nhanh lúc chậm](#1-bối-cảnh-vì-sao-cùng-query-lúc-nhanh-lúc-chậm)
@@ -48,13 +54,19 @@ Trong doc này ta sẽ mổ xẻ:
 
 Sau khi câu SQL được parse và rewrite, planner (optimizer) vào cuộc:
 
-```mermaid
-graph TD
-    A["SQL đã parse"] --> B["Sinh các plan khả thi<br/>(access path × join order × join method)"]
-    B --> C["Ước lượng CARDINALITY<br/>mỗi bước (dùng statistics)"]
-    C --> D["Tính COST mỗi plan<br/>(dùng cost model)"]
-    D --> E["Chọn plan cost THẤP NHẤT"]
-    E --> F["Executor chạy plan"]
+```d2 title="2. Query Planner làm gì — Toàn cảnh"
+direction: down
+A: "SQL đã parse"
+B: "Sinh các plan khả thi\n(access path × join order × join method)"
+C: "Ước lượng CARDINALITY\nmỗi bước (dùng statistics)"
+D: "Tính COST mỗi plan\n(dùng cost model)"
+E: "Chọn plan cost THẤP NHẤT"
+F: "Executor chạy plan"
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F
 ```
 
 Với một query đơn giản `SELECT ... WHERE a AND b JOIN c`, không gian plan gồm:
@@ -494,22 +506,20 @@ SELECT /*+ USE_HASH(o c) LEADING(c) */ ...;
 
 ## 15. Tóm tắt — Cheat sheet
 
+```d2 title="Từ statistics tới lựa chọn plan"
+direction: right
+analyze: "ANALYZE"
+stats: "Statistics"
+estimate: "Cardinality estimate"
+cost: "Cost model"
+plan: "Chọn plan estimated cost thấp nhất"
+analyze -> stats
+stats -> estimate
+estimate -> cost
+cost -> plan
 ```
-╭────────────────────────────────────────────────────────────────────╮
-│  OPTIMIZER SUY NGHĨ NHƯ THẾ NÀO                                    │
-│                                                                    │
-│  statistics  →  cardinality estimate  →  cost  →  chọn plan rẻ nhất│
-│      ▲              ▲                                              │
-│   ANALYZE      lệch actual = gốc rễ mọi vấn đề                     │
-│                                                                    │
-│  QUY TRÌNH DEBUG                                                   │
-│  1. EXPLAIN ANALYZE → so est rows vs actual rows                   │
-│  2. Lệch >100×?  → ANALYZE bảng                                    │
-│  3. Vẫn lệch cho a AND b?  → CREATE STATISTICS (extended)          │
-│  4. Cột skew/nhiều giá trị? → tăng STATISTICS target               │
-│  5. est đúng mà plan tệ?    → cost model (random_page_cost)/hint   │
-╰────────────────────────────────────────────────────────────────────╯
-```
+
+Debug bằng `EXPLAIN ANALYZE`: so estimated rows với actual rows. Lệch lớn thì kiểm tra `ANALYZE`; nhiều cột có tương quan thì xem extended statistics; dữ liệu skew thì cân nhắc tăng statistics target. Nếu ước lượng đã hợp lý mà plan chưa tốt, đo lại cost model, I/O và workload, không đổi `random_page_cost` hay ép plan theo phỏng đoán.
 
 | Statistic | Cho optimizer biết | Xem ở |
 |-----------|--------------------|-------|

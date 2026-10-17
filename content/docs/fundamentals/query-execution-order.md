@@ -3,6 +3,12 @@ title: "Thứ tự thực thi SQL Query"
 description: "Full pipeline database xử lý một câu SQL — từ lúc nhận text đến trả kết quả về client: parsing, optimization, execution, cleanup"
 ---
 
+<SourceRef project="fundamentals-query-execution-order" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Bạn viết vs Database chạy](#bạn-viết-vs-database-chạy)
@@ -55,104 +61,30 @@ Nhưng database **không chỉ chạy 8 dòng đó**. Phía sau còn cả một 
 
 ## Full Pipeline — Diagram tổng quan
 
+```d2 title="Các giai đoạn xử lý SQL"
+direction: down
+client: Client gửi SQL text
+prepare: Trước thực thi {
+  parse: "1. Parsing\nTokenize, parse tree, kiểm tra cú pháp"
+  semantic: "2. Semantic analysis\nTên bảng/cột, quyền, kiểu dữ liệu"
+  rewrite: "3. Rewriting\nExpand *, unfold VIEW, biến đổi subquery nếu được"
+  optimize: "4. Optimization\nStatistics, access path, join order/method, estimated cost"
+  compile: "5. Plan compilation / cache\nTùy database và loại statement"
+  parse -> semantic: Parse tree
+  semantic -> rewrite: Validated AST
+  rewrite -> optimize: Logical plan
+  optimize -> compile: Physical plan
+}
+execute: "Executor chạy physical plan\nScan, join, aggregate, sort..."
+finish: "Sau thực thi\nĐóng gói result, ghi execution metrics, cleanup tài nguyên"
+result: Client nhận kết quả
+client -> prepare.parse
+prepare.compile -> execute: Executable plan
+execute -> finish: Result set
+finish -> result
 ```
-Client gửi SQL text
-        │
-        ▼
-┌───────────────────────────────────────────────────────────────────┐
-│                   GIAI ĐOẠN 1: TRƯỚC THỰC THI                     │
-│                                                                   │
-│  ┌─────────────────┐                                              │
-│  │  1. PARSING     │  Tokenize SQL → build Parse Tree             │
-│  │                 │  kiểm tra syntax (dấu phẩy, ngoặc...)        │
-│  └────────┬────────┘                                              │
-│           │  Parse Tree                                           │
-│           ▼                                                       │
-│  ┌─────────────────┐                                              │
-│  │  2. SEMANTIC    │  Validate tên bảng/cột có tồn tại?           │
-│  │     ANALYSIS    │  User có quyền truy cập không?               │
-│  │                 │  Data types có khớp không?                   │
-│  └────────┬────────┘                                              │
-│           │  Validated AST                                        │
-│           ▼                                                       │
-│  ┌─────────────────┐                                              │
-│  │  3. QUERY       │  Expand SELECT * → tên cột cụ thể            │
-│  │     REWRITING   │  Unfold VIEW → SQL gốc của view              │
-│  │                 │  Transform subquery → JOIN nếu được          │
-│  └────────┬────────┘                                              │
-│           │  Logical Plan                                         │
-│           ▼                                                       │
-│  ┌─────────────────┐                                              │
-│  │  4. OPTIMIZATION│  Cost-Based Optimizer (CBO) chạy:            │
-│  │                 │  - Đọc table statistics (row count, NDV...)  │
-│  │                 │  - Thử nhiều execution plan khác nhau        │
-│  │                 │  - Chọn plan có estimated cost thấp nhất     │
-│  │                 │  (chọn index nào, join order, join algo...)  │
-│  └────────┬────────┘                                              │
-│           │  Optimized Physical Plan                              │
-│           ▼                                                       │
-│  ┌─────────────────┐                                              │
-│  │  5. PLAN        │  Compile plan thành bytecode/instructions    │
-│  │     COMPILATION │  Cache plan (prepared statements)            │
-│  └────────┬────────┘                                              │
-└───────────┼───────────────────────────────────────────────────────┘
-            │  Executable Plan
-            ▼
-┌───────────────────────────────────────────────────────────────────┐
-│                   GIAI ĐOẠN 2: THỰC THI QUERY                     │
-│                                                                   │
-│  Thứ tự logic thực thi (không phải thứ tự bạn viết):              │
-│                                                                   │
-│   6. FROM / JOIN  ──→  Tạo bảng trung gian từ các bảng nguồn      │
-│         │                                                         │
-│         ▼                                                         │
-│   7. WHERE        ──→  Lọc từng ROW (chưa có aggregate)           │
-│         │                                                         │
-│         ▼                                                         │
-│   8. GROUP BY     ──→  Gom rows thành NHÓM                        │
-│         │                                                         │
-│         ▼                                                         │
-│   9. HAVING       ──→  Lọc từng NHÓM (có aggregate)               │
-│         │                                                         │
-│         ▼                                                         │
-│  10. SELECT       ──→  Tính toán cột, tạo alias                   │
-│         │                                                         │
-│         ▼                                                         │
-│  11. WINDOW FUNC  ──→  ROW_NUMBER, RANK, LAG, SUM OVER...         │
-│         │                                                         │
-│         ▼                                                         │
-│  12. DISTINCT     ──→  Loại bỏ row trùng lặp                      │
-│         │                                                         │
-│         ▼                                                         │
-│  13. ORDER BY     ──→  Sắp xếp kết quả (có thể dùng alias)        │
-│         │                                                         │
-│         ▼                                                         │
-│  14. LIMIT/OFFSET ──→  Cắt lấy số row cần thiết                   │
-│                                                                   │
-└───────────┬───────────────────────────────────────────────────────┘
-            │  Result Set
-            ▼
-┌───────────────────────────────────────────────────────────────────┐
-│                   GIAI ĐOẠN 3: SAU THỰC THI                       │
-│                                                                   │
-│  15. RESULT FORMATTING  ──→  Đóng gói rows/columns → wire format  │
-│         │                                                         │
-│         ▼                                                         │
-│  16. STATS UPDATE       ──→  Ghi lại execution time, rows read    │
-│         │                    (dùng để optimizer học về sau)       │
-│         ▼                                                         │
-│  17. LOCK RELEASE       ──→  Giải phóng shared/row locks          │
-│      & CLEANUP               Free memory, đóng cursor, trả buffer │
-│         │                                                         │
-│         ▼                                                         │
-│  18. WAL FLUSH          ──→  (Chỉ write queries)                  │
-│      (write only)            Flush WAL buffer → disk              │
-│                              Báo commit success về client         │
-└───────────┬───────────────────────────────────────────────────────┘
-            │
-            ▼
-    Client nhận kết quả
-```
+
+**Thứ tự logic để hiểu kết quả**, không phải pipeline vật lý bắt buộc: `FROM/JOIN → WHERE → GROUP BY → HAVING → SELECT / window functions → DISTINCT → ORDER BY → LIMIT/OFFSET`. Việc giải phóng lock phụ thuộc transaction; WAL flush để xác nhận commit chỉ liên quan thao tác ghi và cấu hình durability, không phải bước cuối của mọi SELECT.
 
 ---
 
@@ -162,18 +94,17 @@ Client gửi SQL text
 
 **Database làm gì:** Nhận chuỗi text SQL, chia thành các token (từ khóa, tên bảng, toán tử...), rồi build thành **Parse Tree** (cây cú pháp).
 
-```
-Input:  "SELECT name FROM users WHERE id = 1"
-                │
-                ▼
-Tokenize: [SELECT] [name] [FROM] [users] [WHERE] [id] [=] [1]
-                │
-                ▼
-Parse Tree:
-    SELECT
-    ├── columns: [name]
-    ├── from: [users]
-    └── where: id = 1
+```d2 title="Từ SQL text tới parse tree"
+direction: right
+input: "SELECT name FROM users WHERE id = 1"
+tokens: "SELECT | name | FROM | users | WHERE | id | = | 1"
+ast: Parse Tree {
+  columns: "columns: name"
+  from: "from: users"
+  where: "where: id = 1"
+}
+input -> tokens: Tokenize
+tokens -> ast: Parse
 ```
 
 Nếu SQL sai cú pháp (thiếu dấu phẩy, thừa ngoặc...) → lỗi xảy ra **tại đây**, chưa chạm đến database.
@@ -497,12 +428,14 @@ LIMIT 10;
 
 Trước khi báo `COMMIT` thành công về client, database phải đảm bảo **WAL (Write-Ahead Log)** đã được flush xuống disk — đây là cơ chế đảm bảo **Durability** trong ACID.
 
-```
-1. Execute: thay đổi data trong buffer pool (in-memory)
-2. WAL record: ghi log vào WAL buffer
-3. WAL flush: fsync WAL buffer → disk   ← bắt buộc trước COMMIT
-4. Báo SUCCESS về client
-5. (Sau đó) Background writer flush data page → disk
+```d2 title="WAL trước, data page sau"
+direction: right
+n0: "Execute: thay đổi data trong buffer pool"
+n1: "Ghi WAL record vào WAL buffer"
+n2: "Flush / fsync WAL xuống disk trước xác nhận COMMIT"
+n3: "Báo SUCCESS cho client"
+n4: "Background writer ghi data page xuống disk"
+n0 -> n1 -> n2 -> n3 -> n4
 ```
 
 Nếu server crash sau bước 3 nhưng trước bước 5 → khi restart, database dùng WAL để **replay** lại thay đổi → không mất data.

@@ -3,6 +3,12 @@ title: "Thêm cột vào bảng 300 triệu dòng không downtime"
 description: "Câu hỏi phỏng vấn database: thiết kế zero-downtime schema migration bằng expand-and-contract, dual-write, backfill theo batch, validation, constraint và rollback an toàn."
 ---
 
+<SourceRef project="interview-add-column-large-table-zero-downtime" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Câu hỏi phỏng vấn](#1-câu-hỏi-phỏng-vấn)
@@ -202,17 +208,13 @@ Nếu transaction khổng lồ thất bại ở 90%, database không đơn giả
 
 Ngay cả một metadata-only `ALTER TABLE` vẫn có thể cần schema/metadata lock. Tình huống nguy hiểm:
 
-```diagram
-Transaction dài đang giữ lock
-          │
-          ▼
-ALTER TABLE chờ schema lock
-          │
-          ▼
-Các query mới xếp hàng phía sau ALTER TABLE
-          │
-          ▼
-Latency tăng, connection pool cạn, incident lan rộng
+```d2 title="DDL chờ lock gây queue buildup"
+direction: right
+n0: "Transaction dài giữ lock"
+n1: "ALTER TABLE chờ schema lock"
+n2: "Query mới xếp hàng sau ALTER TABLE"
+n3: "Latency tăng, pool cạn, incident lan rộng"
+n0 -> n1 -> n2 -> n3
 ```
 
 Đó là lý do migration phải có `lock_timeout` ngắn: nếu không lấy được lock nhanh, nó nên **fail và retry sau**, không được chờ vô hạn.
@@ -224,16 +226,25 @@ Latency tăng, connection pool cạn, incident lan rộng
 
 ## 5. Chiến lược tổng thể: Expand → Migrate → Contract
 
-```mermaid
-flowchart LR
-    A[0. Chuẩn bị] --> B[1. Expand schema]
-    B --> C[2. Deploy dual-write]
-    C --> D[Chờ code cũ rời hệ thống]
-    D --> E[3. Backfill theo batch]
-    E --> F[4. Validate dữ liệu]
-    F --> G[Chuyển read path]
-    G --> H[5. Enforce constraint]
-    H --> I[Cleanup logic cũ]
+```d2 title="5. Chiến lược tổng thể: Expand → Migrate → Contract"
+direction: right
+A: "0. Chuẩn bị"
+B: "1. Expand schema"
+C: "2. Deploy dual-write"
+D: "Chờ code cũ rời hệ thống"
+E: "3. Backfill theo batch"
+F: "4. Validate dữ liệu"
+G: "Chuyển read path"
+H: "5. Enforce constraint"
+I: "Cleanup logic cũ"
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F
+F -> G
+G -> H
+H -> I
 ```
 
 ### Expand
@@ -416,6 +427,10 @@ async function changeEmail(userId: number, newEmail: string) {
 }
 ```
 
+<SourceRef project="interview-add-column-large-table-zero-downtime" file="81-dual-write-cho-cả-insert-và-update/1.ts" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 Hai giá trị phải được ghi trong **cùng transaction** để không xuất hiện trạng thái `email` mới nhưng `email_normalized` cũ.
 
 ### 8.2. Vì sao chỉ sửa INSERT là chưa đủ?
@@ -438,12 +453,17 @@ Do đó phải cập nhật mọi write path làm thay đổi nguồn dữ liệ
 
 Trong vài phút hoặc vài giờ:
 
-```diagram
-Load Balancer
-   ├── App v1: chỉ ghi email
-   ├── App v1: chỉ ghi email
-   ├── App v2: ghi email + email_normalized
-   └── App v2: ghi email + email_normalized
+```d2 title="Rolling deploy có cả writer cũ và mới"
+direction: right
+lb: "Load Balancer"
+a: "App v1 A: chỉ ghi email"
+b: "App v1 B: chỉ ghi email"
+c: "App v2 A: ghi email + email_normalized"
+d: "App v2 B: ghi email + email_normalized"
+lb -> a
+lb -> b
+lb -> c
+lb -> d
 ```
 
 Column phải tiếp tục nullable để App v1 không lỗi. Chỉ bắt đầu coi backlog là hữu hạn sau khi:
@@ -574,21 +594,18 @@ Nếu business cho phép `NULL` là giá trị hợp lệ, cần một migration
 
 Chiến lược thực tế:
 
-```diagram
-Bắt đầu 500 row/batch
-        │
-        ▼
-Đo latency + CPU + I/O + replica lag
-        │
-   ┌────┴────┐
-   │         │
-Tải thấp   Tải cao
-   │         │
-Tăng nhẹ   Giảm batch / sleep / pause
-   │         │
-   └────┬────┘
-        ▼
-Lặp lại
+```d2 title="Điều chỉnh batch theo tải thực tế"
+direction: down
+start: Bắt đầu 500 row / batch
+measure: Đo latency, CPU, I/O, replica lag
+load: Tải hiện tại? { shape: diamond }
+increase: Tải thấp — tăng nhẹ batch
+decrease: Tải cao — giảm batch / sleep / pause
+start -> measure -> load
+load -> increase: thấp
+load -> decrease: cao
+increase -> measure: lặp lại
+decrease -> measure: lặp lại
 ```
 
 Adaptive throttling tốt hơn hard-code `sleep(100ms)` vì tải production thay đổi theo thời gian.
@@ -634,6 +651,10 @@ while (true) {
   batchSize = await adjustBatchSizeFromMetrics(batchSize);
 }
 ```
+
+<SourceRef project="interview-add-column-large-table-zero-downtime" file="95-commit-sau-mỗi-batch/1.ts" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 Ý tưởng quan trọng hơn syntax:
 
@@ -759,23 +780,15 @@ Nếu `NULL` mới vẫn xuất hiện, đừng tăng tốc backfill. Hãy tìm 
 
 Flow an toàn:
 
-```diagram
-0% đọc column mới
-      │
-      ▼
-Canary 1% instance / request
-      │
-      ▼
-10% → quan sát error, latency, business metric
-      │
-      ▼
-50%
-      │
-      ▼
-100%
-      │
-      ▼
-Giữ fallback trong một khoảng ổn định
+```d2 title="Chuyển read path theo canary"
+direction: right
+n0: "0% đọc column mới"
+n1: "Canary: 1% instance / request"
+n2: "10%: quan sát error, latency, business metric"
+n3: "50%"
+n4: "100%"
+n5: "Giữ fallback trong thời gian ổn định"
+n0 -> n1 -> n2 -> n3 -> n4 -> n5
 ```
 
 Feature flag giúp rollback read path mà không cần rollback schema hoặc backfill.

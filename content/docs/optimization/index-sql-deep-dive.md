@@ -3,6 +3,12 @@ title: "Index SQL"
 description: "Deep dive vào SQL Index — B-Tree, Composite Index, EXPLAIN, Selectivity, Covering Index"
 ---
 
+<SourceRef project="optimization-index-sql-deep-dive" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Nền tảng Index](#1-nền-tảng-index)
@@ -88,28 +94,36 @@ description: "Deep dive vào SQL Index — B-Tree, Composite Index, EXPLAIN, Sel
 
 ### Khi nào nên tạo Index
 
-```mermaid
-flowchart TD
-    A[Should I Create an Index?] --> B{Column frequently in WHERE?}
-    B -->|Yes| C{High Selectivity?}
-    B -->|No| D{Column in JOIN/ORDER BY?}
-    
-    C -->|"Yes (>10% distinct)"| E[✅ Create Index]
-    C -->|"No (<10% distinct)"| F{Read-heavy workload?}
-    
-    D -->|Yes| G{Large table?>10K rows}
-    D -->|No| H[❌ Probably Don't Need]
-    
-    F -->|Yes| I[⚠️ Consider Bitmap/Partial Index]
-    F -->|No| H
-    
-    G -->|Yes| E
-    G -->|No| H
-    
-    E --> J[Choose Index Type]
-    J --> K{Equality only?}
-    K -->|Yes| L[Hash Index]
-    K -->|No| M[B-Tree Index]
+```d2 title="Khi nào nên tạo Index"
+direction: down
+A: "Should I Create an Index?"
+B: "Column frequently in WHERE?" { shape: diamond }
+C: "High Selectivity?" { shape: diamond }
+D: "Column in JOIN/ORDER BY?" { shape: diamond }
+E: "✅ Create Index"
+F: "Read-heavy workload?" { shape: diamond }
+G: "Large table?>10K rows" { shape: diamond }
+H: "❌ Probably Don't Need"
+I: "⚠️ Consider Bitmap/Partial Index"
+J: "Choose Index Type"
+K: "Equality only?" { shape: diamond }
+L: "Hash Index"
+M: "B-Tree Index"
+A -> B
+B -> C: "Yes"
+B -> D: "No"
+C -> E: "Yes (>10% distinct)"
+C -> F: "No (<10% distinct)"
+D -> G: "Yes"
+D -> H: "No"
+F -> I: "Yes"
+F -> H: "No"
+G -> E: "Yes"
+G -> H: "No"
+E -> J
+J -> K
+K -> L: "Yes"
+K -> M: "No"
 ```
 
 ### Khi nào KHÔNG nên tạo Index
@@ -139,43 +153,40 @@ flowchart TD
 
 ### So sánh B-Tree và Hash Index
 
+```d2 title="B-Tree có thứ tự, Hash ánh xạ vào bucket"
+direction: down
+btree: B-Tree — balanced, sorted {
+  m: M
+  e: E
+  r: R
+  a: A
+  f: F
+  h: H
+  n: N
+  s: S
+  z: Z
+  m -> e
+  m -> r
+  e -> a
+  e -> f
+  e -> h
+  r -> n
+  r -> s
+  r -> z
+}
+hash_index: Hash Index {
+  john: john@example.com
+  jane: jane@example.com
+  bob: bob@example.com
+  b42: Bucket 42 → row pointers
+  b17: Bucket 17 → row pointer
+  john -> b42
+  bob -> b42: collision
+  jane -> b17
+}
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              B-TREE INDEX                                       │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Structure: Balanced Tree (sorted nodes)                                       │
-│                                                                                 │
-│                          [M]                                                    │
-│                         /   \                                                   │
-│                      [E]     [R]                                                │
-│                     / | \   / | \                                               │
-│                   [A][F][H][N][S][Z]                                            │
-│                                                                                 │
-│   ✅ Supports: =, <, >, <=, >=, BETWEEN, LIKE 'abc%', ORDER BY                  │
-│   ✅ Range scans: Find all values between 10 and 20                             │
-│   ✅ Prefix search: LIKE 'john%'                                                │
-│   ❌ Slower for exact match than Hash (need tree traversal)                     │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              HASH INDEX                                         │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Structure: Hash Table (key → bucket)                                          │
-│                                                                                 │
-│   hash('john@example.com') = 42 → Bucket[42] → Row Pointer                      │
-│   hash('jane@example.com') = 17 → Bucket[17] → Row Pointer                      │
-│   hash('bob@example.com')  = 42 → Bucket[42] → Row Pointer (collision)          │
-│                                                                                 │
-│   ✅ O(1) lookup for exact match (=)                                            │
-│   ✅ Very fast for equality comparisons                                         │
-│   ❌ NO support for: <, >, BETWEEN, ORDER BY, LIKE                              │
-│   ❌ Not useful for range queries                                               │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+B-Tree hỗ trợ so sánh bằng, khoảng (`<`, `>`, `BETWEEN`), `ORDER BY` và prefix `LIKE 'abc%'` khi điều kiện phù hợp. Hash index hướng tới equality; không cung cấp thứ tự để phục vụ range scan, sort hoặc prefix search. Độ trễ equality thực tế cần đo, không mặc định Hash luôn nhanh hơn B-Tree.
 
 ### Bitmap Index — Chi tiết
 
@@ -218,57 +229,50 @@ flowchart TD
 
 B-Tree (Balanced Tree) is the most common index structure. Most databases actually use **B+Tree** variant.
 
+```d2 title="B+Tree: data ở leaf và liên kết range scan"
+direction: down
+root: "Root: 50 | 100"
+i1: "Internal: 20 | 30"
+i2: "Internal: 60 | 80"
+i3: "Internal: 120 | 150"
+l1: "Leaf: 10, 25, 35\n→ data pointers"
+l2: "Leaf: 55, 75, 90\n→ data pointers"
+l3: "Leaf: 110, 140, 180\n→ data pointers"
+root -> i1
+root -> i2
+root -> i3
+i1 -> l1
+i2 -> l2
+i3 -> l3
+l1 <-> l2: leaf links
+l2 <-> l3: leaf links
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         B+TREE INDEX STRUCTURE                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Level 0 (Root):                    [50 | 100]                                 │
-│                                     /    |    \                                 │
-│                                    /     |     \                                │
-│   Level 1 (Internal):        [20|30] [60|80]  [120|150]                         │
-│                              /  |  \   / | \    /  |  \                         │
-│                             /   |   \ /  |  \  /   |   \                        │
-│   Level 2 (Leaf):         [10][25][35][55][75][90][110][140][180]               │
-│                            ↓   ↓   ↓   ↓   ↓   ↓   ↓    ↓    ↓                  │
-│                          Data Data Data Data Data Data Data Data Data           │
-│                            └──────────────────────────────────────┘             │
-│                             Leaf nodes linked for range scans                   │
-│                                                                                 │
-│   Key Differences B-Tree vs B+Tree:                                             │
-│   ┌────────────────┬─────────────────────────┬────────────────────────────────┐ │
-│   │ Feature        │ B-Tree                  │ B+Tree                         │ │
-│   ├────────────────┼─────────────────────────┼────────────────────────────────┤ │
-│   │ Data location  │ All nodes               │ Only leaf nodes                │ │
-│   │ Leaf linking   │ No                      │ Yes (linked list)              │ │
-│   │ Range scans    │ Complex (tree traversal)│ Simple (follow leaf links)     │ │
-│   │ Disk I/O       │ More random             │ More sequential                │ │
-│   │ Space          │ More wasted             │ More efficient                 │ │
-│   └────────────────┴─────────────────────────┴────────────────────────────────┘ │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+| Đặc điểm | B-Tree | B+Tree |
+|---|---|---|
+| Vị trí data / row reference | Có thể ở mọi tầng | Ở leaf |
+| Liên kết leaf | Không bắt buộc | Có để duyệt range |
+| Range scan | Duyệt cấu trúc cây | Tới leaf đầu rồi đi ngang |
+| I/O và dung lượng | Phụ thuộc triển khai | Leaf links thuận lợi cho range; internal chỉ giữ key nên có thể tăng fanout |
 
 ### Quy trình tìm kiếm trong B-Tree
 
-```mermaid
-sequenceDiagram
-    participant Q as Query
-    participant R as Root Node
-    participant I as Internal Node
-    participant L as Leaf Node
-    participant D as Data Page
-    
-    Q->>R: Search for key = 75
-    Note over R: Compare: 75 > 50, 75 < 100<br/>Go to middle child
-    R->>I: Navigate to [60|80]
-    Note over I: Compare: 75 > 60, 75 < 80<br/>Go to middle child
-    I->>L: Navigate to leaf [75]
-    Note over L: Found key 75!<br/>Get row pointer
-    L->>D: Fetch actual row data
-    D-->>Q: Return row data
-    
-    Note over Q,D: Total: 3 node reads + 1 data read<br/>O(log n) complexity
+```d2 title="Quy trình tìm kiếm trong B-Tree"
+shape: sequence_diagram
+Q: "Query"
+R: "Root Node"
+I: "Internal Node"
+L: "Leaf Node"
+D: "Data Page"
+Q -> R: "Search for key = 75"
+R.note7: "Compare: 75 > 50, 75 < 100\nGo to middle child"
+R -> I: "Navigate to [60|80]"
+I.note9: "Compare: 75 > 60, 75 < 80\nGo to middle child"
+I -> L: "Navigate to leaf [75]"
+L.note11: "Found key 75!\nGet row pointer"
+L -> D: "Fetch actual row data"
+D -> Q: "Return row data" { style.stroke-dash: 3 }
+Q.note14: "Q / D: Total: 3 node reads + 1 data read\nO(log n) complexity"
 ```
 
 ### Độ phức tạp các thao tác B-Tree
@@ -282,32 +286,28 @@ sequenceDiagram
 
 ### Minh họa Node Split
 
+```d2 title="Split B-Tree node và đẩy key lên parent"
+direction: down
+before: Trước khi insert 45 {
+  parent: "30"
+  a: "10 | 20"
+  b: "35 | 40 | 50 | 55 — full, tối đa 4 key"
+  parent -> a
+  parent -> b
+}
+after: Sau split {
+  parent: "30 | 45 — promote 45"
+  a: "10 | 20"
+  b: "35 | 40"
+  c: "50 | 55"
+  parent -> a
+  parent -> b
+  parent -> c
+}
+before.b -> after.parent: Insert 45, split node
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         B-TREE NODE SPLIT                                       │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   BEFORE: Insert key 45 into full node                                          │
-│                                                                                 │
-│                           [30]                                                  │
-│                          /    \                                                 │
-│                  [10|20]      [35|40|50|55] ← FULL (max 4 keys)                 │
-│                                                                                 │
-│   INSERT 45: Node is full, must SPLIT!                                          │
-│                                                                                 │
-│   AFTER: Node splits, middle key moves up                                       │
-│                                                                                 │
-│                        [30 | 45]  ← 45 promoted to parent                       │
-│                       /    |    \                                               │
-│               [10|20] [35|40] [50|55]                                           │
-│                                                                                 │
-│   ⚠️ Impact on Write Performance:                                               │
-│   - Node splits require additional I/O                                          │
-│   - May cascade up to root (rare but possible)                                  │
-│   - This is why INSERTs are slower with indexes                                 │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Split tăng I/O và có thể lan lên root. Đây là một phần chi phí duy trì index khi INSERT.
 
 ---
 
@@ -315,66 +315,37 @@ sequenceDiagram
 
 ### So sánh trực quan
 
+```d2 title="Clustered leaf chứa row, nonclustered leaf chứa locator"
+direction: down
+clustered: Clustered B+Tree {
+  root: Index Root
+  a: Internal A
+  b: Internal B
+  r1: "Row id=1, name=A, email=..."
+  r2: "Row id=2, name=B, email=..."
+  r3: "Row id=5, name=C, email=..."
+  r4: "Row id=10, name=D, email=..."
+  root -> a
+  root -> b
+  a -> r1
+  a -> r2
+  b -> r3
+  b -> r4
+}
+nonclustered: Nonclustered index email {
+  root: Index Root
+  low: a–m
+  high: n–z
+  entry: Key + row locator
+  root -> low
+  root -> high
+  low -> entry
+}
+table: Heap hoặc clustered table chứa row thật
+nonclustered.entry -> table: bookmark lookup
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         CLUSTERED INDEX                                         │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   The table IS the index - data physically sorted by index key                  │
-│                                                                                 │
-│              [Index Root]                                                       │
-│                   │                                                             │
-│          ┌────────┴────────┐                                                    │
-│          ▼                 ▼                                                    │
-│     [Internal]        [Internal]                                                │
-│          │                 │                                                    │
-│    ┌─────┴─────┐     ┌─────┴─────┐                                              │
-│    ▼           ▼     ▼           ▼                                              │
-│ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐                                 │
-│ │ Row 1   │ │ Row 2   │ │ Row 3   │ │ Row 4   │  ← ACTUAL DATA in leaf!         │
-│ │ id=1    │ │ id=2    │ │ id=5    │ │ id=10   │                                 │
-│ │ name=A  │ │ name=B  │ │ name=C  │ │ name=D  │                                 │
-│ │ email=..│ │ email=..│ │ email=..│ │ email=..│                                 │
-│ └─────────┘ └─────────┘ └─────────┘ └─────────┘                                 │
-│                                                                                 │
-│   ✅ Only ONE per table (defines physical order)                                │
-│   ✅ Very fast for range scans (sequential reads)                               │
-│   ✅ No extra lookup needed (data is right there)                               │
-│   ❌ INSERT in middle requires shifting data                                    │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                       NON-CLUSTERED INDEX                                       │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Separate structure with pointers to actual rows                               │
-│                                                                                 │
-│   Index (on email):              Heap/Clustered Table:                          │
-│                                                                                 │
-│        [Index Root]               ┌─────────────────┐                           │
-│             │                     │ Row 1 (id=5)    │ ←──┐                      │
-│      ┌──────┴──────┐              │ Row 2 (id=1)    │ ←──┼──┐                   │
-│      ▼             ▼              │ Row 3 (id=10)   │ ←──┼──┼──┐                │
-│   [a-m...]    [n-z...]            │ Row 4 (id=2)    │ ←──┼──┼──┼──┐             │
-│      │             │              └─────────────────┘    │  │  │  │             │
-│   ┌──┴──┐     ┌───┴───┐                                  │  │  │  │             │
-│   ▼     ▼     ▼       ▼                                  │  │  │  │             │
-│ ┌────┐┌────┐┌────┐┌────┐                                 │  │  │  │             │
-│ │a@..│→──────────────────────────────────────────────────┘  │  │  │             │
-│ │b@..│→─────────────────────────────────────────────────────┘  │  │             │
-│ │c@..│→────────────────────────────────────────────────────────┘  │             │
-│ │d@..│→───────────────────────────────────────────────────────────┘             │
-│ └────┘└────┘└────┘└────┘                                                        │
-│   (Index leaf contains key + pointer to row)                                    │
-│                                                                                 │
-│   ⚠️ Requires TWO lookups: Index → Pointer → Data (bookmark lookup)             │
-│   ✅ Can have MANY per table                                                    │
-│   ✅ Smaller than clustered (only keys + pointers)                              │
-│   ✅ INSERTs faster (no data reordering)                                        │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+Một table chỉ có một clustered order nhưng có thể có nhiều nonclustered indexes. Clustered leaf chứa row nên tránh lookup riêng khi dữ liệu đã đủ ở leaf. Nonclustered thường nhỏ hơn nếu chỉ giữ key và locator; query thiếu cột vẫn cần lookup. INSERT và page split phụ thuộc key, tải và engine, không có cam kết nonclustered luôn ghi nhanh hơn.
 
 ### Bảng so sánh chi tiết
 
@@ -394,44 +365,22 @@ sequenceDiagram
 
 **Bookmark Lookup** (also called Key Lookup in SQL Server, or RID Lookup for heap tables) occurs when the database finds rows using a non-clustered index but must then go back to the base table (or clustered index) to retrieve additional columns not stored in the index.
 
+```d2 title="Bookmark lookup và covering index"
+direction: right
+lookup: Index chỉ có email {
+  search: Tìm john@example.com
+  pointer: Row pointer 1234
+  row: "Đọc Row 1234\nid=5, name=John, address=123 Main St"
+  search -> pointer -> row
+}
+covering: Index giữ đủ cột cần đọc {
+  leaf: "email=john@example.com\nINCLUDE name=John, address=123 Main St"
+  result: Trả cột từ index khi engine và visibility cho phép
+  leaf -> result
+}
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                       BOOKMARK LOOKUP PROBLEM                                   │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Query: SELECT id, email, name, address                                        │
-│          FROM users                                                             │
-│          WHERE email = 'john@example.com'                                       │
-│                                                                                 │
-│   Index on (email) - Non-Clustered                                              │
-│                                                                                 │
-│   Step 1: Search index for email                                                │
-│           ┌─────────────────────┐                                               │
-│           │ email = john@...    │                                               │
-│           │ Pointer → Row 1234  │                                               │
-│           └─────────────────────┘                                               │
-│                      │                                                          │
-│                      ▼                                                          │
-│   Step 2: BOOKMARK LOOKUP - Go to table to get other columns                    │
-│           ┌─────────────────────────────────────┐                               │
-│           │ Row 1234                            │                               │
-│           │ id=5, email=john@..., name=John,    │                               │
-│           │ address=123 Main St                 │                               │
-│           └─────────────────────────────────────┘                               │
-│                                                                                 │
-│   ⚠️ Problem: If query returns 1000 rows, that's 1000 random I/O operations!    │
-│                                                                                 │
-│   💡 Solution: COVERING INDEX                                                   │
-│   CREATE INDEX idx_email_cover ON users(email) INCLUDE (name, address);         │
-│                                                                                 │
-│   Now index leaf contains:                                                      │
-│   ┌───────────────────────────────────────────────┐                             │
-│   │ email = john@...                              │                             │
-│   │ INCLUDED: name = John, address = 123 Main St  │  ← No bookmark lookup!      │
-│   └───────────────────────────────────────────────┘                             │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Query cần `id, email, name, address` theo email có thể phải đọc thêm table cho mỗi match nếu index chỉ có email. Nhiều match có thể dẫn tới nhiều page fetch, nhưng không đồng nghĩa một physical I/O cho mỗi row. Ví dụ covering: `CREATE INDEX idx_email_cover ON users(email) INCLUDE (name, address);` — thêm `id` nếu engine/index chưa mang sẵn cột này mà query cần nó.
 
 ### Tại sao Bookmark Lookup là vấn đề
 
@@ -652,28 +601,38 @@ EXPLAIN (ANALYZE, BUFFERS) SELECT id, name, price FROM products WHERE category_i
 
 ### Hướng dẫn chọn thứ tự cột
 
-```mermaid
-flowchart TD
-    A[Designing Composite Index] --> B{What columns to include?}
-    B --> C[List all columns used in WHERE/JOIN/ORDER BY]
-    C --> D{How to order columns?}
-    
-    D --> E[Rule 1: Equality conditions FIRST]
-    D --> F[Rule 2: Range conditions LAST]
-    D --> G[Rule 3: High selectivity columns earlier]
-    D --> H[Rule 4: ORDER BY columns at end]
-    
-    E --> I["Example: status = 'active' before created_at > ?"]
-    F --> J["Range operators: >, <, BETWEEN, LIKE"]
-    G --> K["user_id (high) before status (low)"]
-    H --> L["Allows index-only sort, no filesort"]
-    
-    I --> M[Final Index Design]
-    J --> M
-    K --> M
-    L --> M
-    
-    M --> N["CREATE INDEX idx_optimal ON table(equality_col1, equality_col2, range_col)"]
+```d2 title="Hướng dẫn chọn thứ tự cột"
+direction: down
+A: "Designing Composite Index"
+B: "What columns to include?" { shape: diamond }
+C: "List all columns used in WHERE/JOIN/ORDER BY"
+D: "How to order columns?" { shape: diamond }
+E: "Rule 1: Equality conditions FIRST"
+F: "Rule 2: Range conditions LAST"
+G: "Rule 3: High selectivity columns earlier"
+H: "Rule 4: ORDER BY columns at end"
+I: "Example: status = 'active' before created_at > ?"
+J: "Range operators: >, <, BETWEEN, LIKE"
+K: "user_id (high) before status (low)"
+L: "Allows index-only sort, no filesort"
+M: "Final Index Design"
+N: "CREATE INDEX idx_optimal ON table(equality_col1, equality_col2, range_col)"
+A -> B
+B -> C
+C -> D
+D -> E
+D -> F
+D -> G
+D -> H
+E -> I
+F -> J
+G -> K
+H -> L
+I -> M
+J -> M
+K -> M
+L -> M
+M -> N
 ```
 
 ### Ví dụ thực tế: Tối ưu query chậm
@@ -704,38 +663,49 @@ ORDER BY created_at DESC;
 CREATE INDEX idx_orders_optimal ON orders(customer_id, status, created_at);
 ```
 
+<SourceRef project="optimization-index-sql-deep-dive" file="ví-dụ-thực-tế-tối-ưu-query-chậm/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ---
 
 ## 6. Index và Query Execution
 
 ### Database chọn Index như thế nào
 
-```mermaid
-flowchart TD
-    A[Query Arrives] --> B[Query Parser]
-    B --> C[Query Optimizer]
-    
-    C --> D{Analyze Available Indexes}
-    D --> E[Calculate Cost for Each Plan]
-    
-    E --> F{Index Scan Cost < Full Scan Cost?}
-    F -->|Yes| G[Use Index]
-    F -->|No| H[Full Table Scan]
-    
-    G --> I{Covering Index?}
-    I -->|Yes| J[Index-Only Scan]
-    I -->|No| K[Index Scan + Bookmark Lookup]
-    
-    J --> L[Return Results]
-    K --> L
-    H --> L
-    
-    subgraph "Cost Factors"
-        M[Estimated rows to return]
-        N[Index selectivity]
-        O[I/O cost per row]
-        P[CPU cost for comparisons]
-    end
+```d2 title="Database chọn Index như thế nào"
+direction: down
+A: "Query Arrives"
+B: "Query Parser"
+C: "Query Optimizer"
+D: "Analyze Available Indexes" { shape: diamond }
+E: "Calculate Cost for Each Plan"
+F: "Index Scan Cost < Full Scan Cost?" { shape: diamond }
+G: "Use Index"
+H: "Full Table Scan"
+I: "Covering Index?" { shape: diamond }
+J: "Index-Only Scan"
+K: "Index Scan + Bookmark Lookup"
+L: "Return Results"
+cost_factors: "Cost Factors" {
+  M: "Estimated rows to return"
+  N: "Index selectivity"
+  O: "I/O cost per row"
+  P: "CPU cost for comparisons"
+}
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F
+F -> G: "Yes"
+F -> H: "No"
+G -> I
+I -> J: "Yes"
+I -> K: "No"
+J -> L
+K -> L
+H -> L
 ```
 
 ### Hiểu kết quả EXPLAIN
@@ -887,6 +857,10 @@ SELECT
     COUNT(DISTINCT gender)::float / COUNT(*) AS gender_selectivity
 FROM users;
 ```
+
+<SourceRef project="optimization-index-sql-deep-dive" file="kiểm-tra-cardinality-trong-thực-tế/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ---
 
@@ -1126,37 +1100,21 @@ GROUP BY customer_id;
 -- Problem: After finding rows by date, must go to table for customer_id and total
 ```
 
+```d2 title="Covering index giảm lần truy cập bảng"
+direction: right
+before: Trước — index chỉ có created_at {
+  index: created_at + row pointer
+  table: Table row chứa customer_id, total, ...
+  index -> table: lookup thêm
+}
+after: Sau — index có đủ cột {
+  leaf: created_at + customer_id + total
+  result: Query có thể lấy các cột từ index
+  leaf -> result
+}
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         COVERING INDEX SOLUTION                                 │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Before: Index on (created_at)                                                 │
-│   ┌─────────────────┐          ┌─────────────────────────────────┐              │
-│   │ Index Leaf      │   2nd    │ Table Row                       │              │
-│   │ created_at      │ ──────►  │ customer_id, total, ...         │              │
-│   │ + row pointer   │  I/O     │                                 │              │
-│   └─────────────────┘          └─────────────────────────────────┘              │
-│   ⚠️ Thousands of random I/O operations to fetch columns                        │
-│                                                                                 │
-│   After: Covering Index on (created_at, customer_id, total)                     │
-│   ┌─────────────────────────────────────────────────────────────────┐           │
-│   │ Index Leaf (contains all needed columns)                        │           │
-│   │ created_at | customer_id | total                                │           │
-│   └─────────────────────────────────────────────────────────────────┘           │
-│   ✅ No table access needed - "Index Only Scan"!                                │
-│                                                                                 │
-│   CREATE INDEX idx_orders_covering                                              │
-│   ON orders(created_at, customer_id, total);                                    │
-│                                                                                 │
-│   -- Or using INCLUDE (PostgreSQL/SQL Server)                                   │
-│   CREATE INDEX idx_orders_covering                                              │
-│   ON orders(created_at) INCLUDE (customer_id, total);                           │
-│                                                                                 │
-│   EXPLAIN shows: Extra = "Using index" ← This is the goal!                      │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Có thể dùng key `(created_at, customer_id, total)` hoặc `ON orders(created_at) INCLUDE (customer_id, total)` trong PostgreSQL / SQL Server khi phù hợp. MySQL báo `Using index` cho covering access. PostgreSQL vẫn có thể phải kiểm tra heap visibility; xem thêm bài [Clustered vs Nonclustered](/optimization/clustered-vs-nonclustered-index/).
 
 ---
 
@@ -1238,6 +1196,10 @@ WHERE idx_scan < 50  -- Used less than 50 times
 ORDER BY pg_relation_size(i.indexrelid) DESC;
 ```
 
+<SourceRef project="optimization-index-sql-deep-dive" file="chiến-lược-4-các-query-giám-sát-index/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 ---
 
 ## 11. Monitoring & Bảo trì
@@ -1302,33 +1264,42 @@ ANALYZE TABLE orders;
 
 ### Checklist bảo trì Index
 
-```mermaid
-flowchart TD
-    A[Weekly Index Review] --> B{Check slow query log}
-    B -->|Slow queries found| C[Analyze EXPLAIN plans]
-    B -->|No issues| D[Check index usage stats]
-    
-    C --> E{Missing index?}
-    E -->|Yes| F[Design and create index]
-    E -->|No| G{Index exists but not used?}
-    
-    G -->|Yes| H[Check for index-killer patterns]
-    G -->|No| I[Check for bloat/fragmentation]
-    
-    H --> J[Rewrite query to use index]
-    
-    D --> K{Unused indexes?}
-    K -->|Yes| L[Consider dropping]
-    K -->|No| I
-    
-    I --> M{Bloat > 30%?}
-    M -->|Yes| N[REINDEX / OPTIMIZE TABLE]
-    M -->|No| O[Index health OK]
-    
-    F --> O
-    J --> O
-    L --> O
-    N --> O
+```d2 title="Checklist bảo trì Index"
+direction: down
+A: "Weekly Index Review"
+B: "Check slow query log" { shape: diamond }
+C: "Analyze EXPLAIN plans"
+D: "Check index usage stats"
+E: "Missing index?" { shape: diamond }
+F: "Design and create index"
+G: "Index exists but not used?" { shape: diamond }
+H: "Check for index-killer patterns"
+I: "Check for bloat/fragmentation"
+J: "Rewrite query to use index"
+K: "Unused indexes?" { shape: diamond }
+L: "Consider dropping"
+M: "Bloat > 30%?" { shape: diamond }
+N: "REINDEX / OPTIMIZE TABLE"
+O: "Index health OK"
+A -> B
+B -> C: "Slow queries found"
+B -> D: "No issues"
+C -> E
+E -> F: "Yes"
+E -> G: "No"
+G -> H: "Yes"
+G -> I: "No"
+H -> J
+D -> K
+K -> L: "Yes"
+K -> I: "No"
+I -> M
+M -> N: "Yes"
+M -> O: "No"
+F -> O
+J -> O
+L -> O
+N -> O
 ```
 
 ---
@@ -1363,6 +1334,10 @@ CREATE FULLTEXT INDEX idx_search ON products(name, description);
 DROP INDEX idx_name ON table;  -- MySQL
 DROP INDEX idx_name;           -- PostgreSQL
 ```
+
+<SourceRef project="optimization-index-sql-deep-dive" file="cú-pháp-tạo-index/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ### Ma trận quyết định chọn Index
 
@@ -1446,6 +1421,10 @@ SELECT * FROM users WHERE created_at + INTERVAL 1 DAY > NOW();
 -- Why? Database must apply function to EVERY row before comparing
 -- Index stores original values, not function results
 ```
+
+<SourceRef project="optimization-index-sql-deep-dive" file="lỗi-1-dùng-hàm-trên-cột-đã-đánh-index-1/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -2033,33 +2012,49 @@ EXPLAIN SELECT email, name FROM users WHERE email = 'john@example.com';
 
 ### Sơ đồ chẩn đoán nhanh
 
-```mermaid
-flowchart TD
-    A[Query is slow] --> B[Run EXPLAIN]
-    B --> C{Check 'type' or scan type}
-    
-    C -->|"ALL / Seq Scan"| D[❌ No index used!]
-    C -->|"index / Index Scan"| E[⚠️ Index used but check...]
-    C -->|"ref / const"| F[✅ Index used efficiently]
-    
-    D --> G{Index exists?}
-    G -->|No| H[Create appropriate index]
-    G -->|Yes| I{Why not used?}
-    
-    I --> J[Check for functions on column]
-    I --> K[Check for type mismatch]
-    I --> L[Check column order]
-    I --> M[Check selectivity]
-    
-    E --> N{Check 'Extra' field}
-    N -->|"Using index"| O[✅ Covering index - Perfect!]
-    N -->|"Using filesort"| P[⚠️ Add ORDER BY column to index]
-    N -->|"Using temporary"| Q[⚠️ Optimize GROUP BY]
-    
-    J --> R[Rewrite query or create functional index]
-    K --> S[Fix data types in query]
-    L --> T[Create index with correct column order]
-    M --> U[Combine with selective columns or accept full scan]
+```d2 title="Sơ đồ chẩn đoán nhanh"
+direction: down
+A: "Query is slow"
+B: "Run EXPLAIN"
+C: "Check 'type' or scan type" { shape: diamond }
+D: "❌ No index used!"
+E: "⚠️ Index used but check..."
+F: "✅ Index used efficiently"
+G: "Index exists?" { shape: diamond }
+H: "Create appropriate index"
+I: "Why not used?" { shape: diamond }
+J: "Check for functions on column"
+K: "Check for type mismatch"
+L: "Check column order"
+M: "Check selectivity"
+N: "Check 'Extra' field" { shape: diamond }
+O: "✅ Covering index - Perfect!"
+P: "⚠️ Add ORDER BY column to index"
+Q: "⚠️ Optimize GROUP BY"
+R: "Rewrite query or create functional index"
+S: "Fix data types in query"
+T: "Create index with correct column order"
+U: "Combine with selective columns or accept full scan"
+A -> B
+B -> C
+C -> D: "ALL / Seq Scan"
+C -> E: "index / Index Scan"
+C -> F: "ref / const"
+D -> G
+G -> H: "No"
+G -> I: "Yes"
+I -> J
+I -> K
+I -> L
+I -> M
+E -> N
+N -> O: "Using index"
+N -> P: "Using filesort"
+N -> Q: "Using temporary"
+J -> R
+K -> S
+L -> T
+M -> U
 ```
 
 ---

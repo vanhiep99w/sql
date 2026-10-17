@@ -7,6 +7,12 @@ description: "Giải thích B+Tree theo trình tự đơn giản: tìm kiếm, r
   Các phần được sắp xếp từ cơ bản đến nâng cao và tiếp tục dùng cùng một ví dụ với bảng `users`.
 </Callout>
 
+<SourceRef project="optimization-b-plus-tree-deep-dive" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [Vấn đề khi không có index](#vấn-đề-khi-không-có-index)
@@ -93,14 +99,17 @@ B+Tree là một cây có nhiều nhánh. Các giá trị trong cây luôn đư�
 
 Ta dùng cây nhỏ sau trong các phần tiếp theo:
 
-```text
-                         Root
-                       [ 30 | 60 ]
-                     /      |       \
-                    /       |        \
-                   ▼        ▼         ▼
-               Leaf A     Leaf B      Leaf C
-          [5, 10, 20] ⇄ [30, 42, 55] ⇄ [60, 75, 90]
+```d2 title="Root chọn leaf theo separator key"
+direction: down
+root: "Root: 30 | 60"
+a: "Leaf A: 5 | 10 | 20"
+b: "Leaf B: 30 | 42 | 55"
+c: "Leaf C: 60 | 75 | 90"
+root -> a: key < 30
+root -> b: 30 ≤ key < 60
+root -> c: key ≥ 60
+a <-> b: liên kết leaf
+b <-> c: liên kết leaf
 ```
 
 Cây này có hai tầng:
@@ -150,11 +159,8 @@ Về mặt thuật toán, một root có node con cũng là một node điều h
 
 Khi index còn rất nhỏ, một page có thể chứa toàn bộ entry. Page này đồng thời là root và leaf:
 
-```text
-┌────────────────────────┐
-│ Root đồng thời là Leaf │
-│ 10 | 20 | 30 | 40      │
-└────────────────────────┘
+```d2 title="Cây nhỏ chỉ có một page"
+root: "Root đồng thời là Leaf\n10 | 20 | 30 | 40"
 ```
 
 Cây lúc này có một level. Database tìm key ngay trong root, chưa cần đi tới page con.
@@ -163,13 +169,15 @@ Cây lúc này có một level. Database tìm key ngay trong root, chưa cần �
 
 Khi page đầu tiên đầy, nó được chia thành nhiều leaf và một root mới được tạo để chỉ đường:
 
-```text
-                    Root
-                 [30 | 60]
-                 /   |   \
-                ▼    ▼    ▼
-             Leaf   Leaf   Leaf
-           [1..29] [30..59] [60..]
+```d2 title="B+Tree hai tầng"
+direction: down
+r: "Root: 30 | 60"
+a: "Leaf: 1..29"
+b: "Leaf: 30..59"
+c: "Leaf: 60.."
+r -> a
+r -> b
+r -> c
 ```
 
 Cây có hai level:
@@ -187,15 +195,21 @@ Mỗi root page chỉ chứa được một số lượng child pointer hữu h�
 
 Database thêm một tầng internal node:
 
-```text
-                            Root
-                         [500 | 900]
-                        /     |      \
-                       ▼      ▼       ▼
-                 Internal  Internal  Internal
-                    /|\       /|\       /|\
-                   ▼ ▼ ▼     ▼ ▼ ▼     ▼ ▼ ▼
-                 Leaf       Leaf       Leaf
+```d2 title="B+Tree ba tầng"
+direction: down
+root: "Root: 500 | 900"
+a: Internal A
+b: Internal B
+c: Internal C
+root -> a
+root -> b
+root -> c
+la: Nhóm leaf A
+lb: Nhóm leaf B
+lc: Nhóm leaf C
+a -> la
+b -> lb
+c -> lc
 ```
 
 Cây bây giờ có ba level:
@@ -208,24 +222,23 @@ Level 3: Leaf
 
 Nếu index tiếp tục lớn, cây có thể có nhiều tầng internal:
 
-```text
-Root
-  ↓
-Internal
-  ↓
-Internal
-  ↓
-Leaf
+```d2 title="Cây bốn tầng"
+direction: down
+n0: "Root"
+n1: "Internal tầng 1"
+n2: "Internal tầng 2"
+n3: "Leaf"
+n0 -> n1 -> n2 -> n3
 ```
 
 Dù có bao nhiêu internal level, cách tìm kiếm không đổi:
 
-```text
-Root bắt đầu chọn đường
-          ↓
-Internal tiếp tục thu hẹp khoảng
-          ↓
-Leaf chứa index entry cần tìm
+```d2 title="Vai trò từng tầng"
+direction: right
+n0: "Root chọn đường"
+n1: "Internal thu hẹp khoảng"
+n2: "Leaf chứa index entry cần tìm"
+n0 -> n1 -> n2
 ```
 
 <Callout type="info" title="Cách đếm level">
@@ -283,13 +296,17 @@ WHERE id = 42;
 
 Cây hiện tại:
 
-```text
-                         Root
-                      [ 30 | 60 ]
-                     /      |      \
-                    /       |       \
-                   ▼        ▼        ▼
-              [5,10,20] [30,42,55] [60,75,90]
+```d2 title="Root chọn leaf theo separator key"
+direction: down
+root: "Root: 30 | 60"
+a: "Leaf A: 5 | 10 | 20"
+b: "Leaf B: 30 | 42 | 55"
+c: "Leaf C: 60 | 75 | 90"
+root -> a: key < 30
+root -> b: 30 ≤ key < 60
+root -> c: key ≥ 60
+a <-> b: liên kết leaf
+b <-> c: liên kết leaf
 ```
 
 Database tìm `42` theo từng bước.
@@ -325,16 +342,13 @@ Entry `42` cho database biết cách đi tới row thật:
 
 Toàn bộ đường đi:
 
-```text
-Root [30 | 60]
-        │
-        │ chọn khoảng 30 ≤ key < 60
-        ▼
-Leaf [30, 42, 55]
-          │
-          │ tìm thấy 42
-          ▼
-Row của user 42
+```d2 title="Tìm key 42"
+direction: right
+n0: "Root: 30 | 60"
+n1: "Chọn khoảng 30 ≤ key < 60"
+n2: "Leaf: 30 | 42 | 55"
+n3: "Tìm thấy 42 → row của user 42"
+n0 -> n1 -> n2 -> n3
 ```
 
 Nếu cây có thêm internal node, database chỉ lặp lại bước “so sánh rồi chọn nhánh” thêm vài lần.
@@ -405,21 +419,22 @@ Database đi từ root tới leaf có giá trị đầu tiên lớn hơn hoặc 
 
 Với dữ liệu mẫu, giá trị đầu tiên phù hợp là `42`:
 
-```text
-Leaf B: [30, 42, 55]
-             ▲
-             bắt đầu tại đây
+```d2 title="Bắt đầu range scan tại key 42"
+direction: right
+start: Bắt đầu tại 42
+leaf: "Leaf B: 30 | 42 | 55"
+start -> leaf
 ```
 
 **Giai đoạn 2 — Đi dọc các leaf**
 
 Database đọc tiếp các entry theo thứ tự:
 
-```text
-Leaf B              Leaf C
-[30, 42, 55]   ⇄   [60, 75, 90]
-     └──┬──┘       └──┬──┘
-      42, 55        60, 75
+```d2 title="Range scan qua hai leaf"
+direction: right
+a: "Leaf B: 30 | 42 | 55\nLấy 42, 55"
+b: "Leaf C: 60 | 75 | 90\nLấy 60, 75"
+a <-> b: sibling link
 ```
 
 Khi gặp `90`, database biết đã vượt quá giới hạn `75` và dừng.
@@ -503,20 +518,23 @@ Database phải thực hiện **page split**. Page split nghĩa là chia một p
 
 **Trước khi split:**
 
-```text
-Parent
-  │
-  ▼
-[30, 42, 45, 55]  ← page đầy
+```d2 title="Leaf page đầy"
+direction: down
+n0: "Parent"
+n1: "Leaf đầy: 30 | 42 | 45 | 55"
+n0 -> n1
 ```
 
 **Sau khi thêm `47` và split:**
 
-```text
-Parent thêm separator 45
-          /       \
-         ▼         ▼
-   [30, 42]  ⇄  [45, 47, 55]
+```d2 title="Split leaf và thêm separator"
+direction: down
+p: Parent thêm separator 45
+a: "30 | 42"
+b: "45 | 47 | 55"
+p -> a
+p -> b
+a <-> b
 ```
 
 Quá trình gồm các bước:
@@ -532,14 +550,12 @@ Nếu parent cũng đầy, parent tiếp tục split. Việc split có thể đi
 
 Nếu root đầy và phải split, database tạo root mới:
 
-```text
-Root cũ đầy
-    │
-    ▼
-Split root cũ thành hai node
-    │
-    ▼
-Tạo root mới trỏ tới hai node đó
+```d2 title="Root split làm tăng chiều cao cây"
+direction: down
+n0: "Root cũ đầy"
+n1: "Split root cũ thành hai node"
+n2: "Tạo root mới trỏ tới hai node đó"
+n0 -> n1 -> n2
 ```
 
 Đây là cách duy nhất cây cao thêm một tầng.
@@ -646,12 +662,13 @@ TID = (số block, vị trí item trong block)
 
 Đường đi đơn giản:
 
-```text
-Index trên email
-'an@example.com' → TID (917, 4)
-                         │
-                         ▼
-Heap block 917, item 4 → row của An
+```d2 title="PostgreSQL index tới heap"
+direction: right
+n0: "Index email: an@example.com"
+n1: "TID (917, 4)"
+n2: "Heap block 917, item 4"
+n3: "Row của An"
+n0 -> n1 -> n2 -> n3
 ```
 
 PostgreSQL thường phải đọc cả index page và heap page.
@@ -669,13 +686,13 @@ Primary-key B+Tree
 
 Leaf của secondary index thường giữ secondary key và primary key:
 
-```text
-Secondary index trên email
-'an@example.com' → primary key 42
-                         │
-                         ▼
-Primary-key tree
-42 → toàn bộ row
+```d2 title="InnoDB secondary index tới primary key"
+direction: right
+n0: "Secondary index: an@example.com"
+n1: "Primary key 42"
+n2: "Primary-key B+Tree"
+n3: "42 → toàn bộ row"
+n0 -> n1 -> n2 -> n3
 ```
 
 Vì vậy, query qua secondary index có thể cần hai lần đi qua B+Tree:
@@ -801,13 +818,15 @@ Index có thể tìm điểm bắt đầu của nhóm `active`. Nhưng database 
 
 Trong trường hợp này, table scan có thể rẻ hơn:
 
-```text
-Index scan:
-đọc index → lấy nhiều row locator → đọc rất nhiều data page
-
-Table scan:
-đọc tuần tự toàn bộ table một lần
+```d2 title="Index scan và table scan"
+direction: right
+n0: "Index scan: đọc index"
+n1: "Lấy nhiều row locator"
+n2: "Đọc nhiều data page"
+n0 -> n1 -> n2
 ```
+
+Trong khi đó, table scan đọc tuần tự toàn bộ table một lần.
 
 Optimizer là bộ phận ước lượng chi phí và chọn execution plan. Nếu nó cho rằng index đắt hơn, nó sẽ chọn table scan.
 
@@ -969,13 +988,17 @@ ORDER BY id;
 
 Cây:
 
-```text
-                         Root
-                      [ 30 | 60 ]
-                     /      |      \
-                    /       |       \
-                   ▼        ▼        ▼
-              [5,10,20] [30,42,55] [60,75,90]
+```d2 title="Root chọn leaf theo separator key"
+direction: down
+root: "Root: 30 | 60"
+a: "Leaf A: 5 | 10 | 20"
+b: "Leaf B: 30 | 42 | 55"
+c: "Leaf C: 60 | 75 | 90"
+root -> a: key < 30
+root -> b: 30 ≤ key < 60
+root -> c: key ≥ 60
+a <-> b: liên kết leaf
+b <-> c: liên kết leaf
 ```
 
 Database làm lần lượt:
@@ -993,16 +1016,14 @@ Database làm lần lượt:
 
 Đó là toàn bộ ý tưởng cốt lõi của B+Tree:
 
-```text
-Chọn đúng nhánh
-      ↓
-Tìm đúng leaf
-      ↓
-Đọc entry theo thứ tự
-      ↓
-Đi ngang qua leaf khi cần range
-      ↓
-Lấy row thật
+```d2 title="Tóm tắt đường đi B+Tree"
+direction: right
+n0: "Chọn đúng nhánh"
+n1: "Tìm đúng leaf"
+n2: "Đọc entry theo thứ tự"
+n3: "Đi ngang qua leaf khi cần range"
+n4: "Lấy row thật"
+n0 -> n1 -> n2 -> n3 -> n4
 ```
 
 <Cards>

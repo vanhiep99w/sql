@@ -6,6 +6,12 @@ description: "Câu hỏi phỏng vấn về SELECT ... FOR UPDATE SKIP LOCKED: c
 > [!IMPORTANT]
 > `FOR UPDATE SKIP LOCKED` không phải cách làm cho câu `SELECT` nhanh hơn. Nó là cơ chế để nhiều transaction **chia nhau công việc**: row đang được worker khác lock sẽ bị bỏ qua ngay, thay vì transaction hiện tại phải chờ.
 
+<SourceRef project="interview-for-update-skip-locked" variant="button">
+Mở các đoạn code trong bài
+</SourceRef>
+
+Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
+
 ## Mục lục
 
 - [1. Câu hỏi phỏng vấn](#1-câu-hỏi-phỏng-vấn)
@@ -64,14 +70,18 @@ Giả sử worker A đã lock job `id = 101`. Worker B cũng quét tới job đ�
 | `FOR UPDATE NOWAIT` | **Lỗi ngay** vì không lấy được lock | Muốn fail-fast và phản hồi “đang được xử lý” |
 | `FOR UPDATE SKIP LOCKED` | **Bỏ qua** `101`, tìm job khác | Nhiều worker có thể lấy bất kỳ job nào còn sẵn sàng |
 
-```text
-Queue theo thứ tự:  [101] [102] [103] [104]
-                     ▲
-                  A đang lock
-
-B với FOR UPDATE:              chờ ở 101
-B với FOR UPDATE NOWAIT:       lỗi ngay ở 101
-B với SKIP LOCKED:             bỏ 101 → claim 102, 103, ...
+```d2 title="Ba hành vi khi job 101 đang bị lock"
+direction: right
+queue: "Queue: 101 → 102 → 103 → 104"
+lock: "Worker A lock 101"
+b: "Worker B"
+wait: "FOR UPDATE: chờ ở 101"
+fail: "NOWAIT: lỗi ngay ở 101"
+skip: "SKIP LOCKED: bỏ 101, claim 102 / 103..."
+lock -> queue: "giữ 101"
+b -> wait
+b -> fail
+b -> skip
 ```
 
 > [!NOTE]
@@ -90,22 +100,21 @@ Khi thêm `SKIP LOCKED`, engine thực hiện logic gần như sau:
 5. Trả về tối đa số row trong `LIMIT`.
 6. Giữ các lock đã lấy đến `COMMIT` hoặc `ROLLBACK`.
 
-```mermaid
-sequenceDiagram
-    participant A as Worker A / TX-A
-    participant DB as Database
-    participant B as Worker B / TX-B
-
-    A->>DB: BEGIN
-    A->>DB: SELECT job 101 FOR UPDATE SKIP LOCKED
-    DB-->>A: Lock job 101
-    B->>DB: BEGIN
-    B->>DB: Quét job 101
-    DB-->>B: 101 đang bị TX-A lock
-    B->>DB: SKIP 101, lock job 102
-    DB-->>B: Trả job 102
-    A->>DB: UPDATE 101 thành running; COMMIT
-    B->>DB: UPDATE 102 thành running; COMMIT
+```d2 title="4. FOR UPDATE SKIP LOCKED hoạt động như thế nào?"
+shape: sequence_diagram
+A: "Worker A / TX-A"
+DB: "Database"
+B: "Worker B / TX-B"
+A -> DB: "BEGIN"
+A -> DB: "SELECT job 101 FOR UPDATE SKIP LOCKED"
+DB -> A: "Lock job 101" { style.stroke-dash: 3 }
+B -> DB: "BEGIN"
+B -> DB: "Quét job 101"
+DB -> B: "101 đang bị TX-A lock" { style.stroke-dash: 3 }
+B -> DB: "SKIP 101, lock job 102"
+DB -> B: "Trả job 102" { style.stroke-dash: 3 }
+A -> DB: "UPDATE 101 thành running; COMMIT"
+B -> DB: "UPDATE 102 thành running; COMMIT"
 ```
 
 ### 4.1. Timeline với hai worker
@@ -163,16 +172,24 @@ Các tình huống phù hợp:
 
 Luồng chuẩn là **claim nhanh → commit → process → hoàn tất**:
 
-```mermaid
-flowchart LR
-    A[Worker] --> B[BEGIN]
-    B --> C[Lock + claim vài job queued]
-    C --> D[COMMIT ngay]
-    D --> E[Xử lý HTTP/CPU ngoài transaction]
-    E --> F[UPDATE completed hoặc retry/failed]
-    F --> G{Còn job?}
-    G -->|Có| A
-    G -->|Không| H[Chờ/poll]
+```d2 title="5. Use case đúng: database-backed job queue"
+direction: right
+A: "Worker"
+B: "BEGIN"
+C: "Lock + claim vài job queued"
+D: "COMMIT ngay"
+E: "Xử lý HTTP/CPU ngoài transaction"
+F: "UPDATE completed hoặc retry/failed"
+G: "Còn job?" { shape: diamond }
+H: "Chờ/poll"
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F
+F -> G
+G -> A: "Có"
+G -> H: "Không"
 ```
 
 Tại thời điểm commit claim, row không còn giữ row lock. Nhưng nó đã có `status = 'running'`, `locked_by` và `lease_until`, nên worker khác lọc `WHERE status = 'queued'` sẽ không lấy nó nữa.
@@ -207,6 +224,10 @@ ON jobs (priority DESC, available_at, id)
 WHERE status = 'queued';
 ```
 
+<SourceRef project="interview-for-update-skip-locked" file="61-schema-và-index/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 Index partial giúp worker không phải quét toàn bộ lịch sử `completed`/`failed`. Thứ tự `(priority DESC, available_at, id)` khớp với thứ tự claim bên dưới. `id` là tie-breaker để thứ tự xác định khi hai job có cùng priority và thời điểm available.
 
 ### 6.2. Claim một batch bằng một câu SQL
@@ -237,6 +258,10 @@ RETURNING j.id, j.payload, j.attempts, j.lease_until;
 
 COMMIT;
 ```
+
+<SourceRef project="interview-for-update-skip-locked" file="62-claim-một-batch-bằng-một-câu-sql/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
 
 Mỗi worker chạy câu trên sẽ nhận một tập row khác nhau trong lúc các transaction claim chồng lấn. Sau `COMMIT`, worker xử lý các payload đã nhận **ngoài transaction**.
 
@@ -320,6 +345,10 @@ WHERE id IN (101, 102, 103)
 COMMIT;
 ```
 
+<SourceRef project="interview-for-update-skip-locked" file="7-mẫu-mysql-80innodb/1.sql" variant="button">
+Đối chiếu snippet trong Source Explorer
+</SourceRef>
+
 Sau commit, application xử lý payload. Query `UPDATE` nên kiểm tra số row ảnh hưởng bằng số row đã chọn. Nếu code không giữ cùng connection/transaction cho cả hai câu lệnh, pattern mất tính đúng đắn.
 
 > [!NOTE]
@@ -397,10 +426,14 @@ Trong 10 giây đó row lock và database connection đều bị giữ. Khi work
 
 Đúng:
 
-```text
-BEGIN → claim và đổi status thành running → COMMIT
-Gọi API bên ngoài
-BEGIN → ghi completed/queued-failed → COMMIT
+```d2 title="Không giữ transaction khi gọi API"
+direction: right
+n0: "BEGIN: claim và đổi status thành running"
+n1: "COMMIT"
+n2: "Gọi API bên ngoài transaction"
+n3: "BEGIN: ghi completed / queued / failed"
+n4: "COMMIT"
+n0 -> n1 -> n2 -> n3 -> n4
 ```
 
 Nếu API bên ngoài có side effect, thêm idempotency key. Không có database transaction nào có thể rollback email đã gửi hoặc payment đã charge.
