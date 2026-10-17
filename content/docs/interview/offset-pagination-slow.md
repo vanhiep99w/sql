@@ -220,19 +220,13 @@ Subquery chỉ đọc index (nếu `(created_at, id)` covering) nên việc "qu�
 
 ### 10.1. Cheat sheet
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  OFFSET N LIMIT K  →  quét N+K dòng, VỨT N → O(N) theo offset  │
-│     → trang càng sâu càng chậm; còn gây lệch/lặp khi data đổi   │
-│  ─────────────────────────────────────────────────────────     │
-│  KEYSET:  WHERE (sort_cols, id) < (mốc trang trước)            │
-│           ORDER BY sort_cols DESC, id DESC LIMIT K              │
-│     → nhảy thẳng bằng index, O(log n), ổn định mọi trang        │
-│     → cần index khớp thứ tự+hướng + tie-breaker duy nhất        │
-│  ─────────────────────────────────────────────────────────     │
-│  Vẫn cần OFFSET? → Deferred join (OFFSET trên id-only rồi join) │
-╰───────────────────────────────────────────────────────────────╯
-```
+| Cách phân trang | Công việc chính | Điều kiện / lưu ý |
+| --- | --- | --- |
+| OFFSET N LIMIT K | Có thể đọc N+K rồi bỏ N; trang sâu đọc nhiều | Dữ liệu thay đổi có thể làm lặp/bỏ rows |
+| Keyset | Seek theo mốc rồi lấy K rows | Cần thứ tự và hướng index phù hợp; tie-breaker duy nhất |
+| Deferred join | OFFSET trên id-only rồi join lấy cột | Vẫn có chi phí OFFSET, nhưng có thể giảm fetch row rộng |
+
+Ví dụ keyset giảm dần: `WHERE (sort_cols,id) < (mốc)` với `ORDER BY sort_cols DESC,id DESC LIMIT K`. Chi phí còn có phần đọc K rows, không chỉ O(log n).
 
 ### 10.2. 3 nguyên tắc áp dụng ngay
 

@@ -56,16 +56,17 @@ Doc này trang bị cho bạn:
 
 Có hai loại monitoring, cần cả hai:
 
-```
-╭─────────────────────────╮        ╭─────────────────────────╮
-│  RETROSPECTIVE          │        │  REAL-TIME              │
-│  (nhìn lại lịch sử)     │        │  (đang xảy ra gì)       │
-│                         │        │                         │
-│  pg_stat_statements     │        │  pg_stat_activity       │
-│  slow query log         │        │  lock / wait events     │
-│  → query nào tốn nhất   │        │  → điều tra sự cố sống  │
-│    theo thời gian?      │        │    đang diễn ra         │
-╰─────────────────────────╯        ╰─────────────────────────╯
+```d2 title="Chọn góc nhìn monitoring theo câu hỏi"
+direction: down
+need: "Cần biết điều gì?"
+history: "Lịch sử: query nào tốn tổng thời gian\nnhiều?"
+live: "Real-time: sự cố nào đang diễn ra?"
+stats: "pg_stat_statements và slow query log"
+activity: "pg_stat_activity, lock và wait events"
+need -> history
+need -> live
+history -> stats
+live -> activity
 ```
 
 - **Retrospective**: "Trong 24h qua, query nào ngốn tổng thời gian nhiều nhất?" → tối ưu có chủ đích.
@@ -560,26 +561,17 @@ H -> J
 
 ## 15. Tóm tắt — Cheat sheet
 
-```
-╭────────────────────────────────────────────────────────────────────╮
-│  MONITORING — DÙNG ĐÚNG CÔNG CỤ ĐÚNG LÚC                           │
-│                                                                    │
-│  Nhìn lại lịch sử (query nào đáng tối ưu?)                         │
-│    → pg_stat_statements ORDER BY total_exec_time                   │
-│    → slow query log + auto_explain                                 │
-│                                                                    │
-│  Đang xảy ra gì ngay bây giờ? (dập lửa)                            │
-│    → pg_stat_activity (query lâu, state, wait_event)               │
-│    → pg_blocking_pids (ai chặn ai)                                 │
-│                                                                    │
-│  NGUYÊN TẮC VÀNG                                                   │
-│  • Ưu tiên theo total time = latency × tần suất                    │
-│  • Wait events cho biết NGUYÊN NHÂN, không chỉ CPU/RAM             │
-│  • idle in transaction = kẻ giết ngầm → đặt timeout                │
-│  • Alert connection count trước khi cạn kiệt                       │
-│  • Chụp số liệu TRƯỚC khi restart/kill                             │
-╰────────────────────────────────────────────────────────────────────╯
-```
+| Câu hỏi | Công cụ |
+| --- | --- |
+| Query nào đáng tối ưu theo tổng tải? | pg_stat_statements, total_exec_time; slow log và auto_explain |
+| Đang có sự cố gì? | pg_stat_activity: query age, state, wait_event |
+| Ai chặn ai? | pg_blocking_pids và lock diagnostics |
+
+- Ưu tiên theo total time, xấp xỉ latency × tần suất.
+- Wait events giúp tìm nguyên nhân, không chỉ nhìn CPU/RAM.
+- Điều tra `idle in transaction`, đặt timeout theo workload.
+- Cảnh báo connection count trước khi cạn slots.
+- Chụp trạng thái trước restart/terminate; thao tác có chọn lọc.
 
 | Câu hỏi | Chạy query |
 |---------|-----------|

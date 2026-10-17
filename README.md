@@ -19,9 +19,9 @@ npm run dev
 ```
 
 ```bash
-npm test                 # Parser, references, Markdown component và URL helpers
+npm test                 # Parser, references, URL helpers và rà soát text/ASCII
 npm run typecheck
-npm run diagrams:check   # Render tất cả D2 ở cả light/dark; lỗi kèm file/vị trí
+npm run diagrams:check   # Kiểm tra ASCII còn lại; render mọi D2, kể cả trong callout/list
 npm run build            # Sinh source assets, compile docs, static export
 ```
 
@@ -46,7 +46,9 @@ reader -> mv: SELECT
 
 Dùng tên node không trùng từ khóa D2 như `left`, `right`, `fill`. Đặt caption có ý nghĩa bằng `title`. Nhãn ngắn, có thể xuống dòng bằng `\n`; luồng dài nên tách giai đoạn hoặc dùng `direction: down`. Có thể chọn `layout="elk"`, `"dagre"`, `"tala"` riêng trên fence; mặc định ELK.
 
-D2 thay flowchart, sequence/state diagram, kiến trúc và quan hệ cây phù hợp. **Giữ text** cho execution plan, log, bảng kết quả, bit layout, ví dụ căn vị trí, timeline SQL cần đối chiếu và các bảng/checklist chỉ bọc khung ASCII. Không chuyển chúng thành ảnh chỉ để đồng nhất hình thức. Mermaid runtime và plugin cũ đã được bỏ.
+D2 thay flowchart, sequence/state diagram, kiến trúc, quan hệ cây và các timeline có thể biểu diễn chính xác bằng sequence diagram. **Giữ text** cho execution plan, log, bảng kết quả cần đối chiếu, byte/bit layout và đồ thị định lượng không phù hợp D2. Các bảng so sánh/checklist chỉ bọc khung ASCII nên đổi sang Markdown, không ép thành graph. Mermaid runtime và plugin cũ đã được bỏ.
+
+`npm run diagrams:check` duyệt cả các block lồng trong callout/list. Các khối text có dấu hiệu sơ đồ nhưng cần giữ được ghi tại `scripts/diagram-text-exceptions.json`, với file, content hash và lý do. Thêm/sửa khối ASCII có dấu hiệu sơ đồ sẽ yêu cầu rà soát lại; xóa/chuyển một khối cũng cần bỏ exception đã cũ. Đây là kiểm tra hỗ trợ review, không phải bộ phân loại tự động thay cho đọc nội dung. Khi chỉnh một bảng kết quả hoặc output được giữ lại, xác nhận lý do giữ vẫn đúng trước khi cập nhật hash; đừng tự thêm exception chỉ để test qua.
 
 Cache D2 ở `.next/cache/docs-kit/d2`, nằm trong đường dẫn cache Next.js mà Cloudflare Pages hỗ trợ. Cache giúp build nhanh hơn nhưng không phải output để deploy; cần bật Build cache trong dashboard.
 

@@ -292,11 +292,15 @@ Khi đó đổi từ `IN` sang `EXISTS` không nhất thiết tạo ra cải thi
 
 Ở database hoặc phiên bản cũ, optimizer có thể không decorrelate được câu lệnh. Khi đó subquery có thể bị chạy lại cho từng dòng bên ngoài:
 
-```text
-users có 210.000 dòng
-→ subquery chạy lại 210.000 lần
-→ mỗi lần quét orders
-→ tổng thời gian tăng rất mạnh
+```d2 title="Correlated subquery không được decorrelate trong ví dụ"
+direction: right
+n0: "users: 210.000 rows"
+n1: "Subquery chạy lại 210.000 lần"
+n2: "Mỗi lần quét orders"
+n3: "Tổng công việc tăng rất mạnh"
+n0 -> n1
+n1 -> n2
+n2 -> n3
 ```
 
 Đây là một nguyên nhân hợp lý cho tình huống “đổi một từ khóa thì từ 4,2 giây còn 0,4 giây”. Nhưng kết luận chính xác không phải là “`EXISTS` nhanh hơn mọi lúc”. Kết luận là **hai câu đã nhận hai execution plan khác nhau**.
@@ -525,23 +529,21 @@ Con số 100 lần là bằng chứng để điều tra, không phải bằng ch
 
 ### Cheat sheet
 
-```text
-Cần biết “có match không?”
-    → EXISTS hoặc IN (subquery)
-    → thường có thể trở thành semi-join
-
-Cần biết “không có match không?”
-    → NOT EXISTS
-    → tránh NOT IN nếu subquery có thể chứa NULL
-
-Cần lấy cột từ bảng bên phải
-    → JOIN
-    → kiểm tra duplicate nếu quan hệ là one-to-many
-
-Thấy chênh lệch hiệu năng
-    → EXPLAIN / execution plan
-    → kiểm tra index, statistics, data và I/O
-    → benchmark nhiều lần trên môi trường tương đương
+```d2 title="Chọn query theo ngữ nghĩa cần trả về"
+direction: down
+need: "Cần kết quả gì?"
+exists: "Có match? → EXISTS / IN; có thể thành\nsemi-join"
+not: "Không có match? → NOT EXISTS; cẩn thận\nNULL trong NOT IN"
+join: "Cần cột bảng phải? → JOIN; kiểm tra\none-to-many duplicates"
+measure: "Khác biệt tốc độ: EXPLAIN; xem index,\nstatistics, rows và I/O"
+benchmark: "Benchmark nhiều lần trên điều kiện tương\nđương"
+need -> exists
+need -> not
+need -> join
+exists -> measure
+not -> measure
+join -> measure
+measure -> benchmark
 ```
 
 ### Ba nguyên tắc trả lời phỏng vấn

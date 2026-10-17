@@ -282,15 +282,30 @@ Một pool thường có các tham số:
 
 Luồng đúng:
 
-```text
-Borrow connection → query/transaction ngắn → commit/rollback → release
+```d2 title="Vòng đời mượn connection ngắn"
+direction: right
+n0: "Borrow connection"
+n1: "Query / transaction ngắn"
+n2: "COMMIT / ROLLBACK"
+n3: "Release"
+n0 -> n1
+n1 -> n2
+n2 -> n3
 ```
 
 Luồng sai:
 
-```text
-Borrow connection → BEGIN → query → gọi HTTP 20 giây
-→ commit → release
+```d2 title="Giữ connection trong lúc chờ HTTP"
+direction: down
+n0: "Borrow connection"
+n1: "BEGIN và query"
+n2: "Gọi HTTP khoảng 20 giây: vẫn giữ\nconnection"
+n3: "COMMIT"
+n4: "Release"
+n0 -> n1
+n1 -> n2
+n2 -> n3
+n3 -> n4
 ```
 
 Pool chỉ tái sử dụng được connection sau khi code **release** nó. Pool không thể lấy lại một connection mà request vẫn đang giữ.
@@ -1129,9 +1144,16 @@ PgBouncer **không**:
 
 ### 18.1. Session pooling
 
-```text
-Client A connect ───────────────────────── disconnect
-         Server connection bị giữ toàn bộ thời gian
+```d2 title="Session pooling giữ backend cả khoảng idle"
+shape: sequence_diagram
+client: "Client A"
+pool: "Pool"
+backend: "Server connection"
+client -> pool: "Connect"
+pool -> backend: "Cấp server connection"
+client.note2: "TX / idle / TX; backend vẫn gắn với\nsession"
+client -> pool: "Disconnect"
+pool -> backend: "Trả hoặc đóng backend theo policy"
 ```
 
 Ưu điểm: hỗ trợ đầy đủ PostgreSQL session semantics.
@@ -1140,9 +1162,17 @@ Nhược điểm: nếu application giữ hàng nghìn client connection, PgBoun
 
 ### 18.2. Transaction pooling
 
-```text
-Client A:  [TX1]────idle────[TX2]
-Server:    [TX1] trả pool   [TX2] trả pool
+```d2 title="Transaction pooling trả backend sau từng transaction"
+shape: sequence_diagram
+client: "Client A"
+pool: "Pool"
+backend: "Server connection"
+client -> pool: "TX1 bắt đầu"
+pool -> backend: "Borrow backend cho TX1"
+backend -> pool: "TX1 kết thúc → backend trở lại pool"
+client.note3: "Idle: không giữ riêng server connection"
+client -> pool: "TX2 bắt đầu"
+pool -> backend: "Borrow backend cho TX2, có thể backend\nkhác"
 ```
 
 Đây thường là lựa chọn phù hợp cho stateless OLTP. Mỗi transaction có thể chạy trên backend PostgreSQL khác nhau.
@@ -1707,67 +1737,27 @@ Các client backend thông thường cùng cạnh tranh connection slots, nên p
 
 ## 29. Cheat sheet
 
-```text
-TRIỆU CHỨNG
-  FATAL: sorry, too many clients already
+**Triệu chứng và giới hạn:** `FATAL: sorry, too many clients already`. Tổng tiềm năng = max instances × pool max + các workload khác; ví dụ 14 × 20 = 280 vượt 200 slots.
 
-TÍNH NHANH
-  total potential = max instances × pool max + workload khác
-  14 × 20 = 280 > max_connections 200
+| Điều tra | Cần quan sát |
+| --- | --- |
+| Sessions | pg_stat_activity: application_name, client_addr, state |
+| Transaction | xact_start, state_change |
+| Wait | wait_event, pg_blocking_pids() |
+| States | idle: ngoài transaction; idle in transaction: transaction còn mở; active: statement đang hoạt động, có thể chờ |
 
-CHẨN ĐOÁN
-  pg_stat_activity:
-    application_name + client_addr + state
-    xact_start + state_change
-    wait_event + pg_blocking_pids()
+**Root cause mẫu:** `BEGIN → SQL → payment 20s → SQL → COMMIT` giữ connection cả khi chờ dịch vụ ngoài. Little's Law cho trung bình ổn định: 50 req/s × 20s ≈ 1.000 connections; × 0,04s ≈ 2 connections.
 
-PHÂN BIỆT
-  idle                 = chờ command, ngoài transaction
-  idle in transaction  = transaction mở nhưng không chạy query
-  active               = đang chạy query
+**Ứng phó SEV-1:**
 
-ROOT CAUSE MẪU
-  BEGIN → SQL → gọi payment 20s → SQL → COMMIT
-  Connection bị giữ trong lúc DB không làm gì
+1. Giữ admin access; chặn traffic/autoscale/retry storm khi cần.
+2. Chụp trạng thái sessions trước khi thay đổi.
+3. Terminate có chọn lọc, xác nhận phục hồi.
+4. Reconcile payment theo trạng thái và idempotency.
 
-LITTLE'S LAW
-  concurrency = request rate × holding time
-  50 req/s × 20s = 1.000 connections
-  50 req/s × 0,04s = 2 connections
+**Sửa thiết kế:** transaction ngắn tạo PENDING + idempotency key → COMMIT → gọi provider ngoài transaction → transaction ngắn lưu kết quả; phối hợp state machine, retry, reconciliation/outbox. Đặt `idle_in_transaction_session_timeout`, `statement_timeout`, `lock_timeout` theo budget.
 
-SEV-1
-  1. Giữ admin access
-  2. Chặn traffic/autoscale/retry storm
-  3. Chụp pg_stat_activity
-  4. Terminate có chọn lọc
-  5. Xác nhận hồi phục
-  6. Reconcile payment
-
-TIMEOUT ĐÚNG
-  idle_in_transaction_session_timeout
-  + statement_timeout
-  + lock_timeout
-
-SỬA CODE
-  TX ngắn tạo PENDING + idempotency key
-  COMMIT
-  gọi provider ngoài TX
-  TX ngắn lưu kết quả
-  + state machine + retry + reconciliation/outbox
-
-PGBOUNCER
-  Nhiều client connections → ít server connections
-  transaction pooling trả server connection sau transaction
-  không sửa được long transaction
-  queue cần timeout/backpressure
-
-KHÔNG LÀM MÁY MÓC
-  tăng max_connections
-  kill toàn bộ session
-  autoscale thêm app
-  coi mọi idle connection là lỗi
-  tin rằng PgBouncer sửa mọi thứ
-```
+**PgBouncer:** transaction pooling chia sẻ ít server connections cho nhiều clients, trả server connection sau transaction. Không sửa được long transaction; queue vẫn cần timeout/backpressure. Không tăng max_connections, kill tất cả sessions, autoscale app hoặc xem mọi idle connection là lỗi một cách máy móc.
 
 Ba nguyên tắc cần nhớ:
 

@@ -209,10 +209,17 @@ for mỗi row R trong OUTER table:       -- bảng ngoài (driving/outer)
 
 `customers` có 3 row, `orders` có 4 row:
 
-```
-Vòng ngoài lấy An  → quét 4 order → khớp order 10, 11
-Vòng ngoài lấy Bình → quét 4 order → khớp order 12
-Vòng ngoài lấy Chi  → quét 4 order → không khớp
+```d2 title="Nested Loop kiểm tra từng outer row với inner input"
+direction: right
+an: "Outer: An"
+binh: "Outer: Bình"
+chi: "Outer: Chi"
+scan_an: "Quét 4 orders → khớp 10, 11"
+scan_b: "Quét 4 orders → khớp 12"
+scan_c: "Quét 4 orders → không khớp"
+an -> scan_an
+binh -> scan_b
+chi -> scan_c
 ```
 
 Nếu quét thô (không index): chi phí = `số row outer × số row inner` = 3 × 4 = **12 phép so sánh**. Với 1 triệu × 50 triệu = **50.000 tỉ phép** → không khả thi.
@@ -355,12 +362,23 @@ JOIN orders o ON o.customer_id = c.id;   -- không filter → cả 2 bảng lớ
 
 Giống việc ghép hai danh sách **đã sắp xếp** (như bước merge trong merge sort):
 
-```
-customers (sort theo id)     orders (sort theo customer_id)
-   1  An      ptr_c →           1  → khớp
-   2  Bình                      1  → khớp
-   3  Chi                       2  → khớp   ptr_o →
-                                9  → ptr_c vượt qua, dừng
+```d2 title="Merge Join đi theo thứ tự key của hai input"
+direction: right
+customers: Customers sort theo id {
+  an: 1 — An
+  binh: 2 — Bình
+  chi: 3 — Chi
+}
+orders: Orders sort theo customer_id {
+  a: 1 — order thứ nhất
+  b: 1 — order thứ hai
+  c: 2
+  d: 9 — không có customer tương ứng
+}
+customers.an -> orders.a: khớp
+customers.an -> orders.b: khớp
+customers.binh -> orders.c: khớp
+customers.chi -> orders.d: hết customers; không match key 9
 ```
 
 Hai con trỏ chỉ **tiến, không lùi**. Mỗi bảng đọc đúng 1 lần.
@@ -606,22 +624,17 @@ WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id);
 
 ## 15. Tóm tắt — Cheat sheet
 
-```
-╭──────────────────────────────────────────────────────────────╮
-│  BA THUẬT TOÁN JOIN                                          │
-│                                                              │
-│  Nested Loop  → outer NHỎ + inner có INDEX     (OLTP lookup) │
-│  Hash Join    → hai bảng LỚN, equi-join, RAM đủ (OLAP)       │
-│  Merge Join   → hai bảng LỚN, đã SORTED sẵn                  │
-│                                                              │
-│  NGUYÊN TẮC VÀNG                                             │
-│  1. Driving table = bảng ít row nhất sau lọc                 │
-│  2. Lọc sớm, join sau                                        │
-│  3. Cột join phải cùng kiểu + có index                       │
-│  4. estimated rows lệch actual rows → ANALYZE lại            │
-│  5. INNER cho optimizer tự do nhất → nhanh hơn OUTER         │
-╰──────────────────────────────────────────────────────────────╯
-```
+| Thuật toán | Tình huống nên bắt đầu xem xét |
+| --- | --- |
+| Nested Loop | Outer nhỏ sau lọc, inner có index phù hợp; lookup OLTP |
+| Hash Join | Equality join trên inputs lớn, memory đủ hoặc chấp nhận spill |
+| Merge Join | Inputs đã có thứ tự key phù hợp hoặc chi phí sort hợp lý |
+
+- Chọn driving input theo cardinality sau lọc và plan, không chỉ kích thước bảng gốc.
+- Đưa predicate hợp lệ xuống sớm khi optimizer có thể làm.
+- Giữ kiểu dữ liệu join tương thích; index tùy access path, không bắt buộc cả hai phía.
+- Estimated rows lệch actual rows thì kiểm tra statistics và `ANALYZE`.
+- INNER JOIN thường cho optimizer nhiều tự do reorder hơn, nhưng không mặc định mọi INNER đều nhanh hơn OUTER.
 
 | Triệu chứng | Nguyên nhân thường gặp | Cách xử lý |
 |-------------|------------------------|------------|

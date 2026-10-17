@@ -47,15 +47,22 @@ description: "Câu hỏi phỏng vấn: cùng một query, cùng schema, nhanh �
 
 Đây là nguyên nhân số một và sâu nhất.
 
-```diagram
-STAGING:  orders có 10,000 dòng, status phân bố ĐỀU
-   WHERE status='paid' → khớp ~2,500 (25%)
-   → optimizer: "ít dòng, bảng nhỏ" → plan đơn giản, nhanh
-
-PRODUCTION: orders có 80,000,000 dòng, status LỆCH
-   WHERE status='paid' → khớp 60,000,000 (75%)
-   → cùng query nhưng khớp 60 triệu dòng → seq scan khổng lồ / sort tràn đĩa
-   → 6 giây
+```d2 title="Cùng predicate nhưng quy mô và phân bố khác nhau"
+direction: down
+b0: "Staging — minh họa" {
+  n0: "orders: 10.000 rows, phân bố đều"
+  n1: "status=paid → khoảng 2.500 rows (25%)"
+  n2: "Bảng nhỏ, plan đơn giản và nhanh"
+  n0 -> n1
+  n1 -> n2
+}
+b1: "Production — minh họa" {
+  n0: "orders: 80 triệu rows, phân bố lệch"
+  n1: "status=paid → 60 triệu rows (75%)"
+  n2: "Khối lượng đọc và sort lớn; ví dụ latency\n6 giây"
+  n0 -> n1
+  n1 -> n2
+}
 ```
 
 Hai khác biệt ẩn:
@@ -71,12 +78,18 @@ Hai khác biệt ẩn:
 
 Optimizer chọn plan dựa trên **statistics** (`pg_statistic`). Staging và production có thống kê **khác nhau** → có thể sinh **plan hoàn toàn khác** cho cùng câu SQL.
 
-```diagram
-STAGING stats:  "status='paid' ước lượng 2,500 dòng"
-   → optimizer chọn Index Scan → nhanh
-
-PROD stats:     "status='paid' ước lượng 60,000,000 dòng"
-   → optimizer chọn Seq Scan + Hash Join → khác plan hoàn toàn
+```d2 title="Statistics khác dẫn tới plan khác"
+direction: down
+b0: "Staging" {
+  n0: "Ước lượng paid: 2.500 rows"
+  n1: "Ví dụ chọn Index Scan"
+  n0 -> n1
+}
+b1: "Production" {
+  n0: "Ước lượng paid: 60 triệu rows"
+  n1: "Ví dụ chọn Seq Scan + Hash Join"
+  n0 -> n1
+}
 ```
 
 Hiện tượng "cùng SQL, plan khác giữa hai môi trường" gọi là **plan flip**. Nó cũng xảy ra **ngay trên production** theo thời gian khi data đổi và statistics cập nhật — query đang nhanh bỗng chậm sau một lần autovacuum/analyze đổi ước lượng.
@@ -90,14 +103,17 @@ Hiện tượng "cùng SQL, plan khác giữa hai môi trường" gọi là **pl
 
 Với **prepared statement** (phổ biến khi dùng ORM/driver), Postgres sau ~5 lần execute có thể chuyển sang **generic plan** — một plan **không phụ thuộc giá trị tham số cụ thể**.
 
-```diagram
-Query: SELECT * FROM orders WHERE user_id = $1
-
-  Custom plan (theo từng giá trị): tốt cho cả user thường lẫn hot user
-  Generic plan (1 plan cho mọi $1): dựa trên selectivity TRUNG BÌNH
-
-  → Nếu $1 = hot_user (5 triệu đơn) nhưng generic plan giả định
-    "user trung bình 10 đơn" → chọn Index Scan → 5 triệu random fetch → CHẬM
+```d2 title="Generic plan có thể không hợp hot user"
+direction: down
+q: "SELECT * FROM orders WHERE user_id=parameter_1"
+custom: "Custom plan theo giá trị cụ thể"
+generic: "Generic plan dùng selectivity trung bình"
+hot: "Hot user: 5 triệu orders, khác giả định\ntrung bình 10 orders"
+fetch: "Ví dụ plan Index Scan dẫn tới rất nhiều\nheap fetch"
+q -> custom
+q -> generic
+generic -> hot
+hot -> fetch
 ```
 
 Ở staging (ít gọi, data đều), generic plan vô hại. Ở production (gọi nhiều, có hot value), generic plan có thể tệ thảm hại với một số giá trị — gọi là **parameter sniffing problem** (thuật ngữ SQL Server) hoặc generic plan issue (Postgres).
@@ -114,9 +130,18 @@ SET plan_cache_mode = force_custom_plan;
 
 ## 6. Nguyên nhân 4: Cache & phần cứng — cold vs warm, RAM, đĩa
 
-```diagram
-STAGING:  toàn bộ bảng 10k dòng nằm gọn trong RAM → mọi truy cập là cache HIT
-PRODUCTION: bảng 80M dòng > RAM → cache MISS thường xuyên → đọc đĩa
+```d2 title="Dataset so với RAM ảnh hưởng cache hit"
+direction: down
+b0: "Staging" {
+  n0: "Bảng 10.000 rows có thể nằm trong RAM"
+  n1: "Nhiều truy cập cache HIT"
+  n0 -> n1
+}
+b1: "Production" {
+  n0: "Bảng 80 triệu rows vượt RAM trong ví dụ"
+  n1: "Nhiều cache MISS → I/O disk"
+  n0 -> n1
+}
 ```
 
 - **Working set vs RAM**: nếu data nóng vượt `shared_buffers` + RAM → page liên tục bị evict → cache miss → đọc đĩa (xem bài "query đầu chậm / cold cache").
@@ -155,12 +180,7 @@ Staging thường chỉ có **bạn** chạy query. Production có hàng nghìn 
 - **Autovacuum/analyze chạy nền**: chiếm I/O đúng lúc cao điểm.
 - **Connection pool cạn**: chờ lấy connection cũng tính vào "chậm".
 
-```diagram
-EXPLAIN ANALYZE cho thấy Execution Time chỉ 50ms,
-nhưng người dùng thấy 6 giây
-   → thời gian KHÔNG nằm trong execution: nằm ở chờ lock / chờ connection / hàng đợi
-   → kiểm tra pg_stat_activity, wait events, lock
-```
+App latency và `Execution Time` có thể khác nhau. Ví dụ app mất 6 giây nhưng phần đo execution chỉ 50 ms: kiểm tra thêm **connection checkout, hàng đợi và các khoảng thời gian nằm ngoài phép đo**. Dùng `pg_stat_activity`, wait events và lock diagnostics để xác định chờ ở đâu; không mặc định mọi lock wait đều nằm ngoài `EXPLAIN ANALYZE`.
 
 > [!TIP]
 > Nếu `EXPLAIN (ANALYZE)` chạy nhanh khi bạn tự chạy, nhưng app báo chậm → vấn đề không nằm ở plan mà ở **tải đồng thời / lock / pool**. Soi `pg_stat_activity`, `pg_locks`, và wait events thay vì tiếp tục tối ưu query.
@@ -171,12 +191,21 @@ nhưng người dùng thấy 6 giây
 
 Bảng/index production phình theo thời gian do MVCC dead tuple (update/delete nhiều) — staging mới tinh thì không.
 
-```diagram
-STAGING:  bảng vừa tạo, không bloat → 1,000 page
-PRODUCTION: cùng số dòng "sống" nhưng nhiều dead tuple → 4,000 page
-   → seq scan đọc gấp 4 lần số page → chậm
-   → index cũng bloat → index scan chậm
+```d2 title="Bloat tăng số page phải đọc"
+direction: down
+b0: "Staging" {
+  n0: "Bảng mới, ít bloat"
+  n1: "Ví dụ 1.000 pages"
+  n0 -> n1
+}
+b1: "Production" {
+  n0: "Cùng số live rows, thêm dead tuples / free\nspace"
+  n1: "Ví dụ 4.000 pages; scan có thể đọc nhiều\npage hơn"
+  n0 -> n1
+}
 ```
+
+Index cũng có thể bloat. Tỷ lệ page là minh họa về khối lượng I/O, không bảo đảm latency tăng chính xác bốn lần.
 
 Liên hệ bài "INSERT/UPDATE/DELETE & Index" và VACUUM: thiếu vacuum → bloat → mọi thứ chậm dần. Một query chỉ chậm ở production có thể đơn giản vì bảng đó đã bloat 4x.
 
@@ -184,30 +213,26 @@ Liên hệ bài "INSERT/UPDATE/DELETE & Index" và VACUUM: thiếu vacuum → bl
 
 ## 10. Quy trình tái hiện & chẩn đoán
 
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│ B1. Lấy EXPLAIN (ANALYZE, BUFFERS) Ở PRODUCTION (an toàn:    │
-│     dùng read-replica hoặc transaction read-only)            │
-│                                                              │
-│ B2. So PLAN production vs staging:                           │
-│     • Plan KHÁC nhau → plan flip (data/statistics) → mục 3,4 │
-│     • Plan GIỐNG nhưng prod chậm → môi trường (cache, IO,    │
-│       lock, work_mem) → mục 6,7,8                            │
-│                                                              │
-│ B3. So rows ước lượng vs actual ở prod:                      │
-│     • Lệch → ANALYZE / tăng statistics target                │
-│                                                              │
-│ B4. Soi dấu hiệu môi trường trong plan:                      │
-│     • Buffers read cao → cache miss (mục 6)                  │
-│     • Sort Method: external → work_mem thấp (mục 7)          │
-│     • Heap Fetches cao → VM/bloat (mục 9)                    │
-│                                                              │
-│ B5. Execution Time nhanh nhưng app chậm?                     │
-│     • → lock/concurrency/pool (pg_stat_activity) (mục 8)     │
-│                                                              │
-│ B6. Tham số ($1) cụ thể mới chậm? → parameter sniffing (5)   │
-╰──────────────────────────────────────────────────────────────╯
+```d2 title="Chẩn đoán nhanh ở staging nhưng chậm ở production"
+direction: down
+plan: "Thu thập EXPLAIN (ANALYZE, BUFFERS) an\ntoàn và so hai môi trường"
+compare: "Plan khác nhau?"
+flip: "Khác: kiểm tra scale, skew, statistics,\nparameter"
+same: "Giống: kiểm tra cache, I/O, lock, work_mem"
+estimate: "So estimated với actual rows → ANALYZE /\nstatistics target khi phù hợp"
+io: "shared read cao: cache miss; external\nsort: spill; Heap Fetches: visibility /\nbloat"
+app: "Execution đo nhanh nhưng app chậm: kiểm\ntra pool, queue và phạm vi đo"
+param: "Chỉ vài giá trị parameter_1 chậm: custom / generic\nplan"
+plan -> compare
+compare -> flip: "Có"
+compare -> same: "Không"
+flip -> estimate
+same -> io
+io -> app
+estimate -> param
 ```
+
+`EXPLAIN ANALYZE` **thực thi truy vấn**. Chọn môi trường, timeout và tải cho phép; read-only hoặc replica không tự biến một query nặng thành thao tác không có rủi ro.
 
 > [!IMPORTANT]
 > **Vàng ròng để phòng tránh: test trên dữ liệu giống production.** Hoặc clone/anonymize production data về staging, hoặc dùng read-replica để chạy `EXPLAIN ANALYZE`. Một staging với 10k dòng đều tăm tắp **không bao giờ** phát hiện được vấn đề scale + skew + bloat của 80 triệu dòng production.
@@ -234,24 +259,20 @@ Liên hệ bài "INSERT/UPDATE/DELETE & Index" và VACUUM: thiếu vacuum → bl
 
 ### 12.1. Cheat sheet
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  "Nhanh staging, chậm prod" — vì sao:                         │
-│  ─────────────────────────────────────────────────────────     │
-│  PLAN khác (data/statistics):                                 │
-│   • Scale + skew dữ liệu → plan flip                          │
-│   • Statistics khác → ước lượng selectivity khác              │
-│   • Parameter sniffing / generic plan tệ cho giá trị lệch     │
-│  PLAN giống nhưng prod chậm (môi trường):                     │
-│   • Cache miss (data > RAM), đĩa/cấu hình khác                │
-│   • work_mem thấp → sort tràn đĩa                             │
-│   • Lock/concurrency/pool dưới tải thật                       │
-│   • Bloat (thiếu VACUUM)                                       │
-│  ─────────────────────────────────────────────────────────     │
-│  Phòng tránh: test trên DATA GIỐNG PROD + EXPLAIN ANALYZE      │
-│               + so plan hai môi trường                         │
-╰───────────────────────────────────────────────────────────────╯
-```
+**Khác plan:**
+
+- Scale và skew của dữ liệu.
+- Statistics dẫn tới cardinality estimate khác.
+- Parameter-specific/custom plan khác generic plan.
+
+**Cùng plan nhưng production chậm:**
+
+- Cache miss, I/O hoặc phần cứng/cấu hình khác.
+- Memory budget không đủ, sort/hash spill.
+- Lock, pool và queue dưới tải thực.
+- Bloat và trạng thái maintenance.
+
+Tái hiện với dữ liệu gần production, thu thập `EXPLAIN (ANALYZE, BUFFERS)` an toàn rồi so cả plan lẫn latency end-to-end.
 
 ### 12.2. 3 nguyên tắc áp dụng ngay
 

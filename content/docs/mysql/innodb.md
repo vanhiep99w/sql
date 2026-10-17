@@ -203,21 +203,19 @@ Undo Log phục vụ 2 mục đích:
 
 ### Cơ chế
 
-```
-UPDATE users SET name = 'Bob' WHERE id = 1;
-
-Trước khi ghi:
-  Undo Log ← { id=1, name='Alice', txn_id=100 }  ← ảnh cũ
-
-Sau khi ghi:
-  Buffer Pool page: { id=1, name='Bob', txn_id=101 }
-
-Nếu ROLLBACK:
-  Đọc Undo Log → khôi phục name='Alice' → xóa Undo Log record
-
-Nếu COMMIT:
-  Undo Log record được đánh dấu "có thể purge"
-  Background purge thread → dọn Undo Log khi không còn transaction nào cần đọc
+```d2 title="Undo phục vụ rollback và snapshot read"
+direction: down
+update: "UPDATE users SET name='Bob' WHERE id=1"
+old: "Trước ghi: lưu undo id=1, Alice,\ntxn_id=100"
+current: "Buffer Pool: id=1, Bob, txn_id=101"
+rollback: "ROLLBACK: đọc undo và khôi phục Alice"
+commit: "COMMIT: phiên bản cũ còn phục vụ snapshot\nkhi cần"
+purge: "Purge thread dọn undo khi không còn cần"
+update -> old
+old -> current
+current -> rollback: "Rollback"
+current -> commit: "Commit"
+commit -> purge
 ```
 
 ### Undo Log & Long-running Transactions
@@ -332,19 +330,24 @@ Mỗi row trong InnoDB có 3 hidden column ẩn:
 
 Khi transaction bắt đầu đọc (với `REPEATABLE READ`), InnoDB tạo **Read View**:
 
+```d2 title="Read View quyết định visibility theo transaction ID"
+direction: down
+row: Row có DB_TRX_ID = X
+old: X < up_limit_id? { shape: diamond }
+visible: Visible theo Read View trong mô hình đang xét
+future: X ≥ low_limit_id? { shape: diamond }
+in_list: X nằm trong trx_id_list? { shape: diamond }
+undo: Không visible — tìm version cũ trong undo
+row -> old
+old -> visible: Có
+old -> future: Không
+future -> undo: Có
+future -> in_list: Không
+in_list -> undo: Có — active lúc tạo view
+in_list -> visible: Không — đã commit
 ```
-Read View chứa:
-- trx_id_list: danh sách transaction IDs đang active tại thời điểm tạo view
-- up_limit_id: min active trx_id
-- low_limit_id: next trx_id sẽ được cấp (= max + 1)
 
-Khi đọc row có DB_TRX_ID = X:
-- X < up_limit_id → committed trước khi view tạo → visible
-- X >= low_limit_id → committed sau khi view tạo → NOT visible → đọc Undo Log
-- up_limit_id ≤ X < low_limit_id → check trong trx_id_list:
-    - X trong list → đang active khi view tạo → NOT visible
-    - X không trong list → đã commit → visible
-```
+`trx_id_list` là tập transaction đang active khi tạo view; `up_limit_id` là min active transaction ID, còn `low_limit_id` là mốc transaction ID tiếp theo. Transaction tạo Read View còn có quy tắc nhìn thấy thay đổi của chính nó; ID lớn hơn mốc không đồng nghĩa transaction ấy đã commit.
 
 Chi tiết hơn: xem [`mvcc.md`](/docs/fundamentals/mvcc).
 

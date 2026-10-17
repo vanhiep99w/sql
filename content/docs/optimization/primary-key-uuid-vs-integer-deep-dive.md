@@ -176,22 +176,39 @@ Hệ quả với UUIDv4 sẽ khác nhau:
 - **InnoDB**: PK random → **bản thân bảng** bị scatter trên đĩa.
 - **Postgres**: PK random → chỉ **index** bị scatter, heap vẫn append. Nhưng index lớn → buffer pool nóng → cache hit thấp.
 
-```diagram
-InnoDB clustered:
-  PK index leaf = [pk | full row data]
-  → PK random   = row data nhảy lung tung trên đĩa
-
-Postgres heap:
-  PK index leaf = [pk | ctid]  ─▶  [heap page]
-  → PK random   = index leaf scatter; heap vẫn append theo thời gian
+```d2 title="PK random tác động khác nhau tới clustered table và heap"
+direction: down
+b0: "InnoDB clustered" {
+  n0: "PK leaf chứa full row data"
+  n1: "Key random làm thay đổi vùng insert vào\nclustered leaves"
+  n0 -> n1
+}
+b1: "PostgreSQL heap" {
+  n0: "PK index leaf chứa key + CTID"
+  n1: "CTID trỏ sang heap page riêng"
+  n2: "Key random chủ yếu ảnh hưởng index; heap\nallocation còn phụ thuộc free space"
+  n0 -> n1
+  n1 -> n2
+}
 ```
 
 ### 3.4. Leaf node là doubly linked list
 
 Leaf node được nối thành **danh sách liên kết hai chiều** — đây là chìa khóa của range scan và đồng thời là nơi page split để lại sẹo.
 
-```
-[L1] ⇄ [L2] ⇄ [L3] ⇄ [L4] ⇄ [L5] ⇄ [L6] ⇄ ...
+```d2 title="Các leaf nối hai chiều"
+direction: right
+l1: L1
+l2: L2
+l3: L3
+l4: L4
+l5: L5
+l6: L6 và tiếp tục
+l1 <-> l2
+l2 <-> l3
+l3 <-> l4
+l4 <-> l5
+l5 <-> l6
 ```
 
 Khi một page split, một leaf mới được **chèn vào giữa** danh sách. Nếu việc chèn xảy ra **liên tục và rải rác**, danh sách trên đĩa **không còn liên tục về vật lý** — đó chính là **fragmentation**.
@@ -237,13 +254,15 @@ Tại bất cứ thời điểm nào, **chỉ 1-2 page** đang được ghi:
 
 Các page này gần như **luôn ở RAM** vì vừa được dùng. WAL/redo log chỉ ghi sequential trên đĩa — **lý tưởng cho HDD lẫn SSD**.
 
-```diagram
-Working set khi sequential insert:
-   ┌─────────────────────────────────────┐
-   │   ████░░░░░░░░░░░░░░░░░░░░░░░░░░    │ ← chỉ vài page nóng
-   └─────────────────────────────────────┘
-       ↑
-       Chỉ phần này trong RAM là đủ
+```d2 title="Sequential insert tập trung working set"
+direction: down
+insert: "Insert key tăng dần"
+hot: "Chủ yếu các pages trên đường tìm và leaf\nvùng rìa phải"
+ram: "Chỉ một phần nhỏ index cần luôn nóng trong\nRAM"
+cold: "Các leaf lịch sử ít được ghi lại"
+insert -> hot
+hot -> ram
+insert -> cold: "ít truy cập hơn"
 ```
 
 ### 4.3. Page fill factor ~100%
@@ -292,9 +311,17 @@ Predictability còn cho **information disclosure**:
 
 Sequence/counter sống ở **một chỗ**. Khi bạn có 2 master cùng nhận write:
 
-```
-Master A: INSERT users(...);  -- xin sequence từ A → id=100
-Master B: INSERT users(...);  -- xin sequence từ B → id=100  ⚠️ COLLISION
+```d2 title="Hai sequence riêng có thể cấp cùng ID"
+shape: sequence_diagram
+a: "Master A"
+sa: "Sequence A"
+b: "Master B"
+sb: "Sequence B"
+a -> sa: "INSERT users → xin ID"
+sa -> a: "100"
+b -> sb: "INSERT users → xin ID"
+sb -> b: "100"
+a.note4: "Nếu hợp nhất cùng namespace: collision\nid=100"
 ```
 
 Các cách "vá":
@@ -376,26 +403,25 @@ Mục tiêu của doc: hiểu vì sao **v4 đẹp về ngữ nghĩa nhưng đắ
 
 UUIDv4 = 16 byte **random hoàn toàn**. Khi DB chèn vào primary key index:
 
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│  Bước 1: traverse từ root xuống leaf phù hợp                 │
-│          (search log₂(n) page reads — vẫn nhanh)             │
-│                                                              │
-│  Bước 2: đến leaf — nhưng leaf này có thể đang nằm           │
-│          ở **bất kỳ chỗ nào** trên đĩa, có thể KHÔNG có      │
-│          trong buffer pool → cold page read                  │
-│                                                              │
-│  Bước 3: nếu leaf còn slot → insert tại vị trí sorted        │
-│          (cần shift các entry phía sau trong page)           │
-│                                                              │
-│  Bước 4: nếu leaf đầy → PAGE SPLIT                           │
-│          a. Cấp 1 page mới                                   │
-│          b. Copy ~50% data sang page mới                     │
-│          c. Update linked list (prev/next pointers)          │
-│          d. Insert key vào parent — parent có thể            │
-│             cũng full → split parent → cascade lên root      │
-╰──────────────────────────────────────────────────────────────╯
+```d2 title="UUIDv4 insert có thể rơi vào leaf lạnh và đầy"
+direction: down
+search: Traverse root tới leaf phù hợp
+cache: Leaf có trong buffer pool? { shape: diamond }
+read: Đọc cold page từ disk
+space: Leaf còn chỗ? { shape: diamond }
+insert: Insert theo sorted key trong page
+split: Cấp page mới; chuyển một phần entries; nối prev/next
+parent: Thêm separator vào parent; nếu đầy thì split tiếp lên root
+search -> cache
+cache -> read: Không
+cache -> space: Có
+read -> space
+space -> insert: Có
+space -> split: Không
+split -> parent
 ```
+
+Đường tìm phụ thuộc chiều cao cây và fanout, không mặc định `log₂(n)` page reads. Cách chia page và di chuyển entries tùy engine và vị trí insert.
 
 Mỗi page split = **vài chục KB I/O ngẫu nhiên**, **vài WAL record**, vài CPU cycle cho copy.
 
@@ -449,15 +475,21 @@ Trên Postgres heap, row data **không bị di chuyển** khi index split — nh
 
 Sau nhiều page split, page nửa rỗng tích tụ:
 
+```d2 title="Occupancy sau split — minh họa, không phải hằng số"
+direction: down
+b0: "Sequential" {
+  n0: "Hai leaf cũ gần đầy trong ví dụ"
+  n1: "Dữ liệu mới chủ yếu đi về rìa phải"
+  n0 -> n1
+}
+b1: "UUIDv4 random" {
+  n0: "Có thể tạo nhiều leaf sau split"
+  n1: "Ví dụ bốn leaf mỗi leaf khoảng nửa đầy"
+  n0 -> n1
+}
 ```
-Sequential insert:        Random UUIDv4 insert:
-┌────────┐                ┌──────┐ ┌──────┐
-│████████│ 100% full      │██░░░░│ │██░░░░│ ~50% full
-└────────┘                └──────┘ └──────┘
-┌────────┐                ┌──────┐ ┌──────┐
-│████████│ 100% full      │██░░░░│ │██░░░░│
-└────────┘                └──────┘ └──────┘
-```
+
+Không mặc định sequential luôn 100% full hoặc UUIDv4 luôn 50%. Occupancy còn phụ thuộc fillfactor, chính sách split và lịch sử workload.
 
 Postgres `pgstattuple` đo được:
 
@@ -473,10 +505,24 @@ SELECT * FROM pgstattuple('users_pkey');
 
 Leaf linked list bị chèn ngang dọc:
 
-```
-Logic (theo sort key):    Vật lý (theo page#):
-L1 → L2 → L3 → L4 → L5    Page 1 (L1), Page 2 (L4), Page 3 (L2),
-                          Page 4 (L5), Page 5 (L3), ...
+```d2 title="Page order vật lý có thể khác key order"
+direction: right
+logical: Thứ tự logic theo sort key {
+  l1: L1
+  l2: L2
+  l3: L3
+  l4: L4
+  l5: L5
+  l1 -> l2 -> l3 -> l4 -> l5
+}
+physical: Thứ tự page number minh họa {
+  p1: Page 1 — L1
+  p2: Page 2 — L4
+  p3: Page 3 — L2
+  p4: Page 4 — L5
+  p5: Page 5 — L3
+  p1 -> p2 -> p3 -> p4 -> p5
+}
 ```
 
 Khi DB range scan, nó đi theo **logic order** → đĩa **seek** liên tục. Trên HDD: **chết**. Trên SSD: ít tệ hơn, nhưng kill read-ahead prefetch của OS.
@@ -499,11 +545,21 @@ Khi DB range scan, nó đi theo **logic order** → đĩa **seek** liên tục. 
 
 Mỗi UUIDv4 insert kéo một page **bất kỳ** vào RAM. Các page này được dùng **một lần** rồi quên đi → **đẩy** các page thật sự nóng (recent data) ra khỏi cache.
 
+```d2 title="Working set nhỏ và truy cập index ngẫu nhiên"
+direction: down
+b0: "Sequential" {
+  n0: "Ví dụ 10 hot pages × 8 KB = 80 KB"
+  n1: "Tập nhỏ dễ giữ trong cache"
+  n0 -> n1
+}
+b1: "Random" {
+  n0: "Có thể chạm nhiều vùng của index"
+  n1: "Working set lớn hơn, cạnh tranh cache với\ndữ liệu khác"
+  n0 -> n1
+}
 ```
-Buffer pool 4 GB:
-  Sequential: ~10 page nóng × 8KB = 80 KB working set → 99.99% hit
-  Random:     toàn bộ index 1.2 GB → 30% hit (chỉ ~3 GB vừa RAM)
-```
+
+Với buffer pool 4 GB và index 1,2 GB, không suy ra được hit rate 30% hay 99,99% chỉ từ kích thước. Phải đo working set thực, concurrency, dữ liệu khác trong pool và access distribution.
 
 Trên bảng lớn hơn buffer pool, **cache hit ratio sụp đổ** — đây thường là **triệu chứng đầu tiên** của UUIDv4 disease mà DBA quan sát thấy.
 
@@ -656,19 +712,33 @@ Tất cả **gần nhau về giá trị** ⇒ nhảy vào **cùng một leaf pag
 
 ### 10.5. So sánh phân phối
 
-```diagram
-UUIDv4 — random hoàn toàn:
-   Phân bố trên không gian 128-bit
-   ┌───┬───┬───┬───┬───┬───┬───┬───┐
-   │ • │ • │ • │ • │ • │ • │ • │ • │  ← rải đều mọi nơi
-   └───┴───┴───┴───┴───┴───┴───┴───┘
-
-UUIDv7 — time-ordered:
-   Phân bố trên không gian 128-bit (theo thời gian)
-   ┌───┬───┬───┬───┬───┬───┬───┬───┐
-   │   │   │   │   │   │ • │•• │•••│  ← dồn về rìa phải, dịch dần
-   └───┴───┴───┴───┴───┴───┴───┴───┘
+```d2 title="Minh họa vùng insert của UUIDv4 và UUIDv7"
+direction: down
+v4: UUIDv4 — random trên không gian key {
+  grid-columns: 8
+  a: •
+  b: •
+  c: •
+  d: •
+  e: •
+  f: •
+  g: •
+  h: •
+}
+v7: UUIDv7 — thành phần thời gian có xu hướng đẩy key mới về phía phải {
+  grid-columns: 8
+  a: Ít mới
+  b: Ít mới
+  c: Ít mới
+  d: Ít mới
+  e: Ít mới
+  f: •
+  g: ••
+  h: •••
+}
 ```
+
+Đây là minh họa access locality, không phải histogram đo được. Trong cùng timestamp, phần random và cơ chế sinh ID ảnh hưởng thứ tự; clock behavior cũng cần xem xét.
 
 ### 10.6. Monotonicity guarantee — Method 1, 2, 3 trong RFC
 
@@ -724,19 +794,15 @@ Không chỉ UUID — cả một họ identifier time-ordered ra đời trước
 
 ### 11.1. Khi nào chọn cái nào
 
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│  Yêu cầu                            →  Chọn                  │
-│  ───────────────────────────────────────────────────────     │
-│  Standard, chuẩn RFC, native DB     →  UUIDv7                │
-│  Pre-RFC 9562 nhưng cần time-order  →  ULID                  │
-│  Compact 64-bit (low storage)       →  Snowflake / TSID      │
-│  Truly random + standard            →  UUIDv4 (nếu MUST)     │
-│  URL slug / share link              →  NanoID                │
-│  Strong cryptographic randomness    →  UUIDv4 / random bytes │
-│  Backward compat với UUIDv1         →  UUIDv6                │
-╰──────────────────────────────────────────────────────────────╯
-```
+| Yêu cầu | Candidate ID |
+| --- | --- |
+| UUID chuẩn RFC, có thứ tự thời gian | UUIDv7 nếu stack hỗ trợ |
+| Time-order và ecosystem ULID | ULID, xem encoding và compatibility |
+| Compact 64-bit | Snowflake / TSID, xem node/clock coordination |
+| UUID random chuẩn | UUIDv4 |
+| URL slug / share link | NanoID với entropy và length phù hợp |
+| Cryptographic randomness | Random bytes / UUIDv4 theo yêu cầu entropy và threat model |
+| Compatibility với UUIDv1 dạng sắp xếp lại | UUIDv6 |
 
 ### 11.2. Snowflake — 64 bit special mention
 
@@ -1344,30 +1410,26 @@ UUID **vĩnh viễn**. Đừng bao giờ regenerate cho row đã tồn tại —
 
 ### 19.1. Decision tree
 
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│                                                              │
-│   App single-node, ID không lộ ra ngoài?                     │
-│           │                                                  │
-│           ├─ YES ─▶ BIGSERIAL  (nhanh nhất, đơn giản nhất)   │
-│           │                                                  │
-│           └─ NO ──▶ ID có hiện trong URL/API?                │
-│                            │                                 │
-│                            ├─ YES ─▶ UUIDv7                  │
-│                            │       (default cho project mới) │
-│                            │                                 │
-│                            └─ NO ──▶ Multi-master / offline? │
-│                                            │                 │
-│                                            ├─ YES ─▶ UUIDv7  │
-│                                            │     hoặc        │
-│                                            │     Snowflake   │
-│                                            │     (nếu cần    │
-│                                            │     64-bit)     │
-│                                            │                 │
-│                                            └─ NO ─▶ BIGSERIAL│
-│                                                              │
-╰──────────────────────────────────────────────────────────────╯
+```d2 title="Chọn BIGSERIAL hay ID phân tán"
+direction: down
+single: App single-node, ID không lộ ra ngoài? { shape: diamond }
+big: BIGSERIAL — lựa chọn đơn giản để bắt đầu
+public: ID có xuất hiện trong URL / API? { shape: diamond }
+uuid: UUIDv7 — ứng viên cho ID public / phân tán
+multi: Multi-master hoặc offline? { shape: diamond }
+size: Cần ID 64-bit? { shape: diamond }
+snow: Đánh giá Snowflake / TSID cùng quy tắc cấp node ID
+single -> big: Có
+single -> public: Không
+public -> uuid: Có
+public -> multi: Không
+multi -> big: Không
+multi -> size: Có
+size -> snow: Có
+size -> uuid: Không
 ```
+
+Đây là điểm bắt đầu thiết kế, không phải kết luận ID public là một cơ chế bảo mật. Cần kiểm tra native type, clock, collision model, replication và workload trước khi chọn.
 
 ### 19.2. Bảng tổng kết
 

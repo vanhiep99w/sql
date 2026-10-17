@@ -467,30 +467,32 @@ LIMIT 5;                                  -- Bước 14
 
 **Trace toàn bộ pipeline:**
 
+```d2 title="Ví dụ end-to-end: chuẩn bị plan và giảm số rows theo mô hình logic"
+direction: down
+prepare: Chuẩn bị {
+  parse: Parsing — cú pháp và parse tree
+  semantic: Semantic — bảng, cột và quyền
+  rewrite: Rewriting — không có VIEW / subquery cần unfold
+  optimize: CBO chọn index idx_orders_status_date và Hash Join customers
+  compile: Compile plan theo engine
+  parse -> semantic -> rewrite -> optimize -> compile
+}
+logic: Mô hình logic của kết quả {
+  join: FROM / JOIN — khoảng một triệu rows
+  where: WHERE status + date — khoảng 200.000 rows
+  group: GROUP BY — khoảng 15.000 nhóm
+  having: HAVING — khoảng 800 nhóm
+  select: SELECT COUNT / SUM — 800 rows, 3 cột
+  sort: ORDER BY revenue DESC — sort 800 rows
+  limit: LIMIT — 5 rows
+  join -> where -> group -> having -> select -> sort -> limit
+}
+finish: Serialize 5 rows, ghi execution metrics và cleanup theo transaction
+prepare.compile -> logic: giải thích kết quả, không phải thứ tự physical operators bắt buộc
+logic.limit -> finish
 ```
-[TRƯỚC THỰC THI]
-  Parsing      → Build parse tree, check syntax ✓
-  Semantic     → Xác nhận orders, customers tồn tại, user có quyền ✓
-  Rewriting    → Không có VIEW/subquery cần unfold
-  Optimization → CBO chọn: Index Scan trên idx_orders_status_date,
-                 Hash Join với customers
-  Compilation  → Compile plan thành instructions
 
-[THỰC THI]
-  Bước 6  FROM+JOIN  → Ghép orders + customers ~ 1,000,000 rows
-  Bước 7  WHERE      → Lọc status+date → còn ~200,000 rows
-  Bước 8  GROUP BY   → Gom thành ~15,000 nhóm khách hàng
-  Bước 9  HAVING     → Giữ nhóm đủ điều kiện → còn ~800 nhóm
-  Bước 10 SELECT     → Tính COUNT, SUM → 800 rows, 3 cột
-  Bước 13 ORDER BY   → Sort 800 rows theo revenue DESC
-  Bước 14 LIMIT      → Cắt lấy 5 rows đầu
-
-[SAU THỰC THI]
-  Formatting → Serialize 5 rows → wire format
-  Stats      → Ghi execution time, rows_examined=200000
-  Cleanup    → Release shared locks, free sort buffer
-  (Không có WAL flush vì đây là SELECT)
-```
+Các lượng rows là ví dụ giả định. `rows_examined=200000` là chỉ số minh họa trong tình huống; cách đếm phụ thuộc engine. Đây là SELECT, không có bước xác nhận write commit bằng WAL flush.
 
 ---
 

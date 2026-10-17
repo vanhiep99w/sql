@@ -147,12 +147,13 @@ PostgreSQL có nhiều chiến lược đọc dữ liệu, planner tự chọn d
 | **Index-Only Scan** | Chỉ đọc từ index, **không cần truy cập heap** | Tất cả cột cần thiết đều nằm trong index, visibility map đã cập nhật (cần VACUUM) |
 | **Bitmap Index Scan** | Scan index → tạo bitmap các page cần đọc → fetch theo batch | Trả về **nhiều row nhưng không quá nhiều** (khoảng 5-20% bảng), hoặc cần **gộp nhiều index** (`BitmapAnd`, `BitmapOr`) |
 
-```
-Ví dụ so sánh cost:
-- Bảng 1M rows, query trả 10 rows     → Index Scan (nhanh)
-- Bảng 1M rows, query trả 900K rows   → Seq Scan (nhanh hơn Index Scan vì tránh random I/O)
-- Bảng 1M rows, query trả 50K rows    → Bitmap Index Scan (batch I/O)
-```
+| Bảng một triệu rows — query trả | Access path có thể phù hợp trong ví dụ |
+| --- | --- |
+| 10 rows | Index Scan |
+| 900.000 rows | Seq Scan có thể tránh quá nhiều random lookups |
+| 50.000 rows | Bitmap Index/Heap Scan có thể gom heap I/O theo page |
+
+Chỉ là minh họa cost trade-off, không suy ra plan tốt nhất chỉ bằng số rows trả.
 
 ---
 
@@ -676,11 +677,19 @@ WHERE l.relation IS NOT NULL;
 
 Deadlock xảy ra khi **2 hoặc nhiều transaction chờ lock lẫn nhau** tạo thành vòng tròn, không ai có thể tiến tiếp:
 
+```d2 title="Wait-for cycle tạo deadlock"
+direction: right
+a: "Transaction A"
+b: "Transaction B"
+r1: "Row 1"
+r2: "Row 2"
+a -> r1: "Giữ lock"
+a -> r2: "Chờ B"
+b -> r2: "Giữ lock"
+b -> r1: "Chờ A"
 ```
-Transaction A: lock row 1, đang chờ lock row 2
-Transaction B: lock row 2, đang chờ lock row 1
-→ Cả hai chờ nhau mãi mãi = DEADLOCK
-```
+
+Database thường phát hiện deadlock và abort một transaction; application cần xử lý lỗi/retry phù hợp. Không hiểu sơ đồ là mọi hệ thống sẽ để hai bên chờ mãi.
 
 PostgreSQL có **deadlock detector** chạy định kỳ (mặc định mỗi `deadlock_timeout = 1s`). Khi phát hiện deadlock, PostgreSQL sẽ **rollback 1 trong 2 transaction** (chọn transaction ít tốn kém hơn để rollback) và gửi error `ERROR: deadlock detected`.
 

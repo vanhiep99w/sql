@@ -69,23 +69,22 @@ WHERE id = 42;
 
 Nếu không có index phù hợp, database có thể phải kiểm tra lần lượt rất nhiều row:
 
-```text
-Row 1  → không phải 42
-Row 2  → không phải 42
-Row 3  → không phải 42
-...
-Row 42 → tìm thấy
-...
+```d2 title="Scan lần lượt để tìm row 42"
+direction: right
+n0: "Row 1: không phải 42"
+n1: "Row 2: không phải 42"
+n2: "Row 3 rồi các row tiếp theo"
+n3: "Row 42: tìm thấy"
+n0 -> n1
+n1 -> n2
+n2 -> n3
 ```
 
 Cách đọc lần lượt như vậy gọi là **table scan** hoặc **sequential scan**. Nếu row cần tìm nằm gần cuối bảng, database có thể phải đọc gần như toàn bộ bảng.
 
 B+Tree giải quyết vấn đề bằng cách tạo một đường đi ngắn tới vùng chứa `42`:
 
-```text
-Không có index: đọc nhiều row để tìm 42
-Có B+Tree:      chọn đúng nhánh → tới đúng page → tìm 42
-```
+Không có index phù hợp, database có thể phải đọc nhiều rows để tìm 42. Với B+Tree: **chọn nhánh → tới leaf phù hợp → tìm key 42**.
 
 Hãy hình dung B+Tree giống mục lục của một cuốn sách. Ta không đọc từ trang đầu để tìm chương 8. Ta mở mục lục, tìm vị trí của chương 8 rồi đi thẳng tới trang đó.
 
@@ -127,8 +126,13 @@ Root chia dữ liệu thành ba khoảng:
 
 Các leaf cũng được nối với nhau:
 
-```text
-Leaf A ⇄ Leaf B ⇄ Leaf C
+```d2 title="Liên kết hai chiều giữa các leaf"
+direction: right
+a: Leaf A
+b: Leaf B
+c: Leaf C
+a <-> b
+b <-> c
 ```
 
 Nhờ liên kết này, database có thể đọc một khoảng giá trị liên tục mà không cần quay lại root.
@@ -254,12 +258,15 @@ Root và internal node chủ yếu giữ:
 
 Ví dụ:
 
-```text
-[ 30 | 60 ]
-
-key < 30       → đi sang trái
-30 ≤ key < 60  → đi vào giữa
-key ≥ 60       → đi sang phải
+```d2 title="Separator key chọn đúng nhánh"
+direction: down
+root: "Root: 30 | 60"
+l: "Nhánh trái"
+m: "Nhánh giữa"
+r: "Nhánh phải"
+root -> l: "key < 30"
+root -> m: "30 ≤ key < 60"
+root -> r: "key ≥ 60"
 ```
 
 Root và internal node không cần chứa toàn bộ row của user. Chúng chỉ cần đủ thông tin để chọn đúng đường.
@@ -274,9 +281,7 @@ indexed key + thông tin để tìm row thật
 
 Ví dụ đơn giản:
 
-```text
-42 → vị trí của row có id = 42
-```
+Một leaf entry cho key `42` giữ thông tin để tìm row có `id=42`.
 
 Thông tin bên phải có thể là địa chỉ row hoặc primary key. Cách lưu cụ thể phụ thuộc database. Phần “Đi từ index tới row thật” sẽ giải thích kỹ hơn.
 
@@ -336,9 +341,7 @@ Database tìm thấy entry `42` trong leaf này.
 
 Entry `42` cho database biết cách đi tới row thật:
 
-```text
-42 → row locator → row của user 42
-```
+Từ key `42`, lấy **row locator**, rồi đọc row của user 42.
 
 Toàn bộ đường đi:
 
@@ -382,15 +385,29 @@ Một cây có ba tầng dữ liệu có thể quản lý gần đúng:
 
 B+Tree còn luôn giữ các leaf ở cùng độ sâu:
 
-```text
-Đúng:
-Root → Internal → Leaf
-Root → Internal → Leaf
-Root → Internal → Leaf
-
-Không đúng:
-Root → Leaf
-Root → Internal → Internal → Leaf
+```d2 title="Cây cân bằng có mọi leaf cùng độ sâu"
+direction: down
+balanced: Đúng — cùng độ sâu {
+  root: Root
+  a: Internal A
+  b: Internal B
+  c: Internal C
+  la: Leaf A
+  lb: Leaf B
+  lc: Leaf C
+  root -> a -> la
+  root -> b -> lb
+  root -> c -> lc
+}
+unbalanced: Không phải B+Tree cân bằng {
+  root: Root
+  short: Leaf nông
+  a: Internal tầng 1
+  b: Internal tầng 2
+  deep: Leaf sâu
+  root -> short
+  root -> a -> b -> deep
+}
 ```
 
 Tính chất này gọi là **cân bằng**. Vì cây cân bằng, mọi lookup đi qua số tầng gần như giống nhau.
@@ -489,9 +506,13 @@ Database thực hiện các bước:
 
 Kết quả:
 
-```text
-Trước: [30, 42,     55]
-Sau:   [30, 42, 47, 55]
+```d2 title="Insert vào leaf còn chỗ"
+direction: right
+n0: "Trước: [30,42,55]"
+n1: "Insert key 47 theo thứ tự"
+n2: "Sau: [30,42,47,55]"
+n0 -> n1
+n1 -> n2
 ```
 
 Nếu page vẫn còn chỗ, thao tác kết thúc tại đây. Cấu trúc cây không thay đổi.
@@ -579,10 +600,16 @@ WHERE id = 42;
 
 Về mặt logic, entry `42` không còn được dùng:
 
-```text
-Trước: [30, 42, 47, 55]
-Sau:   [30,     47, 55]
+```d2 title="Xóa key khỏi ví dụ leaf"
+direction: right
+n0: "Trước: [30,42,47,55]"
+n1: "Xóa key 42 theo mô hình"
+n2: "Sau: [30,47,55]"
+n0 -> n1
+n1 -> n2
 ```
+
+Đây là mô hình cấu trúc key; việc DELETE SQL có dọn physical index entry ngay hay hoãn qua maintenance phụ thuộc engine.
 
 Hai page quá thưa có thể được gộp lại. Thao tác này gọi là **page merge**.
 
@@ -642,9 +669,7 @@ WHERE email = 'an@example.com';
 
 Index trên `email` giúp tìm entry nhanh:
 
-```text
-'an@example.com' → thông tin để tìm row
-```
+Ví dụ entry cho email `an@example.com` lưu kèm thông tin để tìm row tương ứng.
 
 Database có thể phải dùng thông tin đó để đọc row thật từ table.
 
@@ -679,10 +704,7 @@ Nếu index chứa đủ các cột cần trả về, PostgreSQL có thể dùng
 
 InnoDB lưu row data tại leaf của primary-key index.
 
-```text
-Primary-key B+Tree
-42 → toàn bộ row có id = 42
-```
+Trong primary-key B+Tree của InnoDB, entry key `42` tại leaf chứa toàn bộ row có `id=42`.
 
 Leaf của secondary index thường giữ secondary key và primary key:
 
@@ -784,15 +806,16 @@ Database không có một điểm bắt đầu duy nhất cho toàn bộ giá tr
 
 Cách nhớ đơn giản:
 
-```text
-Index (a, b, c)
-
-Dễ dùng: a
-Dễ dùng: a + b
-Dễ dùng: a + b + c
-Khó dùng trực tiếp: b
-Khó dùng trực tiếp: c
+```d2 title="Composite key và prefix access phổ biến"
+direction: right
+index: "Index (a,b,c)"
+prefix: "Prefix: a; a+b; a+b+c"
+gap: "Thiếu leading key: b hoặc c không tạo một\nprefix seek đơn giản"
+index -> prefix
+index -> gap
 ```
+
+Engine có thể chọn scan, skip scan hoặc filter-in-index khác; cần kiểm tra plan, không gọi mọi query thiếu prefix là hoàn toàn không dùng index.
 
 Một số database có thể dùng skip scan trong vài trường hợp. Tuy nhiên, không nên dựa vào ngoại lệ này khi thiết kế index chính.
 
@@ -858,9 +881,22 @@ Query này không dễ dùng index `(customer_id, status)` vì thiếu cột bê
 
 Key rộng làm mỗi page chứa ít entry hơn:
 
-```text
-Key nhỏ  → nhiều entry trong page → fanout lớn → cây thấp hơn
-Key rộng → ít entry trong page    → fanout nhỏ → index lớn hơn
+```d2 title="Độ rộng key ảnh hưởng fanout"
+direction: down
+b0: "Key nhỏ" {
+  n0: "Nhiều entries trong page"
+  n1: "Fanout lớn"
+  n2: "Có thể giữ cây thấp hơn"
+  n0 -> n1
+  n1 -> n2
+}
+b1: "Key rộng" {
+  n0: "Ít entries trong page"
+  n1: "Fanout nhỏ"
+  n2: "Index lớn hơn, có thể cần thêm tầng"
+  n0 -> n1
+  n1 -> n2
+}
 ```
 
 Primary key rộng còn đặc biệt đáng chú ý trong InnoDB. Primary-key value được lưu trong mỗi secondary index. Primary key càng rộng, các secondary index càng lớn.

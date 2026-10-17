@@ -121,14 +121,15 @@ Mức độ cô lập được cấu hình qua **Isolation Levels** — từ th�
 
 > 📖 Xem chi tiết tại [Isolation Levels](./isolation-levels)
 
-```
-Timeline minh họa Isolation:
-
-Transaction A:    |--READ x=100--|--UPDATE x=200--|--COMMIT--|
-Transaction B:              |--READ x=???--|
-
-Không có Isolation: B đọc x = 200 (dữ liệu chưa commit)
-Có Isolation:       B đọc x = 100 (dữ liệu đã commit trước đó)
+```d2 title="Isolation quyết định B có thể thấy version nào"
+shape: sequence_diagram
+a: "Transaction A"
+db: "Database"
+b: "Transaction B"
+a -> db: "READ x=100; UPDATE x=200 chưa commit"
+b -> db: "READ x=? khi A chưa commit"
+db.note2: "Engine/level cho dirty read có thể trả\n200; snapshot read không thấy ghi chưa\ncommit có thể đọc bản 100"
+a -> db: "COMMIT"
 ```
 
 ### Durability — Tính bền vững
@@ -233,10 +234,15 @@ Khi không đảm bảo ACID, hệ thống sẽ gặp các vấn đề nghiêm t
 
 Ví dụ, số dư ban đầu là `10M`:
 
-```text
-TX1: UPDATE balance = 0 WHERE id = 1    -- chưa COMMIT
-TX2: SELECT balance WHERE id = 1        -- đọc được 0
-TX1: ROLLBACK                           -- số dư trở lại 10M
+```d2 title="Dirty read rồi writer rollback"
+shape: sequence_diagram
+a: "TX1"
+db: "Database"
+b: "TX2"
+a -> db: "UPDATE balance=0 WHERE id=1; chưa COMMIT"
+b -> db: "SELECT balance WHERE id=1"
+db -> b: "0 — dirty read nếu engine/level cho phép"
+a -> db: "ROLLBACK: balance trở lại 10M"
 ```
 
 TX2 đã đọc và có thể sử dụng giá trị `0`. Tuy nhiên, sau khi TX1 rollback, giá trị `0` không còn tồn tại. Có thể hiểu TX2 đã nhìn thấy một **bản nháp chưa được xác nhận**.
@@ -249,13 +255,16 @@ TX2 đã đọc và có thể sử dụng giá trị `0`. Tuy nhiên, sau khi TX
 
 Ví dụ, số dư ban đầu là `10M`:
 
-```text
-TX1: SELECT balance WHERE id = 1        -- lần 1: đọc được 10M
-
-TX2: UPDATE balance = 8M WHERE id = 1
-TX2: COMMIT                             -- 8M đã trở thành dữ liệu chính thức
-
-TX1: SELECT balance WHERE id = 1        -- lần 2: đọc được 8M
+```d2 title="Hai lần đọc có thể thấy hai commit khác nhau"
+shape: sequence_diagram
+a: "TX1"
+db: "Database"
+b: "TX2"
+a -> db: "SELECT balance WHERE id=1"
+db -> a: "10M"
+b -> db: "UPDATE balance=8M WHERE id=1; COMMIT"
+a -> db: "SELECT lần 2"
+db -> a: "8M trong ví dụ non-repeatable read"
 ```
 
 Cả `10M` và `8M` đều là dữ liệu hợp lệ tại thời điểm TX1 nhìn thấy chúng. Vấn đề là TX1 không giữ được một góc nhìn nhất quán trong suốt transaction: cùng một row nhưng lần đọc sau không lặp lại được kết quả lần đầu.
@@ -276,16 +285,20 @@ Hai hiện tượng trông giống nhau vì đều có một transaction đang �
 
 Có thể ghi nhớ bằng hai timeline ngắn:
 
-```text
-Dirty Read:
-UPDATE → READ → ROLLBACK
-         ↑
-         Đọc khi thay đổi chưa commit
-
-Non-Repeatable Read:
-READ lần 1 → UPDATE + COMMIT → READ lần 2
-                                  ↑
-                                  Kết quả khác lần 1
+```d2 title="Dirty read và non-repeatable read"
+direction: right
+dirty: Dirty Read {
+  update: UPDATE chưa commit
+  read: READ thấy thay đổi chưa commit
+  rollback: ROLLBACK
+  update -> read -> rollback
+}
+repeat: Non-Repeatable Read {
+  first: READ lần 1
+  update: UPDATE + COMMIT từ transaction khác
+  second: READ lần 2 có kết quả khác
+  first -> update -> second
+}
 ```
 
 Khi gặp một ví dụ, hãy đặt hai câu hỏi theo thứ tự:
@@ -301,16 +314,16 @@ Nói ngắn gọn: **Dirty Read quan tâm dữ liệu có hợp lệ hay chưa; 
 
 Ví dụ, ban đầu phòng IT có 10 nhân viên:
 
-```text
-TX1: SELECT * FROM employees WHERE dept = 'IT'
-     -- lần 1: nhận được 10 rows
-
-TX2: INSERT INTO employees (id, name, dept)
-     VALUES (99, 'Bình', 'IT')
-TX2: COMMIT
-
-TX1: SELECT * FROM employees WHERE dept = 'IT'
-     -- lần 2: nhận được 11 rows, xuất hiện thêm nhân viên Bình
+```d2 title="Phantom row sau một INSERT commit"
+shape: sequence_diagram
+a: "TX1"
+db: "employees"
+b: "TX2"
+a -> db: "SELECT WHERE dept=IT"
+db -> a: "10 rows"
+b -> db: "INSERT (99, Bình, IT); COMMIT"
+a -> db: "SELECT lại WHERE dept=IT"
+db -> a: "11 rows nếu level/engine cho phantom trong\nví dụ"
 ```
 
 Các row cũ không nhất thiết bị thay đổi. Một row mới xuất hiện trong kết quả giống như một "bóng ma", vì vậy hiện tượng này được gọi là Phantom Read.
@@ -321,10 +334,13 @@ Các row cũ không nhất thiết bị thay đổi. Một row mới xuất hi�
 
 Hai hiện tượng có cùng cấu trúc nên rất dễ nhầm:
 
-```text
-TX1 đọc lần 1
-TX2 thay đổi dữ liệu rồi COMMIT
-TX1 đọc lần 2 → kết quả khác
+```d2 title="Hai lần đọc xen giữa một commit"
+direction: right
+n0: "TX1 đọc lần 1"
+n1: "TX2 thay đổi dữ liệu rồi COMMIT"
+n2: "TX1 đọc lần 2: kết quả khác"
+n0 -> n1
+n1 -> n2
 ```
 
 Điểm khác biệt nằm ở **thứ đã thay đổi**:
@@ -344,10 +360,10 @@ Ví dụ đời thường:
 
 Có thể ghi nhớ ngắn gọn:
 
-```text
-Non-Repeatable Read: cùng một row       → nội dung khác
-Phantom Read:       cùng một điều kiện → danh sách rows khác
-```
+| Hiện tượng | Đối tượng so sánh | Khác biệt |
+| --- | --- | --- |
+| Non-Repeatable Read | Cùng một row | Nội dung khác |
+| Phantom Read | Cùng một điều kiện | Danh sách rows khác |
 
 Một trường hợp dễ gây nhầm là transaction khác dùng `UPDATE` để thay đổi phòng ban:
 
@@ -366,12 +382,16 @@ Nói ngắn gọn: **Non-Repeatable Read theo dõi một row cụ thể; Phantom
 
 Hai transaction cùng đọc và cập nhật một giá trị, transaction sau ghi đè kết quả của transaction trước.
 
-```
-TX1: SELECT balance → 10M
-TX2: SELECT balance → 10M
-TX1: UPDATE balance = 10M - 3M = 7M; COMMIT;
-TX2: UPDATE balance = 10M - 5M = 5M; COMMIT;
-→ Kết quả: 5M (mất cập nhật -3M của TX1, đáng lẽ phải là 2M)
+```d2 title="Lost update khi ghi lại số dư đã tính từ dữ liệu cũ"
+shape: sequence_diagram
+t1: "TX1"
+db: "Database"
+t2: "TX2"
+t1 -> db: "SELECT balance = 10M"
+t2 -> db: "SELECT balance = 10M"
+t1 -> db: "UPDATE 10M - 3M = 7M; COMMIT"
+t2 -> db: "UPDATE 10M - 5M = 5M; COMMIT"
+db.note4: "Còn 5M: mất cập nhật -3M của TX1; đúng ra\nlà 2M"
 ```
 
 ## ACID vs BASE
@@ -388,22 +408,25 @@ Trong hệ thống phân tán, đặc biệt là NoSQL, mô hình **BASE** thư�
 | Scalability | Vertical (scale up) | Horizontal (scale out) |
 | Lý thuyết nền | ACID properties | CAP theorem |
 
+```d2 title="Đồng bộ trước xác nhận và nhân bản bất đồng bộ"
+direction: right
+sync: Ví dụ xác nhận sau bước đồng bộ {
+  tx: Transaction A
+  write: Lock / write
+  sync: Hoàn thành đồng bộ theo cấu hình hệ thống
+  commit: Xác nhận commit
+  tx -> write -> sync -> commit
+}
+async: Ví dụ nhân bản bất đồng bộ {
+  write: Write vào node 1
+  ack: Xác nhận client
+  replicate: Async replicate
+  update: Node 2 và 3 cập nhật sau
+  write -> ack -> replicate -> update
+}
 ```
-ACID:                                    BASE:
-┌─────────────────────┐                  ┌─────────────────────┐
-│  Transaction A      │                  │  Write to Node 1    │
-│  ↓                  │                  │  ↓                  │
-│  Lock → Write → OK  │                  │  Acknowledge client │
-│  ↓                  │                  │  ↓                  │
-│  Tất cả node đồng bộ│                  │  Async replicate    │
-│  ↓                  │                  │  ↓                  │
-│  COMMIT             │                  │  Node 2, 3 cập nhật │
-│                     │                  │  sau vài ms ~ vài s │
-│ ✅ Strong consistent│                  │  ✅ Eventually      │
-│ ❌ Chậm hơn         │                  │     consistent      │
-└─────────────────────┘                  │  ✅ Nhanh hơn       │
-                                         └─────────────────────┘
-```
+
+Đồng bộ trước xác nhận có thể tăng độ trễ; nhân bản bất đồng bộ có thể để các bản sao lệch tạm thời. Đây là ví dụ về **thời điểm xác nhận và replication**, không phải định nghĩa bắt buộc của ACID hay BASE. Một database có transaction ACID vẫn có thể dùng replica bất đồng bộ.
 
 **Khi nào chọn ACID:**
 - Hệ thống tài chính, ngân hàng, thanh toán

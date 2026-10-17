@@ -51,11 +51,18 @@ Trong hệ thống thực tế, **hàng nghìn transaction** có thể chạy đ
 
 Tuy nhiên, cô lập hoàn toàn (chạy tuần tự) sẽ **giết chết hiệu suất**. Isolation Levels cho phép ta **cân bằng** giữa tính đúng đắn và hiệu suất — chọn mức cô lập phù hợp với từng use case.
 
-```text
-Hiệu suất/concurrency cao ◄──────────────────────► Đảm bảo nhất quán mạnh
-
-Read Uncommitted → Read Committed → Repeatable Read → Serializable
+```d2 title="Các mức isolation trong chuẩn SQL"
+direction: right
+n0: "Read Uncommitted"
+n1: "Read Committed"
+n2: "Repeatable Read"
+n3: "Serializable"
+n0 -> n1
+n1 -> n2
+n2 -> n3
 ```
+
+Đi từ trái sang phải là cam kết isolation mạnh hơn theo chuẩn SQL, **không phải** thang đo throughput cố định. Chi phí thực tế còn phụ thuộc engine và workload.
 
 Không nên hiểu chiều bên phải luôn đồng nghĩa với “nhiều lock hơn”. PostgreSQL dùng MVCC và Serializable Snapshot Isolation; Oracle dùng snapshot theo SCN; SQL Server thường dùng lock. Cùng một tên isolation level nhưng mỗi database có thể dùng cơ chế khác nhau.
 
@@ -101,13 +108,16 @@ ROLLBACK;
 -- salary thực tế vẫn là giá trị cũ, nhưng Session 2 đã dùng 50M để tính toán → SAI
 ```
 
-```
-Timeline:
-
-Session 1: |--BEGIN--|--UPDATE salary=50M--|------------|--ROLLBACK--|
-Session 2:              |--BEGIN--|--SELECT salary--|
-                                     → 50M (DIRTY!) ❌
-                                  Giá trị thực: vẫn là giá trị cũ
+```d2 title="Dirty read trước khi transaction ghi rollback"
+shape: sequence_diagram
+s1: "Session 1"
+db: "Database"
+s2: "Session 2"
+s1 -> db: "BEGIN; UPDATE salary=50M"
+s2 -> db: "BEGIN; SELECT salary"
+db -> s2: "50M chưa commit — dirty read trong engine\ncho phép"
+s1 -> db: "ROLLBACK"
+db.note4: "Salary quay lại giá trị cũ"
 ```
 
 ### Read Committed
@@ -139,13 +149,17 @@ SELECT salary FROM employees WHERE id = 1;
 COMMIT;
 ```
 
-```
-Timeline:
-
-Session 1: |--BEGIN--|--SELECT→20M--|---------------------|--SELECT→30M--|--COMMIT--|
-Session 2:                   |--BEGIN--|--UPDATE=30M--|--COMMIT--|
-                                                                 ↑
-                                              Session 1 đọc lại → thấy giá trị mới
+```d2 title="READ COMMITTED có thể thấy commit mới ở lần đọc sau"
+shape: sequence_diagram
+s1: "Session 1"
+db: "Database"
+s2: "Session 2"
+s1 -> db: "BEGIN; SELECT salary"
+db -> s1: "20M"
+s2 -> db: "BEGIN; UPDATE salary=30M; COMMIT"
+s1 -> db: "SELECT salary lần 2"
+db -> s1: "30M"
+s1 -> db: "COMMIT"
 ```
 
 ### Repeatable Read
@@ -280,9 +294,15 @@ Quy tắc nghiệp vụ: **luôn phải còn ít nhất một bác sĩ trực**.
 
 Nếu chạy tuần tự:
 
-```text
-T1 chạy trước: thấy 2 người → cho An nghỉ → COMMIT
-T2 chạy sau:  thấy 1 người → không cho Bình nghỉ
+```d2 title="Hai bác sĩ xin nghỉ khi chạy tuần tự"
+direction: right
+n0: "T1 thấy 2 người trực → cho An nghỉ"
+n1: "T1 COMMIT"
+n2: "T2 đọc sau: còn 1 người trực"
+n3: "Không cho Bình nghỉ"
+n0 -> n1
+n1 -> n2
+n2 -> n3
 ```
 
 Nếu đổi thứ tự, Bình nghỉ và An ở lại. Không có thứ tự tuần tự hợp lệ nào dẫn tới cả hai cùng nghỉ.
@@ -338,17 +358,20 @@ COUNT=1
 
 Mỗi transaction luôn thấy thay đổi của chính nó, nhưng không thấy thay đổi concurrent nằm ngoài snapshot. Vì vậy cả hai vẫn nghĩ còn một bác sĩ khác đang trực.
 
-```text
-T1 snapshot                 T2 snapshot
-An=true                     An=true
-Bình=true                   Bình=true
-
-T1 update An=false          T2 update Bình=false
-
-T1 COUNT=1                  T2 COUNT=1
-T1 COMMIT                   T2 COMMIT
-
-Database cuối: An=false, Bình=false
+```d2 title="Write skew: hai snapshot riêng đều thấy còn người trực"
+shape: sequence_diagram
+a: "T1"
+db: "Database"
+b: "T2"
+a -> db: "Snapshot: An=true, Bình=true"
+b -> db: "Snapshot: An=true, Bình=true"
+a -> db: "UPDATE An=false"
+b -> db: "UPDATE Bình=false"
+db -> a: "T1 thấy COUNT=1: An=false, Bình=true"
+db -> b: "T2 thấy COUNT=1: An=true, Bình=false"
+a -> db: "COMMIT"
+b -> db: "COMMIT nếu engine/level không ngăn write\nskew"
+db.note8: "Database cuối: An=false, Bình=false"
 ```
 
 Điều này không phải phantom read. Phantom là cùng một transaction chạy lại predicate và thấy tập row thay đổi, ví dụ `COUNT 10 → 11`. Ở đây mỗi transaction vẫn thấy snapshot ổn định; lỗi nằm ở **tổng hợp hai quyết định ghi**.
@@ -357,9 +380,12 @@ Database cuối: An=false, Bình=false
 
 PostgreSQL `SERIALIZABLE` vẫn có thể cho T1 và T2 đọc cùng snapshot. Nó không làm mới snapshot để transaction tự nhìn thấy thay đổi concurrent. Thay vào đó, SSI theo dõi dependency:
 
-```text
-T1 đọc Bình=true, nhưng T2 ghi Bình=false.
-T2 đọc An=true, nhưng T1 ghi An=false.
+```d2 title="Read/write dependencies tạo vòng xung đột"
+direction: right
+a: "T1 đọc Bình=true; ghi An=false"
+b: "T2 đọc An=true; ghi Bình=false"
+a -> b: "Đọc Bình trước khi T2 ghi Bình"
+b -> a: "Đọc An trước khi T1 ghi An"
 ```
 
 Các dependency tạo thành một cấu trúc nguy hiểm. Nếu cả hai commit, kết quả không thể tương đương với T1→T2 hoặc T2→T1. PostgreSQL abort một transaction:
@@ -479,11 +505,15 @@ Chuẩn SQL định nghĩa 4 isolation levels, nhưng mỗi database **implement
 
 PostgreSQL dùng **MVCC thuần túy** cho mọi read operation. Điều này có nghĩa là reader không bao giờ block writer và ngược lại — và **dirty read không thể xảy ra** dù bạn set level nào.
 
-```
-Chuẩn SQL:   READ UNCOMMITTED → READ COMMITTED → REPEATABLE READ → SERIALIZABLE
-PostgreSQL:  READ UNCOMMITTED ↗
-                              READ COMMITTED  → REPEATABLE READ → SERIALIZABLE
-                              (behavior giống nhau)
+```d2 title="PostgreSQL ánh xạ READ UNCOMMITTED sang READ COMMITTED"
+direction: right
+ru: "READ UNCOMMITTED được yêu cầu"
+rc: "READ COMMITTED behavior"
+rr: "REPEATABLE READ behavior"
+serial: "SERIALIZABLE behavior"
+ru -> rc: "cùng behavior"
+rc -> rr: "cam kết mạnh hơn"
+rr -> serial: "thêm bảo vệ serialization"
 ```
 
 | Level (set) | Behavior thực tế trong PostgreSQL |

@@ -34,59 +34,35 @@ Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ng�
 
 **Partitioning** là kỹ thuật database chia một bảng lớn thành các phần nhỏ hơn, dễ quản lý hơn gọi là **partition**. Mỗi partition được lưu riêng biệt nhưng ứng dụng vẫn thấy như một bảng logic duy nhất.
 
+```d2 title="Một logical table chia thành nhiều partitions"
+direction: down
+single: Không partition {
+  table: Orders — ví dụ 100 triệu rows
+  scan: Không có pruning theo partition
+  table -> scan
+}
+partitioned: Có partition theo năm {
+  orders: Logical table orders
+  p2022: orders_2022 — Jan–Dec 2022, 20M rows
+  p2023: orders_2023 — Jan–Dec 2023, 30M rows
+  p2024: orders_2024 — Jan–Dec 2024, 50M rows
+  query: Query năm 2024
+  orders -> p2022
+  orders -> p2023
+  orders -> p2024
+  query -> p2024: pruning các năm khác
+}
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    WITHOUT PARTITIONING (Single Table)                          │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Table: orders (100 million rows)                                              │
-│   ┌────────────────────────────────────────────────────────────────────────┐    │
-│   │ id │ customer_id │ order_date │ total │ status │ ... │ ... │ ... │ ... │    │
-│   ├────┼─────────────┼────────────┼───────┼────────┼─────┼─────┼─────┼─────┤    │
-│   │ 1  │ 100         │ 2020-01-01 │ 50.00 │ done   │     │     │     │     │    │
-│   │ 2  │ 101         │ 2020-01-02 │ 75.00 │ done   │     │     │     │     │    │
-│   │ .. │ ...         │ ...        │ ...   │ ...    │     │     │     │     │    │
-│   │ N  │ 999         │ 2024-12-01 │ 99.00 │ pending│     │     │     │     │    │
-│   └────┴─────────────┴────────────┴───────┴────────┴─────┴─────┴─────┴─────┘    │
-│                                                                                 │
-│   Problems:                                                                     │
-│   ❌ Query scans 100M rows even for recent data                                 │
-│   ❌ Backup takes hours                                                         │
-│   ❌ Index maintenance is slow                                                  │
-│   ❌ Deleting old data is expensive (DELETE + VACUUM)                           │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    WITH PARTITIONING (Divided Table)                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Table: orders (partitioned by year)                                           │
-│                                                                                 │
-│   ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐                 │
-│   │ orders_2022     │  │ orders_2023     │  │ orders_2024     │                 │
-│   │ (20M rows)      │  │ (30M rows)      │  │ (50M rows)      │                 │
-│   ├─────────────────┤  ├─────────────────┤  ├─────────────────┤                 │
-│   │ Jan-Dec 2022    │  │ Jan-Dec 2023    │  │ Jan-Dec 2024    │                 │
-│   │ data only       │  │ data only       │  │ data only       │                 │
-│   └─────────────────┘  └─────────────────┘  └─────────────────┘                 │
-│          │                    │                    │                            │
-│          └────────────────────┼────────────────────┘                            │
-│                               ▼                                                 │
-│                    ┌─────────────────────┐                                      │
-│                    │ Logical Table:      │                                      │
-│                    │ orders              │                                      │
-│                    │ (appears as one)    │                                      │
-│                    └─────────────────────┘                                      │
-│                                                                                 │
-│   Benefits:                                                                     │
-│   ✅ Query 2024 data → scans only orders_2024 (50M rows)                        │
-│   ✅ Backup each partition independently                                        │
-│   ✅ Drop old partition instantly (no DELETE needed)                            │
-│   ✅ Parallel query execution across partitions                                 │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+Ví dụ data ban đầu:
+
+| id | customer_id | order_date | total | status |
+| --- | --- | --- | --- | --- |
+| 1 | 100 | 2020-01-01 | 50.00 | done |
+| 2 | 101 | 2020-01-02 | 75.00 | done |
+| N | 999 | 2024-12-01 | 99.00 | pending |
+
+Partitioning có thể giúp lifecycle, drop dữ liệu cũ, maintenance và pruning. Không partition vẫn có thể dùng index để tránh full scan; partitioning cũng không tự bảo đảm backup riêng, parallel query hoặc thao tác “instant” ở mọi engine. Phân bố rows theo năm trong hai mô hình chỉ là ví dụ riêng, không phải cùng dataset đã đo.
 
 ### Tại sao dùng Partitioning?
 
@@ -167,40 +143,32 @@ O -> Q: "No"
 
 ### So sánh trực quan
 
+```d2 title="Ba cách phân chia partition key"
+grid-columns: 1
+range_node: RANGE theo order_date {
+  grid-columns: 2
+  p2022: 2022-01-01 tới trước 2023-01-01
+  p2023: 2023-01-01 tới trước 2024-01-01
+  p2024: 2024-01-01 tới trước 2025-01-01
+  future: Future từ 2025
+}
+list_node: LIST theo region {
+  grid-columns: 2
+  americas: AMERICAS — US, CA, MX, BR, AR
+  europe: EUROPE — UK, DE, FR, ES, IT
+  asia: ASIA — JP, CN, KR, IN, SG
+  other: OTHER — values còn lại theo rule
+}
+hash_node: HASH — ví dụ identity modulo bốn {
+  grid-columns: 2
+  p0: P0 — remainder 0, keys 4,8,12,16...
+  p1: P1 — remainder 1, keys 1,5,9,13...
+  p2: P2 — remainder 2, keys 2,6,10,14...
+  p3: P3 — remainder 3, keys 3,7,11,15...
+}
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         PARTITION TYPES COMPARISON                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   RANGE PARTITION (by order_date)                                               │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │     2022          │      2023          │      2024          │   Future  │   │
-│   │ ←───────────────→ │ ←────────────────→ │ ←────────────────→ │ ←───────→ │   │
-│   │   Jan 1, 2022     │   Jan 1, 2023      │   Jan 1, 2024      │  Jan 2025 │   │
-│   │        to         │        to          │        to          │    ...    │   │
-│   │   Dec 31, 2022    │   Dec 31, 2023     │   Dec 31, 2024     │           │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│   Use: Time-series, logs, orders, events                                        │
-│                                                                                 │
-│   LIST PARTITION (by region)                                                    │
-│   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐           │
-│   │   AMERICAS   │ │    EUROPE    │ │     ASIA     │ │    OTHER     │           │
-│   │ US, CA, MX,  │ │ UK, DE, FR,  │ │ JP, CN, KR,  │ │ Everything   │           │
-│   │ BR, AR       │ │ ES, IT       │ │ IN, SG       │ │ else         │           │
-│   └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘           │
-│   Use: Geographic data, categories, fixed sets of values                        │
-│                                                                                 │
-│   HASH PARTITION (by user_id, 4 partitions)                                     │
-│   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐           │
-│   │     P0       │ │     P1       │ │     P2       │ │     P3       │           │
-│   │ hash % 4 = 0 │ │ hash % 4 = 1 │ │ hash % 4 = 2 │ │ hash % 4 = 3 │           │
-│   │ user_id:     │ │ user_id:     │ │ user_id:     │ │ user_id:     │           │
-│   │ 4,8,12,16... │ │ 1,5,9,13...  │ │ 2,6,10,14... │ │ 3,7,11,15... │           │
-│   └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘           │
-│   Use: Even distribution when no natural range/list key                         │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+RANGE thường phù hợp dữ liệu thời gian/lifecycle; LIST phù hợp tập categories đã biết; HASH giúp phân phối khi không có natural range/list key. Identity modulo chỉ là mô hình số học cho ví dụ, không phải hàm hash thực tế chung của các database.
 
 ### Ma trận quyết định chọn loại Partition
 
@@ -700,35 +668,25 @@ WHERE order_date IN (SELECT max_date FROM some_table);
 
 ### Khi nào dùng cái nào
 
+```d2 title="Index và partitioning giải quyết hai chiều khác nhau"
+direction: right
+indexing: Indexing {
+  index: B-Tree — key + row locator
+  table: Table data rows
+  index -> table: lookup
+}
+partitioning: Partitioning {
+  table: Logical table
+  p1: Partition P1 data
+  p2: Partition P2 data
+  p3: Partition P3 data
+  table -> p1
+  table -> p2
+  table -> p3
+}
 ```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│                     PARTITIONING VS INDEXING COMPARISON                        │
-├────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                │
-│   INDEXING                           PARTITIONING                              │
-│   ┌─────────────────────────┐        ┌─────────────────────────┐               │
-│   │ Creates separate        │        │ Physically divides      │               │
-│   │ data structure          │        │ the table itself        │               │
-│   │                         │        │                         │               │
-│   │    Table                │        │    ┌───┐ ┌───┐ ┌───┐    │               │
-│   │   ┌─────────────────┐   │        │    │ P1│ │ P2│ │ P3│    │               │
-│   │   │ Data rows       │   │        │    └───┘ └───┘ └───┘    │               │
-│   │   └─────────────────┘   │        │      Separate files     │               │
-│   │          ↑              │        │                         │               │
-│   │   ┌─────────────────┐   │        │                         │               │
-│   │   │ Index (B-Tree)  │   │        │                         │               │
-│   │   │ key → row ptr   │   │        │                         │               │
-│   │   └─────────────────┘   │        │                         │               │
-│   └─────────────────────────┘        └─────────────────────────┘               │
-│                                                                                │
-│   Best for:                          Best for:                                 │
-│   • Selective queries (<15%)         • Time-based data lifecycle               │
-│   • Point lookups                    • Bulk delete old data                    │
-│   • Any query pattern                • Very large tables (>10GB)               │
-│   • Small to medium tables           • Queries on partition key                │
-│                                                                                │
-└────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Index hướng tới lookup/access path; partitioning chia dữ liệu theo rule và hỗ trợ pruning/lifecycle. Có thể dùng **cả hai**: mỗi partition vẫn có indexes. Các ngưỡng “dưới 15%” hoặc “trên 10 GB” là kinh nghiệm minh họa, không phải điều kiện cần/đủ để một kỹ thuật có lợi.
 
 ### Bảng so sánh
 
@@ -899,46 +857,13 @@ SELECT * FROM orders WHERE order_date = '2024-01-15';  -- Prunes to p_2024!
 
 ### Lỗi 2: Quá nhiều hoặc quá ít Partition
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    PARTITION COUNT GUIDELINES                                   │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   ❌ TOO FEW PARTITIONS                                                         │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │                                                                         │   │
-│   │   2 partitions for 100M rows = 50M rows each                            │   │
-│   │   • Still too large to manage efficiently                               │   │
-│   │   • Limited pruning benefit                                             │   │
-│   │   • Can't parallelize effectively                                       │   │
-│   │                                                                         │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   ❌ TOO MANY PARTITIONS                                                        │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │                                                                         │   │
-│   │   1000 partitions for 100M rows = 100K rows each                        │   │
-│   │   • Excessive metadata overhead                                         │   │
-│   │   • Query planning becomes slow                                         │   │
-│   │   • File handle exhaustion                                              │   │
-│   │   • MySQL limit: 8192 partitions per table                              │   │
-│   │                                                                         │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   ✅ RECOMMENDED: Balance partition size and count                              │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │                                                                         │   │
-│   │   Rule of thumb:                                                        │   │
-│   │   • Each partition: 1M - 100M rows (or 1GB - 50GB)                      │   │
-│   │   • Total partitions: 12 - 100 for most use cases                       │   │
-│   │   • Time-based: Monthly or quarterly partitions                         │   │
-│   │                                                                         │   │
-│   │   100M rows ÷ 50 partitions = 2M rows each ✅                           │   │
-│   │                                                                         │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+| Thiết kế minh họa cho 100M rows | Điểm cần xem xét |
+| --- | --- |
+| 2 partitions × 50M | Granularity lifecycle/pruning có thể còn thô |
+| 1.000 partitions × 100K | Nhiều metadata, planning và file/resources overhead |
+| 50 partitions × 2M | Một candidate cân bằng để benchmark |
+
+Các khoảng 1–100M rows/partition, 1–50 GB/partition, 12–100 partitions hoặc monthly/quarterly là **heuristic**, không phải chuẩn bắt buộc. MySQL có giới hạn tổng số partitions/subpartitions theo engine/version (ví dụ thường gặp 8.192); PostgreSQL và các workload khác có giới hạn vận hành riêng. Chọn theo retention, pruning, maintenance, planning time và tài nguyên.
 
 ### Lỗi 3: Thiếu MAXVALUE/DEFAULT Partition
 
@@ -1336,43 +1261,26 @@ ALTER TABLE orders ATTACH PARTITION orders_2024_q4
 
 ### Checklist thiết kế Partition
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                       PARTITION DESIGN CHECKLIST                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Before Implementing:                                                          │
-│   □ Table size > 10GB or expected to grow significantly                         │
-│   □ Clear partition key identified (commonly queried column)                    │
-│   □ Query patterns analyzed - will pruning help?                                │
-│   □ Data lifecycle defined (retention, archival needs)                          │
-│   □ Partition count estimated (aim for 10-200)                                  │
-│                                                                                 │
-│   Partition Key Selection:                                                      │
-│   □ Column appears in WHERE clause of frequent queries                          │
-│   □ Column has good distribution across partitions                              │
-│   □ Column aligns with data lifecycle (date for time-series)                    │
-│   □ Column is NOT frequently updated                                            │
-│                                                                                 │
-│   Schema Design:                                                                │
-│   □ Partition key included in PRIMARY KEY (MySQL requirement)                   │
-│   □ Partition key included in all UNIQUE constraints                            │
-│   □ MAXVALUE/DEFAULT partition included                                         │
-│   □ Local indexes created for common query patterns                             │
-│                                                                                 │
-│   Maintenance Planning:                                                         │
-│   □ Partition creation automated (cron job, pg_partman)                         │
-│   □ Partition drop/archive schedule defined                                     │
-│   □ Monitoring for partition size imbalance                                     │
-│   □ Backup strategy accounts for partitions                                     │
-│                                                                                 │
-│   Query Optimization:                                                           │
-│   □ Queries include partition key in WHERE clause                               │
-│   □ EXPLAIN verified partition pruning works                                    │
-│   □ Cross-partition queries minimized                                           │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+**Trước khi triển khai:**
+
+- [ ] Workload/lifecycle có lợi từ partitioning? Không chỉ dựa trên ngưỡng dung lượng.
+- [ ] Chọn partition key theo predicates, phân bố và retention.
+- [ ] Ước lượng số partitions từ kỳ retention và maintenance, đo planning overhead.
+
+**Schema:**
+
+- [ ] Primary/unique constraints đáp ứng quy tắc partition key của engine.
+- [ ] Có MAXVALUE/DEFAULT hoặc quy trình từ chối/route ngoài khoảng theo yêu cầu.
+- [ ] Tạo local indexes phù hợp; xác nhận hỗ trợ global index nếu muốn dùng.
+- [ ] Hạn chế cập nhật partition key nếu việc di chuyển row đắt.
+
+**Vận hành:**
+
+- [ ] Tự động tạo partitions, ví dụ scheduler/pg_partman khi phù hợp.
+- [ ] Có lịch drop/archive theo retention và backup/restore đã thử.
+- [ ] Theo dõi size/skew, metadata và planning time.
+- [ ] EXPLAIN xác nhận pruning, không chỉ thấy DDL partition.
+- [ ] Đo cross-partition queries và write cost.
 
 ### Mẹo hiệu năng
 

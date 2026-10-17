@@ -119,31 +119,32 @@ Mục tiêu: sau khi đọc xong, bạn hiểu mỗi index **không chỉ là ch
 
 ### 2.1. Một câu INSERT đi qua những đâu?
 
-```diagram
-╭─────────────────────────────────────────────────────────────╮
-│ Client gửi:                                                 │
-│   INSERT INTO orders(user_id, total) VALUES (42, 99.9);     │
-│                                                             │
-│         ▼                                                   │
-│   Parse & Plan                                              │
-│         ▼                                                   │
-│   Acquire row lock (nếu cần)                                │
-│         ▼                                                   │
-│   ┌── HEAP: tìm page còn slot, ghi tuple, set xmin = txid   │
-│   │                                                         │
-│   │── INDEX 1 (PK):   chèn (id, ctid) vào B-Tree            │
-│   │── INDEX 2:        chèn (user_id, ctid)                  │
-│   │── INDEX 3:        chèn (total, ctid)                    │
-│   │       ...                                               │
-│   │── INDEX N:        chèn ...                              │
-│   │                                                         │
-│   │── Mỗi thao tác trên đều ghi WAL record                  │
-│   ▼                                                         │
-│   COMMIT → flush WAL → fsync                                │
-│         ▼                                                   │
-│   Trả OK về client                                          │
-╰─────────────────────────────────────────────────────────────╯
+```d2 title="INSERT phải cập nhật heap và các index"
+direction: down
+client: "INSERT orders(user_id,total)\nVALUES(42,99.9)"
+backend: "Parse / plan; thực hiện kiểm tra và lock\ncần thiết"
+heap: "HEAP: tìm page đủ chỗ, ghi tuple, set\nxmin=txid"
+pk: "PK index: (id,ctid)"
+user: "Index user_id: (user_id,ctid)"
+total: "Index total: (total,ctid)"
+others: "Các index khác"
+wal: "WAL records cho các thay đổi"
+commit: "COMMIT: flush WAL theo durability; trả OK"
+client -> backend
+backend -> heap
+heap -> pk
+heap -> user
+heap -> total
+heap -> others
+heap -> wal
+pk -> wal
+user -> wal
+total -> wal
+others -> wal
+wal -> commit
 ```
+
+Các nhánh biểu diễn những cấu trúc phải duy trì, không khẳng định chúng được cập nhật song song hoặc theo đúng thứ tự hình vẽ.
 
 Một câu INSERT trên bảng **không có index nào** ngoài PK = **2 write** (heap + 1 index). Cùng câu INSERT trên bảng **12 index** = **13 write** + nhiều WAL record hơn = chậm gấp **6-10 lần**.
 
@@ -190,21 +191,29 @@ Trước khi mổ xẻ INSERT/UPDATE/DELETE, cần thống nhất 4 khái niệm
 
 **Page** (hay **block**) là khối **8KB** (Postgres) / **16KB** (MySQL InnoDB) / **2KB-32KB** (Oracle). Database **luôn** đọc/ghi nguyên page — không bao giờ đọc nửa page.
 
+```d2 title="Page PostgreSQL: item pointers và tuple storage"
+direction: right
+page: Page 8 KB {
+  header: Header — 24 bytes
+  items: Item pointer array {
+    i1: Item 1
+    i2: Item 2
+    i3: Item 3
+  }
+  free: Free space giữa hai vùng tăng trưởng
+  tuples: Tuple area {
+    t3: Tuple 3 — variable size
+    t2: Tuple 2
+    t1: Tuple 1
+  }
+  special: Special area khi loại page sử dụng
+  items.i1 -> tuples.t1
+  items.i2 -> tuples.t2
+  items.i3 -> tuples.t3
+}
 ```
-┌─ Page (8KB) ─────────────────────────┐
-│ Page Header  (24 bytes)              │
-│ Item pointer 1  →  Tuple 1           │
-│ Item pointer 2  →  Tuple 2           │
-│ Item pointer 3  →  Tuple 3           │
-│ ...                                  │
-│           [free space]               │
-│                                      │
-│         Tuple 3 (variable size)      │
-│         Tuple 2                      │
-│         Tuple 1                      │
-│ Special area  (cuối page)            │
-└──────────────────────────────────────┘
-```
+
+Sơ đồ chỉ các vùng và mối liên kết, không vẽ đúng tỷ lệ byte/offset. Item pointers và tuple data được bố trí từ hai phía của free space.
 
 Item pointer (ItemId) ở đầu, tuple thực ở cuối — mọc về phía nhau, gặp nhau là page đầy.
 
@@ -369,16 +378,17 @@ Postgres (và Oracle theo cách khác) dùng **MVCC** (Multi-Version Concurrency
 2. Tạo **tuple mới** với dữ liệu mới (set `xmin` = current txid).
 3. Tuple cũ vẫn nằm đó để các transaction cũ thấy phiên bản trước.
 
-```diagram
-Trước UPDATE:
-   Heap page:  [ tuple A: xmin=100, xmax=0,    data: status='new' ]
-
-UPDATE orders SET status='paid' WHERE id=42;  (txid=200)
-
-Sau UPDATE:
-   Heap page:  [ tuple A: xmin=100, xmax=200,  data: status='new' ]   ← dead
-               [ tuple B: xmin=200, xmax=0,    data: status='paid']   ← live
+```d2 title="UPDATE tạo heap row version mới"
+direction: down
+before: "Tuple A trước UPDATE: xmin=100, xmax=0, status=new"
+after: Sau TX200 UPDATE status=paid {
+  a: "Tuple A cũ: xmin=100, xmax=200, status=new"
+  b: "Tuple B mới: xmin=200, xmax=0, status=paid"
+}
+before -> after
 ```
+
+Ví dụ `UPDATE orders SET status='paid' WHERE id=42`. Visibility của hai versions còn xét trạng thái transaction và snapshot; bản cũ chỉ được dọn khi an toàn.
 
 Tuple A **không bị xóa ngay** — cần đợi `VACUUM` mới thu hồi.
 
@@ -503,12 +513,16 @@ DELETE đơn giản hơn UPDATE về mặt logic, nhưng có **trap** riêng.
 
 ### 6.1. DELETE không xóa, chỉ "đánh dấu"
 
-```diagram
-DELETE FROM orders WHERE id = 42;  (txid=300)
-
-Trước:  [ tuple A: xmin=100, xmax=0,   data: ... ]
-Sau:    [ tuple A: xmin=100, xmax=300, data: ... ]  ← dead, file vẫn giữ
+```d2 title="DELETE đổi metadata tuple, giữ file cho cleanup sau"
+direction: right
+n0: "Trước: tuple A xmin=100, xmax=0"
+n1: "TX300 DELETE FROM orders WHERE id=42"
+n2: "Sau: tuple A xmax=300; file vẫn giữ"
+n0 -> n1
+n1 -> n2
 ```
+
+Tuple chưa được gọi là dọn an toàn chỉ vì có xmax; cần xét commit/rollback và snapshots còn liên quan.
 
 Postgres chỉ set `xmax`. Tuple vẫn nằm đó cho các transaction cũ đọc. **VACUUM** sẽ thu hồi sau.
 
@@ -579,13 +593,7 @@ CASCADE tiện, nhưng **mỗi level cascade là một DELETE độc lập** v�
 
 ### 7.1. Vấn đề: leaf page đầy
 
-```diagram
-B-Tree leaf (8KB, chứa ~200 entries):
-
-  ┌────────────────────────────────────────────┐
-  │ k1 k2 k3 ... k198 k199 k200      [FULL]    │
-  └────────────────────────────────────────────┘
-```
+Ví dụ leaf page **8 KB**, sức chứa khoảng **200 entries** trong mô hình này: `k1, k2, …, k198, k199, k200` đã đầy. Sức chứa thực tế phụ thuộc độ rộng key và overhead.
 
 Cần insert entry `k150_new`. Không còn chỗ → **page split**.
 
@@ -615,13 +623,25 @@ n0 -> n1 -> n2 -> n3 -> n4
 Khi key insert nằm ở **giữa** → split 50/50 (cân bằng).
 Khi key insert nằm ở **cuối** (monotonic, ví dụ SERIAL, timestamp) → Postgres dùng tối ưu **"rightmost split"** = chỉ tạo page mới rỗng, không copy → **rẻ hơn nhiều**.
 
-```diagram
-Insert SERIAL (id tăng dần): luôn ở cuối → split 90/10
-  [old leaf (full)] ──→ [old leaf (giữ nguyên)] ──→ [new leaf (chỉ 1 entry)]
-
-Insert UUID v4 (random): rơi vào giữa → split 50/50, nhiều lần
-  [old leaf] ──→ [old half] [new half]
+```d2 title="Insert rìa phải và insert giữa page"
+direction: down
+b0: "Sequential / SERIAL" {
+  n0: "Insert key tăng dần ở cuối"
+  n1: "Có thể giữ phần lớn page cũ và cấp page\nmới cho phần phải"
+  n2: "Ví dụ chính sách split lệch 90/10"
+  n0 -> n1
+  n1 -> n2
+}
+b1: "Random / UUIDv4" {
+  n0: "Insert vào giữa key range"
+  n1: "Page đầy → chia các entries qua hai pages"
+  n2: "Ví dụ split gần 50/50, có thể lặp ở nhiều\nvùng"
+  n0 -> n1
+  n1 -> n2
+}
 ```
+
+Các tỷ lệ là minh họa về chiến lược split; không phải luật 90/10 hoặc 50/50 cố định của mọi engine hay mọi lần insert.
 
 Đây là 1 lý do **SERIAL PK insert nhanh hơn UUID v4 PK insert nhiều lần** trên cùng workload (xem [PK UUID vs Integer Deep Dive](primary-key-uuid-vs-integer-deep-dive)).
 
@@ -645,14 +665,15 @@ Vì sao? Vì việc ghi WAL **tuần tự** (sequential append) nhanh hơn ghi d
 
 Mỗi thay đổi → 1 WAL record nhỏ:
 
-```
-┌─ WAL record ────────────────────────────────┐
-│ XLogRecord header (24 bytes)                │
-│   xl_tot_len, xl_xid, xl_prev, xl_info, ... │
-│ BlockRef (cho mỗi page liên quan)           │
-│   relfilenode, blkno, flags, fpw?           │
-│ Per-rmgr data (heap insert / btree split..) │
-└─────────────────────────────────────────────┘
+```d2 title="Các phần của WAL record"
+direction: right
+record: "WAL record"
+header: "XLogRecord header — 24 bytes: xl_tot_len,\nxl_xid, xl_prev, xl_info..."
+block: "BlockRef cho page liên quan: relfilenode,\nblkno, flags, full-page image..."
+data: "Resource-manager data: heap insert, B-Tree\nsplit, ..."
+record -> header
+record -> block
+record -> data
 ```
 
 | Thao tác | WAL bytes (xấp xỉ) |
@@ -669,28 +690,24 @@ Mỗi thay đổi → 1 WAL record nhỏ:
 
 ### 8.3. Đường đi 1 byte modification
 
-```diagram
-╭────────────────────────────────────────────────────────────╮
-│ App: UPDATE orders SET status='paid' WHERE id=42;          │
-│            │                                               │
-│            ▼                                               │
-│   Backend process trong PG                                 │
-│            │                                               │
-│            ▼                                               │
-│   Shared Buffer (RAM) ── mark dirty                        │
-│            │                                               │
-│            ▼                                               │
-│   WAL Buffer (RAM) ── append record                        │
-│            │                                               │
-│   ───── COMMIT ─────                                       │
-│            │                                               │
-│            ▼                                               │
-│   WAL file (disk) ── fsync()  ← BẮT BUỘC trước khi OK      │
-│            │                                               │
-│            ▼ (async, sau)                                  │
-│   Bgwriter / Checkpointer flush page dirty về data file    │
-╰────────────────────────────────────────────────────────────╯
+```d2 title="Một thay đổi đi vào buffer, WAL và data file"
+direction: down
+app: "UPDATE orders SET status='paid' WHERE\nid=42"
+backend: "PostgreSQL backend"
+shared: "Shared Buffer RAM: sửa page, mark dirty"
+wal: "WAL Buffer RAM: append record"
+walfile: "COMMIT theo durability: flush / fsync WAL\nfile"
+ok: "Xác nhận client"
+data: "Bgwriter / Checkpointer ghi dirty page\nxuống data file"
+app -> backend
+backend -> shared
+backend -> wal
+wal -> walfile
+walfile -> ok
+shared -> data: "background; có thể khác thời điểm commit"
 ```
+
+WAL rule vẫn phải được thỏa khi ghi data page. Sơ đồ không có nghĩa data page luôn chỉ được flush sau khi transaction đã commit.
 
 **fsync** là điểm nghẽn lớn nhất với mọi DML. NVMe SSD ~30k fsync/s, HDD ~100 fsync/s. Mỗi COMMIT = ít nhất 1 fsync (trừ khi dùng `synchronous_commit = off`).
 
@@ -723,7 +740,7 @@ Mỗi index insert/update = 1 WAL record riêng. Bảng 10 index → **10 WAL re
 
 Mỗi `checkpoint_timeout` (default 5 phút), checkpointer phải flush **mọi page dirty** về data file. Sau đó, mọi modification lại bắt đầu FPW chu kỳ mới.
 
-```diagram
+```text
 Time:    ▼ checkpoint                       ▼ checkpoint
 WAL bps: ▁▁▇▆▅▅▄▄▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▁▁▇▆▅▅▄▄▃▃▃...
 ```
@@ -745,20 +762,23 @@ Right after checkpoint, FPW gây surge WAL. Nhiều index = surge to hơn. Tune 
 3. **Page split** → page cũ chỉ ~50% full, không co lại được.
 4. **Insert pattern không tuần tự** (UUID v4) → split nhiều hơn → bloat nhanh hơn.
 
-```diagram
-Index leaf trước workload:
-  ┌────────────────────────────┐
-  │ k1 k2 k3 ... k200  [100%]  │
-  └────────────────────────────┘
-
-Sau 1M UPDATE non-HOT trên các giá trị:
-  ┌──────────┐  ┌──────────┐  ┌──────────┐
-  │ k1...k90 │  │ k91..k95 │  │ k96..k200│
-  └──────────┘  └──────────┘  └──────────┘
-   (60% used)   (40% used)    (50% used)
-   
-   Total: 3 page, dùng ~50% mỗi page = bloat 2x.
+```d2 title="Non-HOT updates và phân mảnh leaf pages"
+direction: down
+b0: "Trước workload" {
+  n0: "Một page chứa k1..k200"
+  n1: "Ví dụ occupancy 100%"
+  n0 -> n1
+}
+b1: "Sau 1M non-HOT updates — minh họa" {
+  n0: "Nhiều pages: k1..k90, k91..k95, k96..k200"
+  n1: "Ví dụ occupancy 60%, 40%, 50%"
+  n2: "Khoảng ba pages, trung bình gần một nửa\ndung lượng sử dụng"
+  n0 -> n1
+  n1 -> n2
+}
 ```
+
+Số pages, lượng entries và phần trăm là sơ đồ minh họa bloat, không phải phép mô phỏng hay công thức xác định bloat từ số updates.
 
 ### 9.3. Hệ quả của bloat
 
@@ -1104,28 +1124,22 @@ Mỗi insert child = 1 extra lookup parent. Trên PK index nhỏ + cache nóng �
 
 Đây là **cheat sheet thực hành** quan trọng nhất doc.
 
-```diagram
-╭──────────────────────────────────────────────────────────────────╮
-│  Operation                       Index impact     Cost factor    │
-│  ────────────────────────────────────────────────────────────    │
-│  INSERT 1 row                    All indexes      1× per index   │
-│  INSERT ... ON CONFLICT          All unique check 2× check       │
-│  COPY (bulk)                     All indexes      Per row × N    │
-│  UPDATE (HOT)                    None (heap only) ~Free          │
-│  UPDATE (non-HOT)                All indexes      Like INSERT    │
-│  UPDATE indexed column           That index +     +1× target idx │
-│  DELETE                          Heap only        Cleanup later  │
-│  TRUNCATE                        Heap + indexes   Reset (fast)   │
-│  MERGE / UPSERT                  Mix              Up to 2× ops   │
-│  Foreign key cascade             Triggers DML     Lan child      │
-│  ────────────────────────────────────────────────────────────    │
-│  Page split                      Cost 30-100×     Avoid via FF   │
-│  Full-Page Write (after CKPT)    8KB WAL per page Avoid via wide │
-│                                                   checkpoint     │
-│  Unique check                    +1 leaf scan     Per insert     │
-│  GIN insert                      N-2 entries/val  Heavy          │
-╰──────────────────────────────────────────────────────────────────╯
-```
+| Operation | Index impact | Chi phí cần xét |
+| --- | --- | --- |
+| INSERT 1 row | Các indexes liên quan | Mỗi index thêm công việc |
+| INSERT ON CONFLICT | Unique check và write path theo kết quả | Không có hệ số 2× cố định |
+| COPY bulk | Duy trì indexes trong bulk path | Rows × indexes và tối ưu engine |
+| UPDATE HOT | Có thể tránh index entries mới | Cần đủ điều kiện HOT và page space |
+| UPDATE non-HOT | Có thể tạo entries mới trong nhiều indexes | Heap, indexes và WAL |
+| UPDATE indexed column | Có thể làm mất HOT | Không chỉ xét duy nhất index chứa cột sửa |
+| DELETE | Đánh dấu tuple; cleanup index sau | VACUUM và retention |
+| TRUNCATE | Reset storage của heap/index theo engine | Lock và DDL semantics |
+| MERGE / UPSERT | Theo nhánh thực thi và conflict | Không có hệ số phổ quát |
+| FK cascade | DML trên child và triggers | Có thể lan nhiều rows |
+| Page split | Page mới, pointers, parent, WAL | Phụ thuộc fillfactor/workload, không có 30–100× cố định |
+| Full-page image sau checkpoint | Có thể thêm ảnh page vào WAL | Ví dụ page 8 KB; xét WAL compression |
+| Unique check | Kiểm tra uniqueness/conflict | Theo index và concurrency |
+| GIN / GiST writes | Theo key structure và dữ liệu | Có thể nhiều entries mỗi giá trị |
 
 ### 15.1. Operations xếp theo chi phí (tương đối)
 
@@ -1506,21 +1520,17 @@ Quay lại câu hỏi đầu doc: **Tại sao 1 UPDATE 100k rows tốn 32 giây 
 
 ### 21.1. Cheat sheet operation → impact
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  Operation                Index touched     Tips              │
-│  ───────────────────────────────────────────────────────────  │
-│  INSERT                   All               ↓ count, COPY     │
-│  UPDATE (cols indexed)    Affected idx      Avoid if possible │
-│  UPDATE (cols not idx)    None (HOT!)       ✓ Tối ưu lý tưởng │
-│  UPDATE (page full)       All (no HOT)      ↓ fillfactor      │
-│  DELETE                   None (defer)      VACUUM/TRUNCATE   │
-│  TRUNCATE                 Reset             Use for cleanup   │
-│  COPY bulk                All per row       Drop & rebuild    │
-│  UPSERT                   All + unique chk  Costly            │
-│  GIN/GIST insert          Many entries      Avoid hot tables  │
-╰───────────────────────────────────────────────────────────────╯
-```
+| Operation | Index touched | Hướng xem xét |
+| --- | --- | --- |
+| INSERT | Các indexes cần duy trì | Giảm index thừa, đánh giá COPY/bulk |
+| UPDATE indexed columns | Có thể mất HOT | Tránh sửa không cần thiết; đo non-HOT path |
+| UPDATE non-indexed columns | Có thể không thêm index entries nếu HOT đủ điều kiện | Theo dõi HOT ratio và free space |
+| UPDATE khi page thiếu chỗ | Có thể non-HOT và cập nhật nhiều indexes | Đánh giá fillfactor |
+| DELETE | Cleanup index có thể hoãn | VACUUM hoặc lifecycle partition/TRUNCATE phù hợp |
+| TRUNCATE | Reset storage theo engine | Chỉ khi phù hợp ngữ nghĩa và locking |
+| COPY bulk | Vẫn có chi phí indexes | Drop/rebuild chỉ với kế hoạch load và constraint an toàn |
+| UPSERT | Unique checks và nhánh update/insert | Đo conflict rate |
+| GIN / GiST | Theo nhiều keys và cấu trúc | Đo write amplification |
 
 ### 21.2. Bảng so sánh chi phí
 

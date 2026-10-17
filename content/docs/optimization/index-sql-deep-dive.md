@@ -34,43 +34,27 @@ Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ng�
 
 **Index** (chỉ mục) là cấu trúc dữ liệu riêng biệt lưu trữ con trỏ tới các row trong bảng, được tổ chức sao cho việc tra cứu diễn ra nhanh chóng. Hãy hình dung nó như mục lục của một cuốn sách — thay vì đọc từng trang để tìm chủ đề, bạn tra mục lục để biết ngay số trang.
 
+```d2 title="Scan toàn bảng và tìm kiếm qua B-Tree"
+direction: down
+b0: "Không có index email phù hợp" {
+  n0: "Query email=john@example.com"
+  n1: "Kiểm tra Row 1 → Row 2 → ..."
+  n2: "Có thể phải xét tới toàn bộ bảng; mô hình\nO(n)"
+  n0 -> n1
+  n1 -> n2
+}
+b1: "B-Tree lookup" {
+  n0: "Index root"
+  n1: "Chọn range a–m rồi j–k"
+  n2: "Leaf john@example.com → row locator"
+  n3: "Đọc Row 4; chi phí tìm đường theo chiều\ncao cây"
+  n0 -> n1
+  n1 -> n2
+  n2 -> n3
+}
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         WITHOUT INDEX (Full Table Scan)                         │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Query: SELECT * FROM users WHERE email = 'john@example.com'                   │
-│                                                                                 │
-│   ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐               │
-│   │Row 1│→│Row 2│→│Row 3│→│Row 4│→│Row 5│→│Row 6│→│Row 7│→│Row 8│→ ...          │
-│   │ ❌  │ │ ❌  │ │ ❌  │ │ ✅  │ │ ❌  │ │ ❌  │ │ ❌  │ │ ❌  │              │
-│   └─────┘ └─────┘ └─────┘ └─────┘ └─────┘ └─────┘ └─────┘ └─────┘               │
-│                                                                                 │
-│   ⏱️ Time: O(n) - Must scan ALL rows (1,000,000 rows = 1,000,000 checks)        │
-└─────────────────────────────────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           WITH INDEX (B-Tree Lookup)                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Query: SELECT * FROM users WHERE email = 'john@example.com'                   │
-│                                                                                 │
-│                          [Index Root]                                           │
-│                              │                                                  │
-│                    ┌─────────┴─────────┐                                        │
-│                    ▼                   ▼                                        │
-│               [a-m...]            [n-z...]                                      │
-│                    │                                                            │
-│              ┌─────┴─────┐                                                      │
-│              ▼           ▼                                                      │
-│         [j-k...]    [l-m...]                                                    │
-│              │                                                                  │
-│              ▼                                                                  │
-│    john@example.com → Row 4 ✅                                                  │
-│                                                                                 │
-│   ⏱️ Time: O(log n) - Only 3 comparisons (1,000,000 rows ≈ 20 comparisons)      │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+Số so sánh thực tế phụ thuộc fanout và cấu trúc page. Với một triệu entries, không mặc định B+Tree cần 20 page reads như cây nhị phân; các đường rẽ chỉ là minh họa.
 
 ### So sánh hiệu năng
 
@@ -190,36 +174,26 @@ B-Tree hỗ trợ so sánh bằng, khoảng (`<`, `>`, `BETWEEN`), `ORDER BY` v�
 
 ### Bitmap Index — Chi tiết
 
+```d2 title="Bitmap vectors kết hợp predicate bằng AND"
+direction: right
+status: "Bitmap status=active"
+dept: "Bitmap department=sales"
+and_node: "Bitwise AND"
+locations: "Row IDs / vị trí có bit phù hợp"
+rows: "Đọc rows phù hợp"
+status -> and_node
+dept -> and_node
+and_node -> locations
+locations -> rows
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                            BITMAP INDEX                                         │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Table: employees (status column has 3 values: active, inactive, pending)      │
-│                                                                                 │
-│   Row ID:           1   2   3   4   5   6   7   8   9   10                      │
-│   Status:        active  inactive  active  pending  active  inactive  ...       │
-│                                                                                 │
-│   Bitmap Vectors:                                                               │
-│   ┌────────────┬───┬───┬───┬───┬───┬───┬───┬───┬───┬────┐                       │
-│   │ active     │ 1 │ 0 │ 1 │ 0 │ 1 │ 0 │ 1 │ 0 │ 1 │ 0  │                       │
-│   ├────────────┼───┼───┼───┼───┼───┼───┼───┼───┼───┼────┤                       │
-│   │ inactive   │ 0 │ 1 │ 0 │ 0 │ 0 │ 1 │ 0 │ 1 │ 0 │ 1  │                       │
-│   ├────────────┼───┼───┼───┼───┼───┼───┼───┼───┼───┼────┤                       │
-│   │ pending    │ 0 │ 0 │ 0 │ 1 │ 0 │ 0 │ 0 │ 0 │ 0 │ 0  │                       │
-│   └────────────┴───┴───┴───┴───┴───┴───┴───┴───┴───┴────┘                       │
-│                                                                                 │
-│   Query: WHERE status = 'active' AND department = 'sales'                       │
-│   → Bitwise AND between status_active bitmap and department_sales bitmap        │
-│   → Extremely fast for analytical queries with multiple conditions              │
-│                                                                                 │
-│   ✅ Best for: Low cardinality columns (gender, status, category)               │
-│   ✅ Excellent for: Data warehousing, OLAP, complex WHERE with AND/OR           │
-│   ❌ Bad for: High cardinality (email, user_id)                                 │
-│   ❌ Bad for: Frequent updates (need to rebuild bitmaps)                        │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+| Status | Bits cho các row IDs 1..10 trong ví dụ |
+| --- | --- |
+| active | 1 0 1 0 1 0 1 0 1 0 |
+| inactive | 0 1 0 0 0 1 0 1 0 1 |
+| pending | 0 0 0 1 0 0 0 0 0 0 |
+
+Đây là minh họa bitmap cho bảng employees có status active/inactive/pending. Bitmap index lưu bền phù hợp một số workload OLAP ít ghi và key ít distinct; không đồng nhất với Bitmap Index/Heap Scan tạm thời của PostgreSQL. Chi phí khi update và khả năng hỗ trợ phụ thuộc engine.
 
 ---
 
@@ -395,35 +369,25 @@ Query cần `id, email, name, address` theo email có thể phải đọc thêm 
 
 ### Điểm giới hạn: Khi Index chậm hơn Full Scan
 
+```d2 title="Bookmark lookup có thể làm đổi plan khi tỷ lệ match tăng"
+direction: down
+b0: "Cancelled: 0,1% bảng một triệu rows" {
+  n0: "Ví dụ khoảng 5 index pages + 1.000\nbookmark page accesses"
+  n1: "So với full scan 10.000 pages"
+  n2: "Index có thể rẻ hơn"
+  n0 -> n1
+  n1 -> n2
+}
+b1: "Active: 30%" {
+  n0: "Ví dụ khoảng 1.500 index pages và 300.000\nrow lookups"
+  n1: "Nhiều random access; cache và page reuse\nquyết định I/O"
+  n2: "Full scan 10.000 pages có thể rẻ hơn"
+  n0 -> n1
+  n1 -> n2
+}
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         BOOKMARK LOOKUP TIPPING POINT                           │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Table: orders (1,000,000 rows, 100 rows per page = 10,000 pages)              │
-│   Index: idx_status (status) - Non-Clustered                                    │
-│                                                                                 │
-│   Scenario 1: WHERE status = 'cancelled' (0.1% = 1,000 rows)                    │
-│   ┌──────────────────────────────────────────────────────────────────────────┐  │
-│   │ Index Scan: ~5 pages + Bookmark Lookups: ~1,000 page reads               │  │
-│   │ Total: ~1,005 page reads                                                 │  │
-│   │ Full Table Scan: 10,000 pages                                            │  │
-│   │ Winner: ✅ INDEX (10x faster)                                            │  │
-│   └──────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                 │
-│   Scenario 2: WHERE status = 'active' (30% = 300,000 rows)                      │
-│   ┌──────────────────────────────────────────────────────────────────────────┐  │
-│   │ Index Scan: ~1,500 pages + Bookmark Lookups: ~300,000 random reads!      │  │
-│   │ Even with some page reuse: ~50,000+ page reads                           │  │
-│   │ Full Table Scan: 10,000 sequential pages                                 │  │
-│   │ Winner: ✅ FULL SCAN (5x faster!)                                        │  │
-│   └──────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                 │
-│   ⚠️ Rule of Thumb: Optimizer often chooses full scan when returning >5-15%     │
-│      of total rows, because random I/O from bookmarks is too expensive.         │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Giả sử 100 rows/page, bảng có khoảng 10.000 pages. Số row lookups **không đồng nghĩa** số physical disk reads: cache, grouping và số row/page ảnh hưởng mạnh. Các tỷ lệ 5–15% hay 15–30% chỉ là kinh nghiệm minh họa, không phải ngưỡng bắt buộc của optimizer.
 
 ### Ví dụ thực tế: Tìm kiếm sản phẩm E-Commerce
 
@@ -443,47 +407,25 @@ ORDER BY rating DESC
 LIMIT 50;
 ```
 
+```d2 title="E-commerce: fetch nhiều rows rồi mới sort và LIMIT"
+direction: right
+n0: "Scan idx_category: category_id=42 →\n150.000 product IDs; ví dụ 500 index pages"
+n1: "Bookmark lookup lấy name, price,\nimage_url, rating cho các matches"
+n2: "Sort 150.000 rows theo rating trong memory\nhoặc temp storage"
+n3: "Trả TOP 50; đã fetch nhiều hơn số rows cần\ntrả"
+n0 -> n1
+n1 -> n2
+n2 -> n3
 ```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│              REAL-WORLD BOOKMARK LOOKUP PROBLEM ANALYSIS                       │
-├────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                │
-│   WHAT HAPPENS INTERNALLY:                                                     │
-│                                                                                │
-│   Step 1: Index Scan on idx_category                                           │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │ Find all 150,000 product IDs where category_id = 42                     │  │
-│   │ Index pages read: ~500 pages (efficient!)                               │  │
-│   └─────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                │
-│   Step 2: Bookmark Lookup for EACH row (THE PROBLEM!)                          │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │ For each of 150,000 products:                                           │  │
-│   │   - Go to table to fetch: name, price, image_url, rating                │  │
-│   │   - Each lookup = 1 random page read                                    │  │
-│   │   - Best case (all cached): ~150,000 logical reads                      │  │
-│   │   - Worst case (cold cache): ~150,000 physical disk reads!              │  │
-│   └─────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                │
-│   Step 3: Sort by rating (after fetching ALL data)                             │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │ Sort 150,000 rows in memory/tempdb                                      │  │
-│   │ Then return only TOP 50                                                 │  │
-│   │ ❌ We fetched 150,000 rows just to return 50!                           │  │
-│   └─────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                │
-│   PERFORMANCE IMPACT:                                                          │
-│   ┌─────────────────────────────────────────────────────────────────────────┐  │
-│   │ Metric              │ With Bookmark Lookups  │ Expected by Developer    │  │
-│   │─────────────────────┼────────────────────────┼──────────────────────────│  │
-│   │ Logical Reads       │ 150,500 pages          │ ~50 pages                │  │
-│   │ Execution Time      │ 2-8 seconds            │ <50 ms                   │  │
-│   │ Memory Usage        │ 75MB+ for sort         │ <1 MB                    │  │
-│   │ CPU Time            │ 500ms+                 │ <10 ms                   │  │
-│   └─────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                │
-└────────────────────────────────────────────────────────────────────────────────┘
-```
+
+| Metric minh họa | Plan nhiều bookmark lookups | Kỳ vọng ban đầu của developer |
+| --- | --- | --- |
+| Logical page accesses | 150.500 | Khoảng 50 |
+| Execution Time | 2–8 giây | Dưới 50 ms |
+| Memory sort | 75 MB+ | Dưới 1 MB |
+| CPU Time | 500 ms+ | Dưới 10 ms |
+
+Các số liệu là tình huống giả định, không phải benchmark. Cache lạnh có thể làm tăng physical reads; không mặc định mỗi lookup luôn tương ứng một disk read.
 
 ### Giải pháp: Covering Index
 
@@ -504,28 +446,15 @@ ON products(category_id, rating DESC, name, price, image_url);
 -- Step 4: Return immediately - NO table access needed!
 ```
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│              PERFORMANCE COMPARISON: BEFORE vs AFTER                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Metric              │ Before (Bookmark)     │ After (Covering)     │ Gain     │
-│   ────────────────────┼───────────────────────┼──────────────────────┼───────── │
-│   Logical Reads       │ 150,500 pages         │ 5 pages              │ 30,000x  │
-│   Physical Reads      │ Up to 150,000         │ 0-5                  │ ~30,000x │
-│   Execution Time      │ 2-8 seconds           │ 2-10 ms              │ 200-400x │
-│   Memory for Sort     │ 75MB+                 │ 0 (index pre-sorted) │ 100%     │
-│   EXPLAIN Extra       │ "Using index cond"    │ "Using index"        │ -        │
-│                                                                                 │
-│   Trade-off:                                                                    │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ - Index size increases: ~200MB → ~400MB (+200MB)                        │   │
-│   │ - INSERT/UPDATE slightly slower (more index maintenance)                │   │
-│   │ - Worth it for high-frequency queries (this page viewed 100K+/day)      │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+| Metric minh họa | Before bookmark | After covering | So sánh trong ví dụ |
+| --- | --- | --- | --- |
+| Logical page accesses | 150.500 | 5 | 30.000× |
+| Physical reads | Tới 150.000 | 0–5 | Phụ thuộc cache |
+| Execution Time | 2–8 giây | 2–10 ms | Không phải cam kết 200–400× |
+| Memory sort | 75 MB+ | Không sort riêng nếu index thật sự cung cấp order | Tùy plan |
+| MySQL Extra | Using index condition | Using index | Hai thông tin khác nhau |
+
+Trade-off minh họa: index từ khoảng 200 MB tới 400 MB, thêm chi phí INSERT/UPDATE. Query đọc hơn 100.000 lần/ngày có thể đáng tối ưu, nhưng cần benchmark thực tế và ngân sách ghi/storage.
 
 ### Khi nào cần xử lý Bookmark Lookup
 
@@ -562,30 +491,27 @@ EXPLAIN (ANALYZE, BUFFERS) SELECT id, name, price FROM products WHERE category_i
 
 ### Tầm quan trọng của thứ tự cột
 
+```d2 title="Composite key theo thứ tự cột"
+direction: right
+n0: "customer_id"
+n1: "status trong cùng customer_id"
+n2: "created_at trong cùng customer_id và\nstatus"
+n0 -> n1
+n1 -> n2
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│              COMPOSITE INDEX COLUMN ORDER MATTERS!                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Index: CREATE INDEX idx_orders ON orders(customer_id, status, created_at)     │
-│                                                                                 │
-│   Imagine the index as a phone book sorted by: Last Name → First Name → City    │
-│                                                                                 │
-│   ┌────────────────────────────────────────────────────────────────────┐        │
-│   │ customer_id │ status   │ created_at    │ Row Pointer               │        │
-│   ├─────────────┼──────────┼───────────────┼───────────────────────────┤        │
-│   │ 100         │ active   │ 2024-01-01    │ → Row 5                   │        │
-│   │ 100         │ active   │ 2024-01-15    │ → Row 12                  │        │
-│   │ 100         │ pending  │ 2024-01-10    │ → Row 8                   │        │
-│   │ 101         │ active   │ 2024-01-05    │ → Row 3                   │        │
-│   │ 101         │ complete │ 2024-01-20    │ → Row 15                  │        │
-│   │ 102         │ active   │ 2024-01-02    │ → Row 1                   │        │
-│   └─────────────┴──────────┴───────────────┴───────────────────────────┘        │
-│                                                                                 │
-│   ✅ LEFT PREFIX RULE: Index can be used if query uses leftmost columns         │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Ví dụ `CREATE INDEX idx_orders ON orders(customer_id, status, created_at)` giống danh bạ sắp theo họ → tên → thành phố.
+
+| customer_id | status | created_at | Row locator |
+| --- | --- | --- | --- |
+| 100 | active | 2024-01-01 | Row 5 |
+| 100 | active | 2024-01-15 | Row 12 |
+| 100 | pending | 2024-01-10 | Row 8 |
+| 101 | active | 2024-01-05 | Row 3 |
+| 101 | complete | 2024-01-20 | Row 15 |
+| 102 | active | 2024-01-02 | Row 1 |
+
+Leftmost-prefix là điểm bắt đầu để suy luận access path; vẫn kiểm tra tối ưu riêng của engine bằng plan.
 
 ### Query nào sử dụng được Index?
 
@@ -715,46 +641,20 @@ H -> L
 EXPLAIN SELECT * FROM users WHERE email = 'john@example.com';
 ```
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         EXPLAIN OUTPUT ANALYSIS                                 │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│ +----+-------------+-------+------+---------------+----------+---------+-------+│
-│ | id | select_type | table | type | possible_keys | key      | key_len | rows  |│
-│ +----+-------------+-------+------+---------------+----------+---------+-------+│
-│ |  1 | SIMPLE      | users | ref  | idx_email     | idx_email| 767     | 1     |│
-│ +----+-------------+-------+------+---------------+----------+---------+-------+│
-│                                                                                 │
-│ Key columns explained:                                                          │
-│                                                                                 │
-│ ┌────────────────┬────────────────────────────────────────────────────────────┐ │
-│ │ Column         │ Meaning                                                    │ │
-│ ├────────────────┼────────────────────────────────────────────────────────────┤ │
-│ │ type           │ Access method (best to worst):                             │ │
-│ │                │ system > const > eq_ref > ref > range > index > ALL        │ │
-│ │                │                                                            │ │
-│ │ possible_keys  │ Indexes that COULD be used                                 │ │
-│ │ key            │ Index actually CHOSEN                                      │ │
-│ │ key_len        │ Bytes of index used (longer = more columns used)           │ │
-│ │ rows           │ Estimated rows to examine                                  │ │
-│ │ Extra          │ Additional info (Using index, Using filesort, etc.)        │ │
-│ └────────────────┴────────────────────────────────────────────────────────────┘ │
-│                                                                                 │
-│ Access Type Meanings:                                                           │
-│ ┌──────────┬──────────────────────────────────────────────────────────────┐     │
-│ │ Type     │ Description                                    │ Performance │     │
-│ ├──────────┼────────────────────────────────────────────────┼─────────────┤     │
-│ │ const    │ At most one matching row (PRIMARY KEY lookup)  │ ⭐⭐⭐⭐⭐  │     │
-│ │ eq_ref   │ One row per join (unique index)                │ ⭐⭐⭐⭐⭐  │     │
-│ │ ref      │ Multiple matching rows (non-unique index)      │ ⭐⭐⭐⭐    │     │
-│ │ range    │ Index range scan                               │ ⭐⭐⭐      │     │
-│ │ index    │ Full index scan (reads all index)              │ ⭐⭐        │     │
-│ │ ALL      │ Full table scan                                │ ⭐ BAD!     │     │
-│ └──────────┴────────────────────────────────────────────────┴─────────────┘     │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+| Column EXPLAIN MySQL | Ý nghĩa |
+| --- | --- |
+| type | Access method: system, const, eq_ref, ref, range, index, ALL |
+| possible_keys | Indexes có thể xét |
+| key | Index planner thực sự chọn |
+| key_len | Số byte key được dùng trong access |
+| rows | Ước lượng rows cần xét |
+| Extra | Using index, Using filesort, ... |
+
+| id | select_type | table | type | possible_keys | key | key_len | rows |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | SIMPLE | users | ref | idx_email | idx_email | 767 | 1 |
+
+`const` là lookup tối đa một row; `eq_ref` là unique lookup mỗi join input row; `ref` có thể nhiều matches; `range` đọc khoảng; `index` quét index; `ALL` quét table. Tên type riêng lẻ không đủ kết luận plan tốt hay xấu.
 
 ### Các giá trị "Extra" thường gặp
 
@@ -776,50 +676,15 @@ EXPLAIN SELECT * FROM users WHERE email = 'john@example.com';
 **Selectivity** = Mức độ mà index có thể thu hẹp kết quả tìm kiếm
 **Cardinality** = Số lượng giá trị phân biệt (distinct) trong một cột
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    SELECTIVITY VISUALIZATION                                    │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Table: users (1,000,000 rows)                                                 │
-│                                                                                 │
-│   Column: id (PRIMARY KEY)                                                      │
-│   ┌────────────────────────────────────────────────────────────────────────┐    │
-│   │ Cardinality: 1,000,000 (all unique)                                    │    │
-│   │ Selectivity: 1/1,000,000 = 0.0001% per value                           │    │
-│   │ ✅ PERFECT for index - each lookup returns 1 row                       │    │
-│   └────────────────────────────────────────────────────────────────────────┘    │
-│                                                                                 │
-│   Column: email (UNIQUE)                                                        │
-│   ┌────────────────────────────────────────────────────────────────────────┐    │
-│   │ Cardinality: 1,000,000 (all unique)                                    │    │
-│   │ Selectivity: 1/1,000,000 = 0.0001% per value                           │    │
-│   │ ✅ EXCELLENT for index                                                 │    │
-│   └────────────────────────────────────────────────────────────────────────┘    │
-│                                                                                 │
-│   Column: country                                                               │
-│   ┌────────────────────────────────────────────────────────────────────────┐    │
-│   │ Cardinality: 200 (200 countries)                                       │    │
-│   │ Selectivity: 1,000,000/200 = 5,000 rows per value                      │    │
-│   │ ⚠️ MODERATE - might use index, depends on data distribution            │    │
-│   └────────────────────────────────────────────────────────────────────────┘    │
-│                                                                                 │
-│   Column: gender                                                                │
-│   ┌────────────────────────────────────────────────────────────────────────┐    │
-│   │ Cardinality: 3 (male, female, other)                                   │    │
-│   │ Selectivity: 1,000,000/3 = 333,333 rows per value                      │    │
-│   │ ❌ POOR - reading 33% of table via index is SLOWER than full scan      │    │
-│   └────────────────────────────────────────────────────────────────────────┘    │
-│                                                                                 │
-│   Column: is_active                                                             │
-│   ┌────────────────────────────────────────────────────────────────────────┐    │
-│   │ Cardinality: 2 (true, false)                                           │    │
-│   │ Selectivity: 50% of table per value                                    │    │
-│   │ ❌ WORST - index is completely useless, full scan faster               │    │
-│   └────────────────────────────────────────────────────────────────────────┘    │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+| Column của users một triệu rows | Distinct values | Số matches minh họa | Suy luận ban đầu |
+| --- | --- | --- | --- |
+| id primary key | 1.000.000 | 1 mỗi key | Lookup thường có lợi |
+| email unique | 1.000.000 | 1 mỗi key | Lookup thường có lợi |
+| country | 200 | Khoảng 5.000 nếu phân bố đều | Đo phân bố và query projection |
+| gender | 3 | Khoảng 333.333 nếu đều | Scan có thể rẻ hơn lookup nhiều rows |
+| is_active | 2 | Khoảng 50% nếu đều | Không kết luận index vô dụng cho mọi query |
+
+Giả định phân bố đều chỉ phục vụ minh họa. Cardinality không thay thế selectivity của **giá trị cụ thể**; covering, partial predicate và skew có thể thay đổi plan.
 
 ### Ngưỡng Selectivity
 
@@ -954,49 +819,11 @@ SELECT * FROM orders WHERE status = 'active' AND customer_id = 100;
 
 ### Minh họa: Các pattern "giết" Index
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                        INDEX KILLER PATTERNS                                    │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Pattern 1: Function Wrapping                                                  │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ WHERE LOWER(email) = 'john@example.com'                                 │   │
-│   │       └─────┬─────┘                                                     │   │
-│   │             │                                                           │   │
-│   │             ▼                                                           │   │
-│   │   ❌ LOWER() applied to every row → Full Table Scan                     │   │
-│   │                                                                         │   │
-│   │   Fix: CREATE INDEX idx_email_lower ON users(LOWER(email));             │   │
-│   │        (Functional Index - PostgreSQL/MySQL 8.0+)                       │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   Pattern 2: Implicit Conversion                                                │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ Column: account_id VARCHAR(20)                                          │   │
-│   │ Query:  WHERE account_id = 12345                                        │   │
-│   │                             └──┬──┘                                     │   │
-│   │                                │                                        │   │
-│   │                                ▼                                        │   │
-│   │   ❌ All account_id values converted to INT → Full Table Scan           │   │
-│   │                                                                         │   │
-│   │   Fix: WHERE account_id = '12345'                                       │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   Pattern 3: Negative Conditions                                                │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ WHERE status <> 'deleted'                                               │   │
-│   │              └────┬────┘                                                │   │
-│   │                   │                                                     │   │
-│   │                   ▼                                                     │   │
-│   │   ❌ Must check all rows to find NON-matches → Less efficient           │   │
-│   │                                                                         │   │
-│   │   Fix: WHERE status IN ('active', 'pending', 'completed')               │   │
-│   │        (If you know all possible positive values)                       │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+| Pattern | Vấn đề có thể gặp | Candidate cần kiểm tra |
+| --- | --- | --- |
+| LOWER(email)=... | Index email gốc không cung cấp expression order | Index LOWER(email) hoặc chuẩn hóa theo hợp đồng dữ liệu |
+| VARCHAR account_id so với integer 12345 | Numeric conversion có thể cản string lookup | Bind chuỗi 12345 với đúng kiểu |
+| status <> deleted | Có thể match phần lớn bảng | Đo tỷ lệ match; positive IN chỉ khi tương đương và vẫn phải đo |
 
 ---
 
@@ -1020,41 +847,20 @@ LIMIT 20;
 -- EXPLAIN shows: type=ALL, rows=10000000 (Full table scan!)
 ```
 
+```d2 title="Thiết kế và đo composite index cho query orders"
+direction: down
+n0: "Phân loại predicate: customer_id equality,\nstatus IN, created_at range"
+n1: "Xét nhu cầu ORDER BY created_at DESC"
+n2: "So candidate\n(customer_id,status,created_at) với\n(customer_id,created_at,status)"
+n3: "Tạo candidate index trong môi trường phù\nhợp"
+n4: "EXPLAIN và benchmark lại, gồm cả scan,\nsort và chi phí ghi"
+n0 -> n1
+n1 -> n2
+n2 -> n3
+n3 -> n4
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         OPTIMIZATION PROCESS                                    │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Step 1: Analyze the query                                                     │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ • customer_id = 12345         → Equality, HIGH selectivity              │   │
-│   │ • status IN (...)             → Equality, LOW selectivity               │   │
-│   │ • created_at > ...            → Range condition                         │   │
-│   │ • ORDER BY created_at DESC    → Sorting requirement                     │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   Step 2: Design optimal index                                                  │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ Rule: Equality columns first, range/sort column last                    │   │
-│   │                                                                         │   │
-│   │ Option A: (customer_id, status, created_at)                             │   │
-│   │   ✅ customer_id filters first (very selective)                         │   │
-│   │   ✅ status further filters                                             │   │
-│   │   ✅ created_at for range AND sort (no filesort needed!)                │   │
-│   │                                                                         │   │
-│   │ Option B: (customer_id, created_at, status)                             │   │
-│   │   ⚠️ status after range column = status can't use index                 │   │
-│   │   (Range condition "breaks" the index for subsequent columns)           │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   Step 3: Create the index                                                      │
-│   CREATE INDEX idx_orders_customer_status_date                                  │
-│   ON orders(customer_id, status, created_at);                                   │
-│                                                                                 │
-│   Result: Query time 15 seconds → 5 milliseconds (3000x improvement!)           │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Ví dụ DDL: `CREATE INDEX idx_orders_customer_status_date ON orders(customer_id, status, created_at);`. Candidate A đưa status trước range; candidate B có thể cần lọc status sau access range. **IN nhiều status không tự bảo đảm** candidate A trả được thứ tự `created_at` toàn cục mà không sort. Mốc 15 giây → 5 ms (3.000×) là ví dụ minh họa của bài, không phải kết quả luôn đạt được.
 
 ### Ví dụ 2: Tìm kiếm user với Partial Match
 
@@ -1206,24 +1012,16 @@ ORDER BY pg_relation_size(i.indexrelid) DESC;
 
 ### Các chỉ số sức khỏe Index
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    INDEX HEALTH MONITORING DASHBOARD                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ METRIC                    │ HEALTHY    │ WARNING    │ CRITICAL          │   │
-│   ├───────────────────────────┼────────────┼────────────┼───────────────────┤   │
-│   │ Index Hit Ratio           │ > 99%      │ 95-99%     │ < 95%             │   │
-│   │ Index Scans vs Seq Scans  │ > 90%      │ 70-90%     │ < 70%             │   │
-│   │ Index Bloat               │ < 20%      │ 20-50%     │ > 50%             │   │
-│   │ Unused Indexes            │ 0          │ 1-3        │ > 3               │   │
-│   │ Missing Index Suggestions │ 0          │ 1-2        │ > 2               │   │
-│   │ Index Size vs Table Size  │ < 50%      │ 50-100%    │ > 100%            │   │
-│   └───────────────────────────┴────────────┴────────────┴───────────────────┘   │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+| Metric | Vùng healthy trong ví dụ | Warning minh họa | Critical minh họa |
+| --- | --- | --- | --- |
+| Index hit ratio | >99% | 95–99% | <95% |
+| Index scans / scan count | >90% | 70–90% | <70% |
+| Index bloat | <20% | 20–50% | >50% |
+| Unused indexes | 0 | 1–3 | >3 |
+| Missing-index suggestions | 0 | 1–2 | >2 |
+| Index size / table size | <50% | 50–100% | >100% |
+
+Các ngưỡng này là dashboard minh họa, **không phải SLO mặc định**. Ví dụ workload analytics có thể Seq Scan đúng, và index/table size >100% không tự chứng minh có sự cố. Đặt cảnh báo theo workload và xu hướng.
 
 ### PostgreSQL: Phát hiện Index Bloat
 
@@ -1372,31 +1170,20 @@ Phần này tập trung vào các tình huống bạn TẠO index nhưng databas
 
 ### Tổng quan: Các tình huống Index bị bỏ qua
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    WHY DATABASE IGNORES YOUR INDEX                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   You created index → Query still slow → EXPLAIN shows full table scan          │
-│                                                                                 │
-│   Common Reasons:                                                               │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ 1. Function/Expression on indexed column                                │   │
-│   │ 2. Implicit type conversion                                             │   │
-│   │ 3. LIKE with leading wildcard                                           │   │
-│   │ 4. OR conditions                                                        │   │
-│   │ 5. NOT, !=, <> operators                                                │   │
-│   │ 6. Low selectivity (optimizer chooses full scan)                        │   │
-│   │ 7. Wrong column order in composite index                                │   │
-│   │ 8. NULL comparisons (IS NULL / IS NOT NULL)                             │   │
-│   │ 9. Outdated statistics                                                  │   │
-│   │ 10. Small table (full scan faster)                                      │   │
-│   │ 11. Returning too many rows (>15-30% of table)                          │   │
-│   │ 12. Index hints ignored by optimizer                                    │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+Một index tồn tại nhưng query vẫn full scan có thể do:
+
+1. Function/expression hoặc cast không khớp key index.
+2. Type conversion làm đổi ngữ nghĩa so sánh.
+3. LIKE thiếu leading prefix.
+4. OR cần nhiều access paths.
+5. Predicate NOT/!=/<> hoặc IS NULL/IS NOT NULL có selectivity khác nhau.
+6. Nhiều rows cần trả khiến scan rẻ hơn.
+7. Composite key order không phù hợp.
+8. Statistics cũ gây estimate sai.
+9. Bảng nhỏ, table scan thực sự rẻ.
+10. Index hint không áp dụng hoặc không được engine ưu tiên như mong đợi.
+
+Không có ngưỡng tỷ lệ rows cố định cho mọi hệ thống; hãy đo plan, rows và I/O trước khi sửa.
 
 ### Lỗi 1: Dùng hàm trên cột đã đánh Index
 
@@ -1426,40 +1213,27 @@ SELECT * FROM users WHERE created_at + INTERVAL 1 DAY > NOW();
 Đối chiếu snippet trong Source Explorer
 </SourceRef>
 
+```d2 title="Function trên cột có thể khác key index đang lưu"
+direction: down
+b0: "Index email" {
+  n0: "Các keys: John@Example.com,\nJANE@COMPANY.COM, bob@test.org"
+  n1: "Index được tạo cho giá trị email gốc"
+  n0 -> n1
+}
+b1: "Predicate LOWER(email)" {
+  n0: "Tìm john@example.com sau khi LOWER"
+  n1: "Không tự có ordered access trên expression\nchưa được index"
+  n0 -> n1
+}
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         FUNCTION ON COLUMN - EXPLAINED                          │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Index on email stores:          Query needs:                                  │
-│   ┌─────────────────────┐         ┌─────────────────────┐                       │
-│   │ 'John@Example.com'  │   VS    │ LOWER('John@...') = │                       │
-│   │ 'JANE@COMPANY.COM'  │         │ 'john@example.com'  │                       │
-│   │ 'bob@test.org'      │         │                     │                       │
-│   └─────────────────────┘         └─────────────────────┘                       │
-│                                                                                 │
-│   Index cannot help because:                                                    │
-│   • Index stores 'John@Example.com'                                             │
-│   • Query looks for 'john@example.com' (after LOWER)                            │
-│   • These don't match in index lookup!                                          │
-│                                                                                 │
-│   ✅ SOLUTIONS:                                                                 │
-│                                                                                 │
-│   Solution 1: Rewrite query (best)                                              │
-│   SELECT * FROM users WHERE email = 'john@example.com';                         │
-│   -- Store emails in lowercase, compare as-is                                   │
-│                                                                                 │
-│   Solution 2: Functional Index (PostgreSQL/MySQL 8.0+)                          │
-│   CREATE INDEX idx_email_lower ON users((LOWER(email)));                        │
-│   SELECT * FROM users WHERE LOWER(email) = 'john@example.com'; -- Now works!    │
-│                                                                                 │
-│   Solution 3: Generated Column + Index (MySQL 5.7+)                             │
-│   ALTER TABLE users ADD email_lower VARCHAR(255)                                │
-│       GENERATED ALWAYS AS (LOWER(email)) STORED;                                │
-│   CREATE INDEX idx_email_lower ON users(email_lower);                           │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Các lựa chọn theo hợp đồng dữ liệu và engine:
+
+1. Lưu email chuẩn hóa lowercase và so sánh trực tiếp: `SELECT * FROM users WHERE email = 'john@example.com';` nếu đây là ngữ nghĩa mong muốn.
+2. Expression index, ví dụ `CREATE INDEX idx_email_lower ON users((LOWER(email)));`, rồi query cùng expression; kiểm tra cú pháp từng database.
+3. MySQL generated column: `ALTER TABLE users ADD email_lower VARCHAR(255) GENERATED ALWAYS AS (LOWER(email)) STORED;` rồi `CREATE INDEX idx_email_lower ON users(email_lower);`.
+
+Collation và khả năng rewrite của engine cũng ảnh hưởng, không khẳng định mọi LOWER luôn full scan.
 
 **Date Function Examples:**
 
@@ -1503,33 +1277,25 @@ SELECT * FROM accounts WHERE phone = 1234567890;
 -- Now it's a function on column → index ignored!
 ```
 
+```d2 title="Chuyển VARCHAR sang số làm mất đường lookup chuỗi"
+direction: right
+n0: "Column account_number: VARCHAR(20)"
+n1: "Predicate dùng integer 12345"
+n2: "Trong ví dụ MySQL: so sánh theo số,\nconvert giá trị cột"
+n3: "Có thể mất hiệu quả string index và mất ý\nnghĩa chuỗi"
+n0 -> n1
+n1 -> n2
+n2 -> n3
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    IMPLICIT TYPE CONVERSION - EXPLAINED                         │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Column type: VARCHAR(20)                                                      │
-│   Query value: 12345 (integer)                                                  │
-│                                                                                 │
-│   What MySQL does:                                                              │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ Row 1: account_number = '12345'  → CAST to INT → 12345  → Compare       │   │
-│   │ Row 2: account_number = '12346'  → CAST to INT → 12346  → Compare       │   │
-│   │ Row 3: account_number = '00123'  → CAST to INT → 123    → Compare       │   │
-│   │ Row 4: account_number = 'ABC12'  → CAST to INT → 0      → Compare       │   │
-│   │ ... (EVERY row must be converted!)                                      │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   ⚠️ Extra Problem: Data loss in conversion!                                    │
-│   • '00123' becomes 123 (leading zeros lost)                                    │
-│   • 'ABC12' becomes 0 (non-numeric converted to 0)                              │
-│   • You might get WRONG results!                                                │
-│                                                                                 │
-│   ✅ SOLUTION: Always match data types                                          │
-│   SELECT * FROM accounts WHERE account_number = '12345';                        │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+| Giá trị chuỗi | Giá trị số trong ví dụ |
+| --- | --- |
+| 12345 | 12345 |
+| 12346 | 12346 |
+| 00123 | 123 |
+| ABC12 | 0, có thể kèm warning/error tùy ngữ cảnh |
+
+Khớp kiểu bind parameter và column: `SELECT * FROM accounts WHERE account_number = '12345';`. Chuyển kiểu có thể làm mất leading zeros hoặc tạo kết quả không mong muốn; kiểm tra SQL mode và engine.
 
 **Type Conversion Rules:**
 
@@ -1559,47 +1325,29 @@ SELECT * FROM products WHERE name LIKE 'Samsung Galaxy%';  -- Uses index!
 SELECT * FROM products WHERE name LIKE '%Phone 15';
 ```
 
+```d2 title="LIKE prefix có điểm bắt đầu; substring thì không"
+direction: down
+b0: "LIKE iPhone%" {
+  n0: "B-Tree theo name: Apple Watch, Galaxy\nPhone, iPhone 15, MacBook, Pixel, Samsung\nTV"
+  n1: "Seek vào prefix iPhone nếu\ncollation/operator class phù hợp"
+  n2: "Scan trong khoảng prefix"
+  n0 -> n1
+  n1 -> n2
+}
+b1: "LIKE %Phone%" {
+  n0: "Phone có thể xuất hiện ở bất kỳ vị trí nào"
+  n1: "Không có một prefix range đơn giản"
+  n2: "Cần scan hoặc access path search chuyên\ndụng"
+  n0 -> n1
+  n1 -> n2
+}
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         LIKE WILDCARD - EXPLAINED                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   B-Tree Index on 'name' (sorted alphabetically):                               │
-│                                                                                 │
-│   ┌──────────────────────────────────────────────────────────────────────────┐  │
-│   │ Apple Watch │ Galaxy Phone │ iPhone 15 │ MacBook │ Pixel │ Samsung TV │  │  │
-│   └──────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                 │
-│   Query: WHERE name LIKE 'iPhone%'                                              │
-│   ✅ Can seek to 'iPhone' position, scan forward                                │
-│   ┌──────────────────────────────────────────────────────────────────────────┐  │
-│   │ Apple Watch │ Galaxy Phone │ [iPhone 15] │ MacBook │ Pixel │ Samsung TV  │  │ 
-│   └──────────────────────────────────────────────────────────────────────────┘  │
-│                              ↑ Start here                                       │
-│                                                                                 │
-│   Query: WHERE name LIKE '%Phone%'                                              │
-│   ❌ Where to start? 'Phone' could be ANYWHERE in string                        │
-│   ┌──────────────────────────────────────────────────────────────────────────┐  │
-│   │ Apple Watch │ [Galaxy Phone] │ [iPhone 15] │ MacBook │ Pixel │ Samsung │ │  │
-│   └──────────────────────────────────────────────────────────────────────────┘  │
-│        Must check ALL ↑              ↑ Also matches                             │
-│                                                                                 │
-│   ✅ SOLUTIONS:                                                                 │
-│                                                                                 │
-│   1. Full-Text Search Index (recommended for text search)                       │
-│      CREATE FULLTEXT INDEX idx_name_ft ON products(name);                       │
-│      SELECT * FROM products WHERE MATCH(name) AGAINST('phone');                 │
-│                                                                                 │
-│   2. Reverse index for suffix search (PostgreSQL)                               │
-│      CREATE INDEX idx_name_reverse ON products(REVERSE(name));                  │
-│      WHERE REVERSE(name) LIKE REVERSE('%Phone 15');                             │
-│                                                                                 │
-│   3. Trigram index (PostgreSQL pg_trgm extension)                               │
-│      CREATE INDEX idx_name_trgm ON products USING gin(name gin_trgm_ops);       │
-│      WHERE name LIKE '%phone%';  -- Now uses index!                             │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Các hướng khác tùy nhu cầu:
+
+- Full-text theo token: MySQL `CREATE FULLTEXT INDEX idx_name_ft ON products(name);`, query `MATCH(name) AGAINST('phone')`. **Không đồng nghĩa** substring matching.
+- Suffix: index expression `REVERSE(name)`, rồi so pattern đảo tương ứng; ví dụ `REVERSE(name) LIKE REVERSE('%Phone 15')` khi engine hỗ trợ dùng index.
+- PostgreSQL trigram: `CREATE INDEX idx_name_trgm ON products USING gin(name gin_trgm_ops);`, dùng pattern như `name LIKE '%phone%'` khi extension và plan phù hợp.
 
 ### Lỗi 4: Điều kiện OR
 
@@ -1617,45 +1365,20 @@ WHERE customer_id = 100 OR status = 'pending';
 -- • Cost of index merge > full scan
 ```
 
+```d2 title="OR có thể kết hợp hai tập row locations"
+direction: right
+customer: "idx_customer: customer_id=100 →\n{1,5,10,...}"
+status: "idx_status: status=pending → {2,5,15,...}"
+union: "UNION row IDs → {1,2,5,10,15,...}"
+fetch: "Fetch rows theo IDs"
+customer -> union
+status -> union
+union -> fetch
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                            OR CONDITIONS - EXPLAINED                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Query: WHERE customer_id = 100 OR status = 'pending'                          │
-│                                                                                 │
-│   Option 1: Use idx_customer                                                    │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ Find customer_id = 100 → 50 rows                                        │   │
-│   │ But what about status = 'pending'? Index doesn't help!                  │   │
-│   │ Must scan remaining rows → defeats purpose                              │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   Option 2: Index Merge (if optimizer supports)                                 │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ Scan idx_customer for customer_id = 100 → Row IDs: {1, 5, 10, ...}      │   │
-│   │ Scan idx_status for status = 'pending' → Row IDs: {2, 5, 15, ...}       │   │
-│   │ UNION both sets → {1, 2, 5, 10, 15, ...}                                │   │
-│   │ Fetch rows by IDs                                                       │   │
-│   │ ⚠️ Expensive if both return many rows                                   │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   ✅ SOLUTIONS:                                                                 │
-│                                                                                 │
-│   Solution 1: UNION (guaranteed to use both indexes)                            │
-│   SELECT * FROM orders WHERE customer_id = 100                                  │
-│   UNION                                                                         │
-│   SELECT * FROM orders WHERE status = 'pending';                                │
-│                                                                                 │
-│   Solution 2: Composite index (if pattern is common)                            │
-│   CREATE INDEX idx_composite ON orders(customer_id, status);                    │
-│   -- But only helps if BOTH conditions use same index                           │
-│                                                                                 │
-│   Solution 3: Rethink the query                                                 │
-│   -- Maybe two separate queries are better for your use case                    │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Query là `customer_id=100 OR status='pending'`. Chỉ lookup một nhánh không đủ trả đúng cả hai điều kiện. Engine có thể dùng index merge/BitmapOr, hoặc scan nếu hai nhánh trả nhiều rows.
+
+Có thể viết hai SELECT với `UNION`, nhưng **không bảo đảm** optimizer dùng cả hai index. `UNION` loại trùng; `UNION ALL` cần xử lý trường hợp một row thỏa cả hai nhánh. Composite `(customer_id,status)` không tự giải quyết OR giữa hai cột bằng một prefix seek; chọn thiết kế theo plan và ngữ nghĩa.
 
 ### Lỗi 5: Toán tử NOT, !=, <>
 
@@ -1671,51 +1394,30 @@ SELECT * FROM orders WHERE NOT status = 'archived';
 -- Full scan might be faster than index scan + row lookup
 ```
 
+```d2 title="Predicate phủ 99% bảng thường làm lookup kém hấp dẫn"
+direction: down
+b0: "Index path" {
+  n0: "status != deleted trả 990.000 trong một\ntriệu rows"
+  n1: "Duyệt entries và lấy rows; có thể nhiều\nrandom heap accesses"
+  n0 -> n1
+}
+b1: "Table scan" {
+  n0: "Đọc tuần tự bảng"
+  n1: "Lọc bỏ 10.000 deleted rows"
+  n2: "Có thể rẻ hơn trong cost model"
+  n0 -> n1
+  n1 -> n2
+}
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                        NEGATIVE CONDITIONS - EXPLAINED                          │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Table: 1,000,000 orders                                                       │
-│   Status distribution:                                                          │
-│   • 'active':    500,000 (50%)                                                  │
-│   • 'completed': 400,000 (40%)                                                  │
-│   • 'pending':    90,000 (9%)                                                   │
-│   • 'deleted':    10,000 (1%)                                                   │
-│                                                                                 │
-│   Query: WHERE status != 'deleted'                                              │
-│   Returns: 990,000 rows (99% of table!)                                         │
-│                                                                                 │
-│   Using Index:                                                                  │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ 1. Scan index for all NON-'deleted' entries                             │   │
-│   │ 2. For each entry (990,000), do random I/O to fetch row                 │   │
-│   │ 3. Total: 990,000 random disk reads! VERY SLOW                          │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   Using Full Scan:                                                              │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ 1. Sequential read of entire table                                      │   │
-│   │ 2. Filter out 'deleted' rows                                            │   │
-│   │ 3. Sequential I/O is MUCH faster than random I/O                        │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   ✅ SOLUTIONS:                                                                 │
-│                                                                                 │
-│   Solution 1: Rewrite as positive condition                                     │
-│   SELECT * FROM orders WHERE status IN ('active', 'completed', 'pending');      │
-│                                                                                 │
-│   Solution 2: Partial index (PostgreSQL)                                        │
-│   CREATE INDEX idx_not_deleted ON orders(created_at)                            │
-│   WHERE status != 'deleted';                                                    │
-│   -- Index only contains non-deleted rows!                                      │
-│                                                                                 │
-│   Solution 3: Soft delete with boolean + partial index                          │
-│   ALTER TABLE orders ADD is_deleted BOOLEAN DEFAULT FALSE;                      │
-│   CREATE INDEX idx_active ON orders(created_at) WHERE is_deleted = FALSE;       │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+| Status | Rows | Tỷ lệ |
+| --- | --- | --- |
+| active | 500.000 | 50% |
+| completed | 400.000 | 40% |
+| pending | 90.000 | 9% |
+| deleted | 10.000 | 1% |
+
+Không đồng nhất 990.000 lookups với 990.000 physical reads. Viết `status IN ('active','completed','pending')` chỉ đúng nếu bao quát đúng ngữ nghĩa, và không tự làm 99% rows thành ít selective. Có thể đánh giá partial index `ON orders(created_at) WHERE status != 'deleted'` hoặc `ON orders(created_at) WHERE is_deleted = FALSE`; nếu giữ 99% bảng, lợi ích vẫn cần đo.
 
 ### Lỗi 6: Selectivity thấp / Cardinality thấp
 
@@ -1731,45 +1433,29 @@ SELECT * FROM users WHERE is_active = TRUE;  -- Returns 90% of table
 -- "Using index returns too many rows, full scan is faster"
 ```
 
+```d2 title="Optimizer so chi phí index và full scan khi trả nhiều rows"
+direction: down
+b0: "Index Scan" {
+  n0: "Đọc index"
+  n1: "Nhiều bookmark / heap lookups"
+  n2: "Random access và cache ảnh hưởng tổng cost"
+  n0 -> n1
+  n1 -> n2
+}
+b1: "Full scan" {
+  n0: "Đọc table pages theo access path scan"
+  n1: "Lọc kết quả"
+  n2: "Có thể rẻ hơn khi cần phần lớn dữ liệu"
+  n0 -> n1
+  n1 -> n2
+}
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         SELECTIVITY PROBLEM - EXPLAINED                         │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   The 15-30% Rule:                                                              │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ If query returns MORE than 15-30% of table rows,                        │   │
-│   │ optimizer usually prefers FULL TABLE SCAN over INDEX SCAN               │   │
-│   └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   Why?                                                                          │
-│   Index Scan Cost:                                                              │
-│   • Random I/O to read index pages                                              │
-│   • Random I/O to fetch each row (bookmark lookup)                              │
-│   • 500,000 random reads = VERY SLOW                                            │
-│                                                                                 │
-│   Full Scan Cost:                                                               │
-│   • Sequential I/O to read table pages                                          │
-│   • Read all 1,000,000 rows in order                                            │
-│   • Sequential I/O = 10-100x faster than random I/O                             │
-│                                                                                 │
-│   ✅ SOLUTIONS:                                                                 │
-│                                                                                 │
-│   Solution 1: Combine with high-selectivity column                              │
-│   CREATE INDEX idx_gender_created ON users(gender, created_at);                 │
-│   SELECT * FROM users WHERE gender = 'M' AND created_at > '2024-01-01';         │
-│   -- created_at adds selectivity                                                │
-│                                                                                 │
-│   Solution 2: Covering index (avoid row lookup)                                 │
-│   CREATE INDEX idx_gender_cover ON users(gender) INCLUDE (name, email);         │
-│   SELECT name, email FROM users WHERE gender = 'M';                             │
-│   -- No bookmark lookup needed!                                                 │
-│                                                                                 │
-│   Solution 3: Accept it (sometimes full scan is correct choice)                 │
-│   -- If you need 50% of table, full scan might truly be best                    │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Không có luật “15–30% thì phải full scan”. Các lựa chọn cần đo gồm:
+
+- Thêm điều kiện giảm số rows thực cần: index `(gender,created_at)`, query `gender='M' AND created_at>'2024-01-01'`.
+- Covering theo engine, ví dụ `ON users(gender) INCLUDE(name,email)` để phục vụ `SELECT name,email ...`; PostgreSQL còn xét visibility.
+- Chấp nhận full scan nếu thật sự rẻ hơn. Các số 500.000 lookups hay 10–100× I/O chỉ là mô hình minh họa, không phải benchmark.
 
 ### Lỗi 7: Sai thứ tự cột trong Composite Index
 
@@ -1791,40 +1477,31 @@ SELECT * FROM orders WHERE status = 'active' AND created_at > '2024-01-01';
 -- Uses 'status' only, can't use 'created_at' (skipped customer_id)
 ```
 
+```d2 title="Customer 100 rải qua nhiều nhóm status trong composite key"
+direction: right
+query: "WHERE customer_id=100"
+active: "Nhóm status=active"
+pending: "Nhóm status=pending"
+a: "Rows 5,12 của customer 100"
+p: "Row 15 của customer 100"
+query -> active
+query -> pending
+active -> a
+pending -> p
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    COMPOSITE INDEX ORDER - EXPLAINED                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Index: (status, customer_id, created_at)                                      │
-│                                                                                 │
-│   Think of it as a phone book sorted by:                                        │
-│   Last Name → First Name → City                                                 │
-│                                                                                 │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ status   │ customer_id │ created_at  │ Row Pointer                      │   │
-│   ├──────────┼─────────────┼─────────────┼──────────────────────────────────┤   │
-│   │ active   │ 100         │ 2024-01-01  │ → Row 5                          │   │
-│   │ active   │ 100         │ 2024-01-15  │ → Row 12                         │   │
-│   │ active   │ 101         │ 2024-01-05  │ → Row 3                          │   │
-│   │ active   │ 102         │ 2024-01-10  │ → Row 8                          │   │
-│   │ pending  │ 100         │ 2024-01-20  │ → Row 15                         │   │
-│   │ pending  │ 103         │ 2024-01-02  │ → Row 1                          │   │
-│   └──────────┴─────────────┴─────────────┴──────────────────────────────────┘   │
-│                                                                                 │
-│   Query: WHERE customer_id = 100 (without status)                               │
-│   ❌ Can't use index! Data for customer 100 is SCATTERED:                       │
-│      Row 5, Row 12 (under 'active')                                             │
-│      Row 15 (under 'pending')                                                   │
-│   Index is sorted by STATUS first, not customer_id                              │
-│                                                                                 │
-│   ✅ SOLUTION: Create index with right column order                             │
-│   For query WHERE customer_id = ? → CREATE INDEX idx_customer(customer_id)      │
-│   For query WHERE customer_id = ? AND status = ? AND created_at > ?             │
-│   → CREATE INDEX idx_optimal(customer_id, status, created_at)                   │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+Index đang xét là `(status,customer_id,created_at)`, sắp theo status trước.
+
+| status | customer_id | created_at | Row |
+| --- | --- | --- | --- |
+| active | 100 | 2024-01-01 | 5 |
+| active | 100 | 2024-01-15 | 12 |
+| active | 101 | 2024-01-05 | 3 |
+| active | 102 | 2024-01-10 | 8 |
+| pending | 100 | 2024-01-20 | 15 |
+| pending | 103 | 2024-01-02 | 1 |
+
+Một prefix seek đơn giản không gom mọi customer 100 thành một khoảng theo cột đầu; engine vẫn có thể chọn scan/skip scan khác. Với query chủ yếu theo customer, đánh giá index `(customer_id)` hoặc `(customer_id,status,created_at)` cho query có thêm status và range date.
 
 ### Lỗi 8: Statistics lỗi thời
 
@@ -1868,51 +1545,28 @@ EXPLAIN FORMAT=JSON SELECT * FROM orders WHERE customer_id = 100;
 EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = 100;
 ```
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         EXPLAIN OUTPUT - MYSQL                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│ +----+-------------+--------+------+---------------+---------+---------+-------+│
-│ | id | select_type | table  | type | possible_keys | key     | key_len | rows  |│
-│ +----+-------------+--------+------+---------------+---------+---------+-------+│
-│ | 1  | SIMPLE      | orders | ref  | idx_customer  | idx_cust| 4       | 150   |│
-│ +----+-------------+--------+------+---------------+---------+---------+-------+│
-│                                                                                 │
-│   KEY COLUMNS:                                                                  │
-│   ┌────────────────┬────────────────────────────────────────────────────────┐   │
-│   │ possible_keys  │ Indexes AVAILABLE for this query                       │   │
-│   │ key            │ Index ACTUALLY CHOSEN by optimizer                     │   │
-│   │ key_len        │ Bytes of index used (more = more columns used)         │   │
-│   │ rows           │ ESTIMATED rows to examine                              │   │
-│   │ type           │ Access method used                                     │   │
-│   │ Extra          │ Additional execution info                              │   │
-│   └────────────────┴────────────────────────────────────────────────────────┘   │
-│                                                                                 │
-│   TYPE VALUES (Best to Worst):                                                  │
-│   ┌──────────┬──────────────────────────────────────────────┬───────────────┐   │
-│   │ Type     │ Meaning                                      │ Performance   │   │
-│   ├──────────┼──────────────────────────────────────────────┼───────────────┤   │
-│   │ system   │ Table has only 1 row                         │ ⭐⭐⭐⭐⭐    │   │
-│   │ const    │ At most 1 row (PRIMARY/UNIQUE lookup)        │ ⭐⭐⭐⭐⭐    │   │
-│   │ eq_ref   │ 1 row per join (UNIQUE index)                │ ⭐⭐⭐⭐⭐    │   │
-│   │ ref      │ Multiple rows (non-unique index)             │ ⭐⭐⭐⭐      │   │
-│   │ range    │ Index range scan                             │ ⭐⭐⭐        │   │
-│   │ index    │ Full INDEX scan (reads entire index)         │ ⭐⭐          │   │
-│   │ ALL      │ Full TABLE scan (worst!)                     │ ⭐ BAD!       │   │
-│   └──────────┴──────────────────────────────────────────────┴───────────────┘   │
-│                                                                                 │
-│   EXTRA VALUES TO WATCH:                                                        │
-│   ┌─────────────────────────┬───────────────────────────────────────────────┐   │
-│   │ Using index             │ ✅ Covering index - no table access!          │   │
-│   │ Using where             │ ⚠️ Filter applied after index (normal)        │   │
-│   │ Using filesort          │ ⚠️ Extra sort operation needed                │   │
-│   │ Using temporary         │ ⚠️ Temp table created                         │   │
-│   │ Using index condition   │ ✅ Index condition pushdown (optimization)    │   │
-│   └─────────────────────────┴───────────────────────────────────────────────┘   │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+| id | select_type | table | type | possible_keys | key | key_len | rows |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | SIMPLE | orders | ref | idx_customer | idx_cust | 4 | 150 |
+
+| Field | Đọc như thế nào |
+| --- | --- |
+| possible_keys | Indexes có thể dùng |
+| key | Index thực sự chọn |
+| key_len | Số byte key dùng cho access |
+| rows | Estimated rows |
+| type | system / const / eq_ref / ref / range / index / ALL |
+| Extra | Thông tin thực thi bổ sung |
+
+| Extra | Ý nghĩa |
+| --- | --- |
+| Using index | Covering access trong MySQL |
+| Using where | Có filter |
+| Using filesort | Có sort ngoài thứ tự access hiện tại |
+| Using temporary | Có internal temporary table |
+| Using index condition | Index condition pushdown |
+
+`system`/`const`/`eq_ref` mô tả các kiểu lookup hẹp; `ref`/`range` vẫn có thể trả nhiều rows; `index` quét index; `ALL` quét table. Không xếp “tốt/xấu” chỉ theo tên access type.
 
 ### Sử dụng EXPLAIN (PostgreSQL)
 
@@ -1928,44 +1582,27 @@ EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
 SELECT * FROM orders WHERE customer_id = 100;
 ```
 
+Ví dụ PostgreSQL — giữ execution plan để đối chiếu:
+
+```text
+EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = 100;
+Index Scan using idx_customer on orders
+  (cost=0.43..8.45 rows=1 width=100)
+  (actual time=0.025..0.026 rows=1 loops=1)
+  Index Cond: (customer_id = 100)
+Planning Time: 0.085 ms
+Execution Time: 0.045 ms
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                       EXPLAIN OUTPUT - POSTGRESQL                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│ EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = 100;                   │
-│                                                                                 │
-│ ┌─────────────────────────────────────────────────────────────────────────────┐ │
-│ │ Index Scan using idx_customer on orders                                     │ │
-│ │   (cost=0.43..8.45 rows=1 width=100)                                        │ │
-│ │   (actual time=0.025..0.026 rows=1 loops=1)                                 │ │
-│ │   Index Cond: (customer_id = 100)                                           │ │
-│ │ Planning Time: 0.085 ms                                                     │ │
-│ │ Execution Time: 0.045 ms                                                    │ │
-│ └─────────────────────────────────────────────────────────────────────────────┘ │
-│                                                                                 │
-│   SCAN TYPES:                                                                   │
-│   ┌─────────────────────────┬───────────────────────────────────────────────┐   │
-│   │ Seq Scan                │ Full table scan (no index)                    │   │
-│   │ Index Scan              │ Uses index, then fetches rows from table      │   │
-│   │ Index Only Scan         │ ✅ Covering index - no table access!          │   │
-│   │ Bitmap Index Scan       │ Builds bitmap of row locations, then fetches  │   │
-│   │ Bitmap Heap Scan        │ Fetches rows from bitmap                      │   │
-│   └─────────────────────────┴───────────────────────────────────────────────┘   │
-│                                                                                 │
-│   COST FORMAT: (startup_cost..total_cost rows=X width=Y)                        │
-│   • startup_cost: Cost before first row returned                                │
-│   • total_cost: Cost to return all rows                                         │
-│   • rows: Estimated number of rows                                              │
-│   • width: Average row size in bytes                                            │
-│                                                                                 │
-│   ACTUAL FORMAT: (actual time=X..Y rows=Z loops=N)                              │
-│   • time: Milliseconds to first row..last row                                   │
-│   • rows: Actual rows returned                                                  │
-│   • loops: Number of times this node executed                                   │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+
+| Scan type | Ý nghĩa |
+| --- | --- |
+| Seq Scan | Scan table |
+| Index Scan | Đọc index rồi fetch rows |
+| Index Only Scan | Có đủ cột ở index; PostgreSQL vẫn có thể kiểm tra heap visibility |
+| Bitmap Index Scan | Xây bitmap row locations |
+| Bitmap Heap Scan | Đọc heap theo bitmap |
+
+`cost=startup_cost..total_cost rows=X width=Y`: cost là đơn vị planner, rows là ước lượng, width là độ rộng row trung bình theo byte. `actual time=X..Y rows=Z loops=N`: time theo milliseconds; rows và time ở node lặp là giá trị trung bình mỗi loop.
 
 ### Đọc EXPLAIN: Ví dụ thực tế
 
@@ -1973,42 +1610,35 @@ SELECT * FROM orders WHERE customer_id = 100;
 -- Example 1: Good - Index is used
 EXPLAIN SELECT * FROM users WHERE email = 'john@example.com';
 ```
+```text
+Index Scan using idx_email on users
+  Index Cond: (email = 'john@example.com')
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ RESULT: Index Scan using idx_email on users                                  │
-│         Index Cond: (email = 'john@example.com')                             │
-│                                                                              │
-│ ✅ GOOD: "Index Scan using idx_email" means index is used                    │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+
+Index được dùng; tiếp tục kiểm tra rows, loops và I/O để đánh giá hiệu quả.
 
 ```sql
 -- Example 2: Bad - Full table scan
 EXPLAIN SELECT * FROM users WHERE LOWER(email) = 'john@example.com';
 ```
+```text
+Seq Scan on users
+  Filter: (lower(email) = 'john@example.com')
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ RESULT: Seq Scan on users                                                    │
-│         Filter: (lower(email) = 'john@example.com')                          │
-│                                                                              │
-│ ❌ BAD: "Seq Scan" means full table scan, index ignored                      │
-│ Reason: LOWER() function prevents index usage                                │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+
+Plan này scan và filter LOWER(email). Kiểm tra expression index hoặc cách chuẩn hóa dữ liệu; không kết luận mọi Seq Scan đều sai.
 
 ```sql
 -- Example 3: Covering index (best)
 EXPLAIN SELECT email, name FROM users WHERE email = 'john@example.com';
 -- Index: CREATE INDEX idx_email_cover ON users(email) INCLUDE (name);
 ```
+```text
+Index Only Scan using idx_email_cover on users
+  Index Cond: (email = 'john@example.com')
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ RESULT: Index Only Scan using idx_email_cover on users                       │
-│         Index Cond: (email = 'john@example.com')                             │
-│                                                                              │
-│ ✅ BEST: "Index Only Scan" - no table access needed at all!                  │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+
+Covering path được chọn. PostgreSQL còn có thể đọc heap để kiểm tra visibility, xem Heap Fetches.
 
 ### Sơ đồ chẩn đoán nhanh
 
@@ -2078,37 +1708,26 @@ M -> U
 
 ### Checklist thiết kế Index
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         INDEX DESIGN CHECKLIST                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│   Before Creating Index:                                                        │
-│   □ Analyzed slow query log for common patterns                                 │
-│   □ Checked if similar index already exists                                     │
-│   □ Verified column selectivity is high enough                                  │
-│   □ Considered impact on write operations                                       │
-│                                                                                 │
-│   Index Column Order:                                                           │
-│   □ Equality conditions (=) columns first                                       │
-│   □ High selectivity columns before low selectivity                             │
-│   □ Range conditions (<, >, BETWEEN) columns last                               │
-│   □ ORDER BY columns at end (if applicable)                                     │
-│                                                                                 │
-│   After Creating Index:                                                         │
-│   □ Verified with EXPLAIN that index is used                                    │
-│   □ Checked 'type' is ref/range/const (not ALL)                                 │
-│   □ Confirmed estimated rows are reasonable                                     │
-│   □ Tested query performance improvement                                        │
-│                                                                                 │
-│   Ongoing Maintenance:                                                          │
-│   □ Monitor index usage statistics                                              │
-│   □ Remove unused indexes                                                       │
-│   □ Update statistics after large data changes                                  │
-│   □ Rebuild fragmented indexes periodically                                     │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+**Trước khi tạo:**
+
+- [ ] Xác định workload từ slow query log và query patterns.
+- [ ] Kiểm tra index tương tự/overlap.
+- [ ] Đo selectivity theo giá trị thật, không chỉ số distinct.
+- [ ] Tính write/storage cost.
+
+**Thiết kế:**
+
+- [ ] Xét equality prefix, ranges và nhu cầu ORDER BY/LIMIT cùng nhau.
+- [ ] Đừng coi selectivity cao luôn phải đứng đầu mọi composite index.
+- [ ] Kiểm tra order nhiều range/IN và covering theo engine.
+
+**Sau khi tạo:**
+
+- [ ] Đọc EXPLAIN, so rows và actual I/O/time.
+- [ ] Xác nhận hiệu năng query cải thiện dưới tải tương đương.
+- [ ] Đo tác động ghi và memory/cache.
+
+**Vận hành:** theo dõi usage, index thừa, statistics và bloat. Rebuild chỉ khi có lý do và kế hoạch, không chạy định kỳ máy móc.
 
 ### Quick Reference: Index Problem Diagnosis
 

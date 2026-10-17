@@ -1,0 +1,206 @@
+[
+  {
+    "file": "content/docs/fundamentals/isolation-levels.md",
+    "sha256": "a51a6e4ae3127f98bb601b585b28f01dc545a800137330bcaebea86913cb98dd",
+    "firstLine": "T1 → COMMIT thành công",
+    "reason": "Thông báo transaction/serialization failure cần nguyên văn để đối chiếu; không chuyển output lỗi thành hình."
+  },
+  {
+    "file": "content/docs/fundamentals/join-deep-dive.md",
+    "sha256": "2acab82773bb9eec9d7ab226454a9096b9c4518ecead8013c404bcdb273645b7",
+    "firstLine": "customers                    orders",
+    "reason": "Bảng dữ liệu mẫu/kết quả SQL hoặc entries trong leaf: giữ các rows, cột và giá trị đối chiếu với query; không phải sơ đồ."
+  },
+  {
+    "file": "content/docs/fundamentals/join-deep-dive.md",
+    "sha256": "84dd573fa4f650915e7ce97f85283fdff918b41f8180a92f46a4096e06fef682",
+    "firstLine": "name │ total",
+    "reason": "Bảng dữ liệu mẫu/kết quả SQL hoặc entries trong leaf: giữ các rows, cột và giá trị đối chiếu với query; không phải sơ đồ."
+  },
+  {
+    "file": "content/docs/fundamentals/join-deep-dive.md",
+    "sha256": "ed086ce1fbd54c0f1c4b78eaf9a276c30776e013ad9afe73d59c81d634fb8270",
+    "firstLine": "name │ total",
+    "reason": "Bảng dữ liệu mẫu/kết quả SQL hoặc entries trong leaf: giữ các rows, cột và giá trị đối chiếu với query; không phải sơ đồ."
+  },
+  {
+    "file": "content/docs/fundamentals/join-deep-dive.md",
+    "sha256": "8c06fd9e5b63d2778d2f2a9a8e1ff198f9530c81564767a03666bd391cfe488b",
+    "firstLine": "name │ total",
+    "reason": "Bảng dữ liệu mẫu/kết quả SQL hoặc entries trong leaf: giữ các rows, cột và giá trị đối chiếu với query; không phải sơ đồ."
+  },
+  {
+    "file": "content/docs/fundamentals/mvcc.md",
+    "sha256": "20140ef5866540e28845632bfac88306f8413d77303cf468c1ad9d8aa90dcf53",
+    "firstLine": "        đã cũ                vùng đang xét              tương lai",
+    "reason": "Snapshot transaction-ID timeline, vị trí active/committed trên cùng thang cần giữ để đối chiếu xmin/xmax."
+  },
+  {
+    "file": "content/docs/fundamentals/mvcc.md",
+    "sha256": "a51a6e4ae3127f98bb601b585b28f01dc545a800137330bcaebea86913cb98dd",
+    "firstLine": "T1 → COMMIT thành công",
+    "reason": "Thông báo transaction/serialization failure cần nguyên văn để đối chiếu; không chuyển output lỗi thành hình."
+  },
+  {
+    "file": "content/docs/fundamentals/subquery-vs-cte-vs-temp-table.md",
+    "sha256": "a210fd9f1bfbf42c1dcbc32392d66d9eaabe97bb1ddd9f66af16b6458a63339b",
+    "firstLine": "-- MySQL: nếu thấy `<derived2>` hoặc `<subquery2>` → materialized",
+    "reason": "SQL EXPLAIN nguyên văn và comment về materialized/inlined, không phải flowchart."
+  },
+  {
+    "file": "content/docs/interview/logical-vs-physical-query-execution.md",
+    "sha256": "eac16cfab366af63fc024b4f0850d1723f36dcfcb3004d6c5ce83cbc71bd1bd6",
+    "firstLine": "customers",
+    "reason": "Bảng dữ liệu mẫu/kết quả SQL hoặc entries trong leaf: giữ các rows, cột và giá trị đối chiếu với query; không phải sơ đồ."
+  },
+  {
+    "file": "content/docs/interview/select-star-vs-columns.md",
+    "sha256": "7c5b0fb11d222f136d9270a77d21f790e48fb69dd14669f17b4e907f5687efeb",
+    "firstLine": " Index Only Scan using idx_orders_user on orders",
+    "reason": "Execution plan và chú thích estimated/actual giữ indentation, tên node, số liệu và format để đọc cùng EXPLAIN."
+  },
+  {
+    "file": "content/docs/interview/select-star-vs-columns.md",
+    "sha256": "18e52e9eba1079a33bda581fab9bd8cd11c16ee75b6a0ad4fc228b227c61067d",
+    "firstLine": " Index Scan using idx_orders_user on orders   ← KHÔNG phải \"Index ONLY\"",
+    "reason": "Execution plan và chú thích estimated/actual giữ indentation, tên node, số liệu và format để đọc cùng EXPLAIN."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "b242d018d56f59b3379c180112058034b7c3adb3aa40f7ec5a08515bde588704",
+    "firstLine": "(10, 'paid',    '2024-01-01')   vs   (10, 'paid',    '2024-01-02')",
+    "reason": "Ví dụ UTF-8 bytes, LIKE literals hoặc so sánh tuple theo vị trí; không chuyển các giá trị cần đối chiếu thành nodes."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "3ea342b26d6ba5e924e1d1e63016b8a6516339bc79a4fac7f38a2bc53e403e3c",
+    "firstLine": "(10, 'shipped', '2024-12-31')   <   (11, 'paid',    '2020-01-01')",
+    "reason": "Ví dụ UTF-8 bytes, LIKE literals hoặc so sánh tuple theo vị trí; không chuyển các giá trị cần đối chiếu thành nodes."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "e5645abd838df585635ae33b8578f42bd3da6ff8bbcb7511bfded1a260710589",
+    "firstLine": "┌──────────────────────────────────────────────────────────────────────┐",
+    "reason": "Bảng dữ liệu mẫu/kết quả SQL hoặc entries trong leaf: giữ các rows, cột và giá trị đối chiếu với query; không phải sơ đồ."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "623073f482446d4d1833052ccedd97e8243561e3fcd148ab7a873fb0f118e2e7",
+    "firstLine": "Encoded key của (90341, 'paid', '2025-01-15')",
+    "reason": "Byte/bit layout cần căn đúng vị trí các phần key hoặc UUID; giữ để đối chiếu ký tự literal."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "2f39ff085a7945edf6bb330ac195a9b3dc9dc19a2fd8d9939738529205b8f821",
+    "firstLine": "status = 'paid'                 → 60.000.000 rows (60%)",
+    "reason": "Số liệu selectivity/cardinality hoặc công thức số byte key_len cần đọc như bảng số liệu, không phải luồng."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "96388b89a209590dc9b8fd3e9b2d5891bcba9e083d666803529851e8790de339",
+    "firstLine": "customer_id  có ~100,000 giá trị → selectivity 0.000002 (cực cao)",
+    "reason": "Số liệu selectivity/cardinality hoặc công thức số byte key_len cần đọc như bảng số liệu, không phải luồng."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "048568efe41ddb3d97d2e61b060d80cfc351aeba48d25e711af9e6c449a4dd9b",
+    "firstLine": "customer_id BIGINT     → 8 bytes",
+    "reason": "Số liệu selectivity/cardinality hoặc công thức số byte key_len cần đọc như bảng số liệu, không phải luồng."
+  },
+  {
+    "file": "content/docs/optimization/dml-index-impact-deep-dive.md",
+    "sha256": "9f2ba5125c5732e16c28301827bd9a681757d5fb64d383428814d5a54a106ff3",
+    "firstLine": "Time:    ▼ checkpoint                       ▼ checkpoint",
+    "reason": "Sparkline WAL theo thời gian; cần trục thời gian, D2 graph không thể hiện định lượng đúng."
+  },
+  {
+    "file": "content/docs/optimization/explain-analyze-deep-dive.md",
+    "sha256": "ed4ba9d018bff369c99358db963fdc8b4149c5deddc570510a43226e42b13206",
+    "firstLine": "Seq Scan on orders (cost=... rows=1240 ...) (actual ... rows=1198 loops=1)",
+    "reason": "Execution plan và chú thích estimated/actual giữ indentation, tên node, số liệu và format để đọc cùng EXPLAIN."
+  },
+  {
+    "file": "content/docs/optimization/explain-analyze-deep-dive.md",
+    "sha256": "710347b6c42e6559980ebdc7feec6ff772107f2386d0af43be57e79beb0b0dae",
+    "firstLine": "Nested Loop (cost=... rows=5 ...) (actual ... rows=2000000 loops=1)",
+    "reason": "Execution plan và chú thích estimated/actual giữ indentation, tên node, số liệu và format để đọc cùng EXPLAIN."
+  },
+  {
+    "file": "content/docs/optimization/explain-analyze-deep-dive.md",
+    "sha256": "d5a867924786cb7a8dab68421138a666ee67954c2a02038b260c221964fa2df4",
+    "firstLine": "-- Ít row → Index Scan (đi thẳng)",
+    "reason": "Execution plan và chú thích estimated/actual giữ indentation, tên node, số liệu và format để đọc cùng EXPLAIN."
+  },
+  {
+    "file": "content/docs/optimization/join-algorithms-deep-dive.md",
+    "sha256": "b7ab7e0d394dfebd830c7a1570d731f089f15bedaa7ba4ad48325f60b7fe7fe2",
+    "firstLine": "Limit  (cost=0.87..45.23 rows=100 width=52) (actual time=0.042..0.893 rows=100 loops=1)",
+    "reason": "Execution plan và chú thích estimated/actual giữ indentation, tên node, số liệu và format để đọc cùng EXPLAIN."
+  },
+  {
+    "file": "content/docs/optimization/join-algorithms-deep-dive.md",
+    "sha256": "3eaebf7ccab2e2c33491a516df7f4be0393fe770bef0a516c7c08825dd899a5b",
+    "firstLine": "Hash Join  (cost=27850.00..139742.85 rows=500000 width=52) (actual time=312.45..1842.12 rows=498723 loops=1)",
+    "reason": "Execution plan và chú thích estimated/actual giữ indentation, tên node, số liệu và format để đọc cùng EXPLAIN."
+  },
+  {
+    "file": "content/docs/optimization/join-algorithms-deep-dive.md",
+    "sha256": "a8e2e067e1cf8a153d4f458dee1cebfd86fd5144a97f830be4e415b3b3762a10",
+    "firstLine": "Thời gian",
+    "reason": "Đồ thị cost/complexity theo trục số; giữ text vì D2 không phải công cụ quantitative plotting."
+  },
+  {
+    "file": "content/docs/optimization/like-query-deep-dive.md",
+    "sha256": "1838d99148d5b38ada7ea9698e427591528545df7bb36251c78d2dbe63f6e52b",
+    "firstLine": "\"SQL\"     (UTF-8)  →   0x53 0x51 0x4C                       (3 byte)",
+    "reason": "Ví dụ UTF-8 bytes, LIKE literals hoặc so sánh tuple theo vị trí; không chuyển các giá trị cần đối chiếu thành nodes."
+  },
+  {
+    "file": "content/docs/optimization/like-query-deep-dive.md",
+    "sha256": "d2707f077ee5a1a653636d4d1f2d466a7fc296489ff266e30ac61eea9ff89496",
+    "firstLine": "'SQL%advanced%basic'        ──→  access = 'SQL'        (chỉ 3 ký tự)",
+    "reason": "Ví dụ UTF-8 bytes, LIKE literals hoặc so sánh tuple theo vị trí; không chuyển các giá trị cần đối chiếu thành nodes."
+  },
+  {
+    "file": "content/docs/optimization/monitoring-slow-query-deep-dive.md",
+    "sha256": "409b3a2bd5d2e84910b0d4b36c40b24ec5f2e3ba94a8e0f14c460fbbbaee82d9",
+    "firstLine": " query                          | calls    | total_ms  | mean_ms | pct",
+    "reason": "Bảng dữ liệu mẫu/kết quả SQL hoặc entries trong leaf: giữ các rows, cột và giá trị đối chiếu với query; không phải sơ đồ."
+  },
+  {
+    "file": "content/docs/optimization/monitoring-slow-query-deep-dive.md",
+    "sha256": "9d71a1a362d74ab9608edbc380e5fdd08e7542ef23eb0d4ab1419a60c140f498",
+    "firstLine": " pid  | duration        | state  | wait_event_type | wait_event | query",
+    "reason": "Bảng dữ liệu mẫu/kết quả SQL hoặc entries trong leaf: giữ các rows, cột và giá trị đối chiếu với query; không phải sơ đồ."
+  },
+  {
+    "file": "content/docs/optimization/monitoring-slow-query-deep-dive.md",
+    "sha256": "0b75a0c6f44b90054389c738374eaf1224ac1bc9d1de990f166b183f2054349c",
+    "firstLine": " blocked_pid | blocked_query          | blocking_pid | blocking_query",
+    "reason": "Bảng dữ liệu mẫu/kết quả SQL hoặc entries trong leaf: giữ các rows, cột và giá trị đối chiếu với query; không phải sơ đồ."
+  },
+  {
+    "file": "content/docs/optimization/primary-key-uuid-vs-integer-deep-dive.md",
+    "sha256": "29bcff0a63c4bd3e5519254807c15c0c81d5bb300430e93d44607a6c3c664187",
+    "firstLine": "xxxxxxxx-xxxx-Mxxx-Nxxx-xxxxxxxxxxxx",
+    "reason": "Byte/bit layout cần căn đúng vị trí các phần key hoặc UUID; giữ để đối chiếu ký tự literal."
+  },
+  {
+    "file": "content/docs/optimization/primary-key-uuid-vs-integer-deep-dive.md",
+    "sha256": "64cc4b13b8869d8b072363324a15d55edc79dc5066b3f93db1fb619ba4492226",
+    "firstLine": "   018f8f87-e900-7a8c-b3ed-9ad1d4a8f00d",
+    "reason": "Byte/bit layout cần căn đúng vị trí các phần key hoặc UUID; giữ để đối chiếu ký tự literal."
+  },
+  {
+    "file": "content/docs/optimization/statistics-query-planner-deep-dive.md",
+    "sha256": "ff504db0f663e2ccbdc0484b62ccc2538cdfed7919d2494f95625e5ec5257624",
+    "firstLine": "cost",
+    "reason": "Đồ thị cost/complexity theo trục số; giữ text vì D2 không phải công cụ quantitative plotting."
+  },
+  {
+    "file": "content/docs/optimization/statistics-query-planner-deep-dive.md",
+    "sha256": "18a22da48d4515976564a74aaa687d93bde560836310c1c8ef642a8b4eb9701f",
+    "firstLine": "Seq Scan on orders (cost=... rows=7500000 ...) (actual ... rows=7480210 ...)",
+    "reason": "Execution plan và chú thích estimated/actual giữ indentation, tên node, số liệu và format để đọc cùng EXPLAIN."
+  }
+]

@@ -186,13 +186,19 @@ Một write tốt có thể xác định shard từ dữ liệu request trước
 
 Ví dụ tạo post, khi post thuộc về author `user_id = 42`:
 
-```text
-1. API xác thực user 42.
-2. Router tính virtual shard từ user_id 42.
-3. Shard map trả về physical shard B.
-4. API ghi post vào primary của shard B.
-5. Transaction cùng shard ghi outbox event.
-6. Worker publish event để xây feed, notification, search index.
+```d2 title="Một write đi tới primary của đúng shard"
+direction: down
+n0: "API xác thực user 42"
+n1: "Router tính virtual shard từ user_id=42"
+n2: "Shard map trả physical shard B"
+n3: "API ghi post vào primary B"
+n4: "Cùng transaction ghi outbox event"
+n5: "Worker publish event tới feed /\nnotification builders"
+n0 -> n1
+n1 -> n2
+n2 -> n3
+n3 -> n4
+n4 -> n5
 ```
 
 `user_id` xuất hiện ngay trong request nên router chọn đích với một phép tính hoặc một lần lookup nhỏ. Không cần broadcast request sang mọi shard.
@@ -287,12 +293,23 @@ Ngược lại, một bảng `audit_events` có thể shard theo `tenant_id` ho�
 
 Range sharding chia key theo khoảng:
 
-```text
-user_id 0        - 9,999,999   → shard A
-user_id 10,000,000 - 19,999,999 → shard B
-created_at Jan-Mar             → shard C
-created_at Apr-Jun             → shard D
+```d2 title="Ví dụ range sharding theo key hoặc ngày"
+direction: right
+a: "user_id 0..9.999.999"
+b: "user_id 10.000.000..19.999.999"
+c: "created_at Jan–Mar"
+d: "created_at Apr–Jun"
+sa: "Shard A"
+sb: "Shard B"
+sc: "Shard C"
+sd: "Shard D"
+a -> sa
+b -> sb
+c -> sc
+d -> sd
 ```
+
+Hai cặp trên là hai ví dụ partitioning key khác nhau, không phải cùng một shard map.
 
 **Ưu điểm**
 
@@ -312,12 +329,17 @@ Range sharding phù hợp khi range query là access pattern chính và write kh
 
 Hash modulo chọn shard bằng `hash(key) % N`.
 
-```text
-hash(user_id) % 4
-
-user 101 → 2 → shard 2
-user 102 → 0 → shard 0
-user 103 → 3 → shard 3
+```d2 title="Ví dụ hash modulo bốn shard"
+direction: right
+u1: "User 101"
+u2: "User 102"
+u3: "User 103"
+s2: "Shard 2"
+s0: "Shard 0"
+s3: "Shard 3"
+u1 -> s2: "hash(user_id) % 4 = 2"
+u2 -> s0: "hash(user_id) % 4 = 0"
+u3 -> s3: "hash(user_id) % 4 = 3"
 ```
 
 **Ưu điểm:** đơn giản, nhanh và thường phân bố đều nếu key có cardinality cao.
@@ -368,10 +390,17 @@ Chọn số vShard đủ lớn để rebalance mịn, nhưng không quá lớn �
 
 Directory-based sharding dùng một bảng/kv store mapping trực tiếp:
 
-```text
-tenant_id 8721 → physical shard eu-3
-tenant_id 8722 → physical shard us-1
-tenant_id 8723 → physical shard enterprise-9
+```d2 title="Directory map định tuyến theo tenant"
+direction: right
+t1: "tenant_id 8721"
+t2: "tenant_id 8722"
+t3: "tenant_id 8723"
+eu: "eu-3"
+us: "us-1"
+ent: "enterprise-9"
+t1 -> eu
+t2 -> us
+t3 -> ent
 ```
 
 Nó rất hữu ích khi placement không thể suy ra bằng hash:
@@ -389,9 +418,17 @@ Geo sharding đặt data gần user hoặc theo data residency, ví dụ EU data
 
 Ví dụ shard theo country làm China shard rất nóng trong khi New Zealand shard rảnh. Nếu cần residency lẫn scale, thường dùng hai tầng:
 
-```text
-Bước 1: Chọn region theo residency/latency: EU, US, APAC.
-Bước 2: Trong mỗi region, shard theo hash(tenant_id hoặc user_id).
+```d2 title="Routing hai tầng: region rồi shard"
+direction: down
+tenant: "tenant_id hoặc user_id"
+region: "Chọn region theo residency / latency"
+eu: "EU → hash key trong region"
+us: "US → hash key trong region"
+apac: "APAC → hash key trong region"
+tenant -> region
+region -> eu
+region -> us
+region -> apac
 ```
 
 Cách này giới hạn dữ liệu trong region bắt buộc nhưng vẫn phân tán tải trong region đó.
@@ -590,13 +627,20 @@ Các pattern thường dùng:
 
 Ví dụ chuyển tiền giữa account ở hai shard:
 
-```text
-Không nên: trừ tiền shard A, rồi hy vọng cộng tiền shard B thành công.
-
-Nên: tạo transfer có state machine:
-PENDING → FUNDS_RESERVED → CREDITED → COMPLETED
-                         ↘ FAILED / COMPENSATED
+```d2 title="Transfer xuyên shard cần state machine và bù trừ"
+direction: right
+pending: PENDING
+reserved: FUNDS_RESERVED
+credited: CREDITED
+completed: COMPLETED
+failed: FAILED / COMPENSATED
+pending -> reserved -> credited -> completed
+pending -> failed: thất bại
+reserved -> failed: lỗi cần giải phóng hoặc bù trừ
+credited -> failed: xử lý phục hồi theo thiết kế
 ```
+
+Không trừ tiền shard A rồi chỉ hy vọng cộng tiền shard B sẽ thành công. Mỗi transition và hành vi bù trừ cần được thiết kế theo invariant, idempotency và trạng thái thực tế của transfer.
 
 Exact flow phụ thuộc domain. Với tiền thật, ledger design và compliance có thể yêu cầu stronger consistency hoặc database/distributed transaction chuyên biệt. Không gọi eventual consistency là câu trả lời chung cho mọi bài toán tài chính.
 

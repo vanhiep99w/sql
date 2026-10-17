@@ -179,20 +179,21 @@ Isolation Level mô tả **hành vi được phép quan sát**, không mô tả 
 
 Ví dụ với hai lần đọc trong cùng transaction:
 
-```text
-READ COMMITTED:
-SELECT lần 1 → 100
-transaction khác UPDATE + COMMIT
-SELECT lần 2 → có thể thấy 200
-
-REPEATABLE READ:
-SELECT lần 1 → 100
-transaction khác UPDATE + COMMIT
-SELECT lần 2 → vẫn thấy 100
-
-SERIALIZABLE:
-Ngoài góc nhìn ổn định, kết quả còn phải tương đương
-với một thứ tự chạy tuần tự hợp lệ.
+```d2 title="Cam kết đọc của các isolation levels"
+direction: right
+rc: READ COMMITTED {
+  first: SELECT lần 1 → 100
+  other: Transaction khác UPDATE + COMMIT → 200
+  second: SELECT lần 2 có thể thấy 200
+  first -> other -> second
+}
+rr: Snapshot REPEATABLE READ {
+  first: SELECT lần 1 → 100
+  other: Transaction khác UPDATE + COMMIT → 200
+  second: SELECT lần 2 vẫn thấy 100
+  first -> other -> second
+}
+serial: SERIALIZABLE — kết quả phải tương đương một thứ tự chạy tuần tự hợp lệ
 ```
 
 Isolation Level không bắt buộc database phải đạt cam kết bằng lock hay bằng MVCC. Hai engine có thể cung cấp cùng một cam kết bằng hai chiến lược khác nhau.
@@ -212,13 +213,13 @@ Database thường không chọn đúng **một** cơ chế. Nó phối hợp nh
 
 Vì vậy, nói “PostgreSQL dùng MVCC” không có nghĩa PostgreSQL không dùng lock. PostgreSQL có thể đồng thời:
 
-```text
-Plain SELECT       → dùng MVCC snapshot, thường không lấy row lock
-UPDATE             → tạo row version mới + lấy row lock
-SELECT FOR UPDATE  → đọc theo visibility rule + lấy row lock
-SERIALIZABLE       → snapshot + SSI dependency tracking + có thể abort
-VACUUM             → dọn version cũ khi không transaction nào còn cần
-```
+| Thao tác PostgreSQL trong mô hình đang xét | Cơ chế chính |
+| --- | --- |
+| Plain `SELECT` | MVCC snapshot; thường không lấy row lock |
+| `UPDATE` | Tạo row version mới và lấy row lock |
+| `SELECT FOR UPDATE` | Visibility rules và row lock |
+| `SERIALIZABLE` | Snapshot, SSI dependency tracking; có thể abort |
+| `VACUUM` | Dọn version cũ khi không transaction nào còn cần |
 
 ### Tầng 4 — Kết quả quan sát được
 
@@ -268,15 +269,17 @@ n0 -> n1 -> n2 -> n3
 
 Ví dụ:
 
-```text
-TX1: UPDATE accounts SET balance = 90 WHERE id = 1;
-     → giữ write lock trên row id=1
-
-TX2: SELECT balance FROM accounts WHERE id = 1;
-     → plain MVCC read có thể đọc version cũ, không chờ TX1
-
-TX3: UPDATE accounts SET balance = 80 WHERE id = 1;
-     → muốn ghi cùng row nên phải chờ TX1
+```d2 title="MVCC reader và writer khi một row đang có write lock"
+shape: sequence_diagram
+t1: "TX1"
+db: "accounts id=1"
+t2: "TX2 — reader"
+t3: "TX3 — writer"
+t1 -> db: "UPDATE balance=90 → giữ write lock"
+t2 -> db: "Plain SELECT balance"
+db -> t2: "Có thể đọc version cũ đã commit, không chờ\nTX1"
+t3 -> db: "UPDATE balance=80"
+db -> t3: "Chờ TX1 vì muốn ghi cùng row"
 ```
 
 Do đó, câu “reader không block writer” trong MVCC chỉ đúng chủ yếu với **plain consistent read**. Writer vẫn block writer; locking read và DDL vẫn có thể tạo blocking.
@@ -294,28 +297,19 @@ COMMIT;
 
 Toàn bộ quá trình có thể được đọc theo thứ tự sau:
 
-```text
-1. BEGIN
-   └── Database tạo transaction context.
-
-2. SELECT bắt đầu
-   ├── READ COMMITTED yêu cầu snapshot cho statement này.
-   ├── MVCC kiểm tra xmin/xmax và trạng thái transaction.
-   └── Chọn row version đã commit và visible.
-
-3. UPDATE bắt đầu
-   ├── Statement có snapshot riêng để tìm row mục tiêu.
-   ├── Database lấy row-level write lock.
-   ├── Nếu writer khác đang giữ lock: chờ hoặc deadlock handling.
-   └── Khi được phép ghi: row cũ bị supersede, row version mới được tạo.
-
-4. COMMIT
-   ├── Version mới trở thành visible cho snapshot phù hợp trong tương lai.
-   ├── Write lock được giải phóng.
-   └── Transaction khác đang chờ được đánh thức.
-
-5. Sau transaction
-   └── Version cũ chưa bị xóa ngay; VACUUM chỉ dọn khi không snapshot nào cần nó.
+```d2 title="Vòng đời PostgreSQL transaction ở READ COMMITTED"
+direction: down
+n0: "BEGIN: tạo transaction context"
+n1: "SELECT: snapshot statement; kiểm tra\nxmin/xmax, commit status; chọn version\nvisible"
+n2: "UPDATE: snapshot tìm row; lấy write lock;\nchờ writer khác hoặc xử lý deadlock"
+n3: "Được ghi: supersede row cũ, tạo version\nmới"
+n4: "COMMIT: version mới visible cho snapshot\nphù hợp; giải phóng lock; đánh thức waiter"
+n5: "Sau transaction: VACUUM chỉ dọn version cũ\nkhi không snapshot nào còn cần"
+n0 -> n1
+n1 -> n2
+n2 -> n3
+n3 -> n4
+n4 -> n5
 ```
 
 Nếu đổi sang MySQL InnoDB, cam kết isolation có thể tương tự nhưng chi tiết vật lý thay đổi: bản hiện tại nằm trong clustered index, before-image nằm trong Undo Log và purge thread dọn undo cũ. Đó là khác biệt của **MVCC implementation**, không phải bản thân định nghĩa Isolation Level.
@@ -400,12 +394,20 @@ Nếu chỉ nhìn Locking Type và Locking Level, ta vẫn chưa giải thích �
 
 Trong một hệ thống lock-based điển hình, cùng một Shared Row Lock có thể được dùng khác nhau:
 
-```text
-READ COMMITTED:
-Shared Row Lock → đọc xong statement → giải phóng
-
-REPEATABLE READ:
-Shared Row Lock → giữ đến COMMIT/ROLLBACK
+```d2 title="Thời gian giữ shared row lock trong mô hình lock-based"
+direction: right
+rc: READ COMMITTED {
+  read: Shared Row Lock
+  end: Đọc xong statement
+  release: Giải phóng
+  read -> end -> release
+}
+rr: REPEATABLE READ {
+  read: Shared Row Lock
+  end: COMMIT / ROLLBACK
+  release: Giải phóng
+  read -> end -> release
+}
 ```
 
 Type vẫn là Shared và level vẫn là Row. Điểm thay đổi là duration, nên transaction khác có hoặc không thể cập nhật row ở giữa hai lần đọc.
@@ -435,21 +437,15 @@ COMMIT;
 
 Database thường phải bảo vệ row đang được ghi:
 
-```text
-Bước 1: Xác định tài nguyên
-        accounts.id = 1
-        → Locking Level: Row
-
-Bước 2: Xác định quyền cần có
-        UPDATE cần ghi độc quyền
-        → Locking Type: Exclusive/Write Lock
-
-Bước 3: Xác định thời gian giữ
-        Giữ write lock đến COMMIT hoặc ROLLBACK
-
-Bước 4: Áp dụng quy tắc isolation và visibility
-        Transaction khác chờ khi muốn ghi cùng row;
-        reader dùng MVCC có thể vẫn đọc version cũ đã commit.
+```d2 title="Phân tích một UPDATE theo tài nguyên, quyền và thời gian"
+direction: right
+n0: "Resource accounts.id=1 → granularity Row"
+n1: "UPDATE cần quyền ghi → Exclusive / Write\nLock"
+n2: "Giữ write lock tới COMMIT hoặc ROLLBACK"
+n3: "Writer khác cùng row chờ; MVCC reader có\nthể đọc bản cũ đã commit"
+n0 -> n1
+n1 -> n2
+n2 -> n3
 ```
 
 Mô tả ngắn gọn câu `UPDATE` này:
@@ -491,10 +487,15 @@ COMMIT;
 
 TX1 có thể thấy hai giá trị khác nhau:
 
-```text
-TX1 SELECT lần 1 → 10M
-TX2 UPDATE + COMMIT → 9M
-TX1 SELECT lần 2 → 9M
+```d2 title="Read Committed: lần đọc thứ hai"
+shape: sequence_diagram
+t1: "TX1"
+db: "Database"
+t2: "TX2"
+t1 -> db: "SELECT lần 1 → 10M"
+t2 -> db: "UPDATE + COMMIT → 9M"
+t1 -> db: "SELECT lần 2"
+db -> t1: "9M"
 ```
 
 Trong hệ thống lock-based, read lock có thể chỉ được giữ đến hết statement. Trong hệ thống MVCC như PostgreSQL, mỗi statement nhận một snapshot mới.
@@ -505,10 +506,15 @@ Hai cách triển khai khác nhau nhưng cùng tạo ra hành vi `READ COMMITTED
 
 TX1 cần giữ một góc nhìn ổn định:
 
-```text
-TX1 SELECT lần 1 → 10M
-TX2 UPDATE + COMMIT → 9M
-TX1 SELECT lần 2 → vẫn thấy 10M
+```d2 title="Repeatable Read: lần đọc thứ hai"
+shape: sequence_diagram
+t1: "TX1"
+db: "Database"
+t2: "TX2"
+t1 -> db: "SELECT lần 1 → 10M"
+t2 -> db: "UPDATE + COMMIT → 9M"
+t1 -> db: "SELECT lần 2"
+db -> t1: "10M từ snapshot cũ"
 ```
 
 Database có thể thực hiện bằng một trong hai hướng:
@@ -703,9 +709,13 @@ WHERE id = 1
 
 Application kiểm tra:
 
-```text
-affected_rows = 1 → thành công
-affected_rows = 0 → version đã đổi, cần xử lý conflict
+```d2 title="Kết quả optimistic UPDATE theo version"
+direction: right
+update: "UPDATE có điều kiện version"
+ok: "affected_rows=1 → thành công"
+conflict: "affected_rows=0 → version đã đổi; xử lý\nconflict"
+update -> ok
+update -> conflict
 ```
 
 Database vẫn đặt lock nội bộ trong lúc thực thi `UPDATE`. "Optimistic" chỉ có nghĩa application không giữ explicit lock trong toàn bộ khoảng thời gian từ đọc đến ghi.
@@ -722,9 +732,7 @@ Snapshot là bản sao cũ nhưng nhất quán để transaction *nhìn*. Khi `U
 
 Version chain phải tuyến tính:
 
-```text
-A → B → C → ...
-```
+Các phiên bản nối tiếp nhau: **A → B → C → …**. Đây là các phiên bản của cùng dữ liệu, không phải những nhánh ghi độc lập.
 
 Nếu hai transaction cùng đọc snapshot cũ và cùng ghi:
 
@@ -769,17 +777,16 @@ UPDATE products SET stock = stock - 1 WHERE id = 1;
 
 Diễn biến bên trong:
 
-```text
-1. T1 lấy row lock trên id = 1
-   đọc 10 → tạo phiên bản mới (stock = 9) → giữ lock đến COMMIT
-
-2. T2 muốn lock cùng row → phải CHỜ
-   ← đây chính là lúc snapshot của T2 "vỡ lễ"
-
-3. T1 COMMIT → giải phóng lock
-
-4. T2 được đánh thức
-   đọc LẠI phiên bản mới nhất (9) — không dùng snapshot cũ — rồi ghi 8
+```d2 title="Hai UPDATE cùng row tại PostgreSQL READ COMMITTED"
+shape: sequence_diagram
+t1: "T1"
+row: "Row id=1"
+t2: "T2"
+t1 -> row: "Lấy row lock; đọc 10, tạo version stock=9"
+t2 -> row: "Muốn ghi cùng row → chờ"
+t1 -> row: "COMMIT; giải phóng lock"
+row -> t2: "Đánh thức; kiểm tra lại row version mới\nnhất và điều kiện UPDATE"
+t2 -> row: "Trong ví dụ UPDATE stock=stock-1: đọc 9,\nghi 8"
 ```
 
 Kết quả cuối cùng là 8, đúng như kỳ vọng. Hai chi tiết đáng chú ý:
@@ -814,21 +821,33 @@ Giả sử business logic (gọi API bên ngoài, tính toán, chờ người d�
 
 Pessimistic lock **trước khi làm việc** và giữ **suốt quá trình**:
 
-```text
-T1: ─[SELECT FOR UPDATE]──[business logic 2s]──[UPDATE]──[COMMIT]──
-    ─────────────████████████████████████████████████████  ← giữ lock
-
-T2: ─────[SELECT FOR UPDATE → chờ 2 giây...]──[logic]──[UPDATE]──[COMMIT]
+```d2 title="Pessimistic: explicit lock bao trùm business logic"
+shape: sequence_diagram
+t1: "T1"
+db: "Database"
+t2: "T2"
+t1 -> db: "SELECT FOR UPDATE → giữ lock"
+t1.note1: "Business logic khoảng 2 giây; vẫn giữ lock"
+t2 -> db: "SELECT FOR UPDATE cùng row → chờ"
+t1 -> db: "UPDATE; COMMIT → nhả lock"
+db -> t2: "Cấp lock sau khi T1 kết thúc"
+t2 -> db: "Logic; UPDATE; COMMIT"
 ```
 
 Optimistic cho mọi người **làm việc tự do**, chỉ lock **vài millisecond ở phút chót**:
 
-```text
-T1: ─[SELECT]──[business logic 2s]──[UPDATE + check version]─[COMMIT]─
-                                     ████  ← lock vài ms
-
-T2: ─[SELECT]──[business logic 2s, chạy SONG SONG]──[UPDATE → 0 rows]─[retry]
-                                                     ████
+```d2 title="Optimistic: xử lý song song, kiểm tra version khi ghi"
+shape: sequence_diagram
+t1: "T1"
+db: "Database"
+t2: "T2"
+t1 -> db: "SELECT dữ liệu và version"
+t2 -> db: "SELECT cùng version"
+t1.note2: "Business logic khoảng 2 giây"
+t2.note3: "Business logic chạy song song với T1"
+t1 -> db: "UPDATE + check version → lock ngắn; COMMIT"
+t2 -> db: "UPDATE + check version → 0 rows"
+t2.note6: "Xử lý conflict / retry"
 ```
 
 | | Pessimistic | Optimistic |
@@ -995,16 +1014,21 @@ Khi gặp một đoạn SQL, hãy hỏi lần lượt:
 
 Ví dụ kết luận hoàn chỉnh:
 
-```text
-PostgreSQL, READ COMMITTED,
-SELECT ... FOR UPDATE WHERE id = 1
-
-├── Isolation: snapshot mới cho statement
-├── Strategy: pessimistic locking read
-├── Resource: row id = 1
-├── Lock: row-level write lock do PostgreSQL quản lý
-├── Duration: đến cuối transaction
-└── Conflict: writer khác trên row đó phải chờ hoặc lỗi do timeout/deadlock
+```d2 title="Phân tích SELECT FOR UPDATE tại READ COMMITTED"
+direction: right
+query: "PostgreSQL: SELECT FOR UPDATE WHERE id=1"
+isolation: "Snapshot mới cho statement"
+strategy: "Pessimistic locking read"
+resource: "Resource: row id=1"
+lock: "Row-level write lock do PostgreSQL quản lý"
+duration: "Giữ đến cuối transaction"
+conflict: "Writer khác cùng row chờ hoặc lỗi\ntimeout/deadlock"
+query -> isolation
+query -> strategy
+query -> resource
+query -> lock
+query -> duration
+query -> conflict
 ```
 
 ## Tổng kết

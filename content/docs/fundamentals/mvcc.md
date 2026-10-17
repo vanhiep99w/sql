@@ -109,17 +109,17 @@ UPDATE products SET price = 200 WHERE id = 1;
 
 PostgreSQL có thể đang giữ cả hai version:
 
-```text
-price = 100 → version cũ
-price = 200 → version do transaction B vừa tạo
-```
+| Giá trị | Phiên bản |
+| --- | --- |
+| `price=100` | Version cũ |
+| `price=200` | Version do transaction B vừa tạo |
 
 Nếu session A bắt đầu một `SELECT` lúc B chưa commit, snapshot của A ghi nhận rằng B vẫn đang chạy. Vì vậy:
 
-```text
-price = 100 → visible với A
-price = 200 → không visible với A
-```
+| Giá trị | Visibility đối với snapshot của A |
+| --- | --- |
+| `price=100` | Visible |
+| `price=200` | Không visible trong ví dụ |
 
 Ngay cả khi B commit trong lúc câu `SELECT` của A đang chạy, A vẫn giữ cùng góc nhìn cho tới khi statement kết thúc. Nhờ đó, một query dài không đọc nửa bảng ở trạng thái cũ và nửa bảng ở trạng thái mới.
 
@@ -217,32 +217,25 @@ Có thể hình dung:
 
 Khi kiểm tra một row version, hãy nhớ quy tắc đơn giản:
 
-```text
-Transaction tạo row đã visible
-VÀ
-Transaction xóa row chưa visible
-→ row version visible
+```d2 title="Điều kiện visibility của một row version"
+direction: right
+created: "Transaction tạo row đã visible"
+deleted: "Transaction xóa row chưa visible"
+and_node: "Cả hai điều kiện thỏa"
+row: "Row version visible"
+created -> and_node
+deleted -> and_node
+and_node -> row
 ```
 
 Ví dụ với snapshot trên:
 
-```text
-Row A: xmin=11, xmax=0
-→ transaction 11 đã commit, chưa ai xóa
-→ visible
-
-Row B: xmin=12, xmax=0
-→ transaction 12 đang chạy lúc lấy snapshot
-→ không visible
-
-Row C: xmin=9, xmax=10
-→ transaction 10 đang xóa row nhưng chưa commit
-→ việc xóa chưa visible, nên Row C vẫn visible
-
-Row D: xmin=9, xmax=11
-→ transaction 11 đã commit việc xóa trước snapshot
-→ Row D không visible
-```
+| Row version | Trạng thái theo snapshot ví dụ | Kết quả |
+| --- | --- | --- |
+| A: xmin=11, xmax=0 | TX11 đã commit, chưa ai xóa | Visible |
+| B: xmin=12, xmax=0 | TX12 đang chạy lúc lấy snapshot | Không visible |
+| C: xmin=9, xmax=10 | TX10 đang xóa nhưng chưa commit | Việc xóa chưa visible; row vẫn visible |
+| D: xmin=9, xmax=11 | TX11 đã commit việc xóa trước snapshot | Không visible |
 
 Transaction luôn nhìn thấy thay đổi do **chính nó** thực hiện, ngay cả khi đang dùng một snapshot ổn định.
 
@@ -332,9 +325,15 @@ Quy tắc nghiệp vụ: **luôn phải còn ít nhất một bác sĩ trực**.
 
 T1 chạy trước:
 
-```text
-T1 đếm 2 người trực → cho An nghỉ → COMMIT
-T2 chạy sau, đếm 1 người trực → không cho Bình nghỉ
+```d2 title="Hai bác sĩ xin nghỉ khi chạy tuần tự"
+direction: right
+n0: "T1 thấy 2 người trực → cho An nghỉ"
+n1: "T1 COMMIT"
+n2: "T2 đọc sau: còn 1 người trực"
+n3: "Không cho Bình nghỉ"
+n0 -> n1
+n1 -> n2
+n2 -> n3
 ```
 
 Kết quả hợp lệ là An nghỉ và Bình trực. Nếu đảo thứ tự, Bình nghỉ và An trực. Không có thứ tự tuần tự hợp lệ nào cho phép cả hai cùng nghỉ.
@@ -375,9 +374,12 @@ Mỗi transaction riêng lẻ đều nghĩ quyết định của mình hợp l�
 
 Hai transaction vẫn có thể đọc cùng trạng thái ban đầu và thực hiện hai `UPDATE`. Tuy nhiên, PostgreSQL còn ghi nhận:
 
-```text
-T1 đã đọc Bình=true, nhưng T2 đang đổi Bình thành false.
-T2 đã đọc An=true, nhưng T1 đang đổi An thành false.
+```d2 title="Hai transaction tạo read/write dependencies"
+direction: right
+a: "T1 đọc Bình=true; đổi An=false"
+b: "T2 đọc An=true; đổi Bình=false"
+a -> b: "T1 đọc dữ liệu T2 sẽ ghi"
+b -> a: "T2 đọc dữ liệu T1 sẽ ghi"
 ```
 
 Hai quan hệ đọc–ghi tạo thành một vòng xung đột. Nếu cả hai cùng commit, kết quả không tương đương với trường hợp T1 chạy trước T2 hoặc T2 chạy trước T1. PostgreSQL vì vậy hủy một transaction:

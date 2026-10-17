@@ -27,10 +27,13 @@ Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ng�
 
 Oracle Database Instance = **Memory (SGA + PGA) + Background Processes**. Database = **tập hợp files trên disk** (datafiles, control files, redo logs).
 
-```
-Instance ≠ Database
-- 1 Instance có thể mount 1 Database (cấu hình thông thường)
-- Nhiều Instance mount 1 Database (Oracle RAC — Real Application Clusters)
+```d2 title="Oracle Instance và Database không đồng nhất"
+direction: right
+instance: "Một Oracle instance"
+database: "Một database trong cấu hình thông thường"
+rac: "Nhiều instances trong Oracle RAC"
+instance -> database: "mount"
+rac -> database: "cùng mount / truy cập database theo RAC"
 ```
 
 Oracle phân biệt rõ ràng giữa Instance (đang chạy trong memory) và Database (files trên disk) — khác MySQL/PostgreSQL gộp chung.

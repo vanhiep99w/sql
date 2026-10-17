@@ -130,11 +130,18 @@ Database phải **fetch 850,000 rows từ heap** (bảng chính) chỉ để l�
 
 `SELECT *` **bắt buộc** database phải quay về heap (bảng chính) để đọc tất cả cột. Dù index đã chứa đủ thông tin cần thiết, database vẫn phải thực hiện **Heap Fetch** cho mỗi row.
 
-```diagram
-╭───────────────────────────────────────────────────────────╮
-│  SELECT *          →  Index Scan + Heap Fetch (mỗi row)   │
-│  SELECT id, status →  Index-Only Scan (không cần heap)    │
-╰───────────────────────────────────────────────────────────╯
+```d2 title="Chọn đủ cột có thể mở đường cho index-only scan"
+direction: down
+b0: "SELECT *" {
+  n0: "Index không đủ cột"
+  n1: "Index Scan + heap fetch khi plan cần"
+  n0 -> n1
+}
+b1: "SELECT id,status" {
+  n0: "Nếu index đủ cột và visibility phù hợp"
+  n1: "Có thể dùng Index-Only Scan"
+  n0 -> n1
+}
 ```
 
 **Index-Only Scan** là một trong những optimization mạnh nhất — database trả kết quả **chỉ từ index**, không đụng vào bảng. Nhưng `SELECT *` **giết chết** khả năng này.
@@ -356,17 +363,19 @@ MySQL **cast toàn bộ cột `phone` thành số** để so sánh → **Seq Sca
 
 Khi kiểu dữ liệu không khớp, database phải **convert** một trong hai bên. Nếu nó convert **cột** (thay vì hằng số), mọi index trên cột đó trở nên **vô dụng**.
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  WHERE varchar_col = 123                                      │
-│                                                               │
-│  Database phải quyết:                                         │
-│    A) CAST(123 AS VARCHAR) → so sánh string  → index OK ✅    │
-│    B) CAST(varchar_col AS INT) → so sánh số  → index DEAD ❌  │
-│                                                               │
-│  MySQL chọn B → Full Table Scan                               │
-│  Postgres **báo lỗi** (strict typing — không implicit cast)   │
-╰───────────────────────────────────────────────────────────────╯
+```d2 title="Cast parameter hay cast column tạo access path khác nhau"
+direction: down
+query: "WHERE varchar_col=123"
+param: "Cast 123 sang VARCHAR; so sánh chuỗi"
+column: "Cast varchar_col sang số; so sánh numeric"
+index: "String index có thể dùng khi ngữ nghĩa phù\nhợp"
+scan: "Có thể cần convert nhiều row và mất range\nlookup"
+error: "PostgreSQL thường báo type/operator\nmismatch nếu không có cast phù hợp"
+query -> param: "Khả năng A"
+query -> column: "Khả năng B, ví dụ MySQL"
+query -> error: "Engine khác"
+param -> index
+column -> scan
 ```
 
 ### 4.3. Các trường hợp implicit conversion thường gặp
@@ -459,7 +468,7 @@ Có index `idx_orders_created_at` trên cột `created_at`. Nhưng:
 > Khi bạn bọc cột trong **function**, database **không thể** dùng B-Tree index trên cột đó. B-Tree sắp theo giá trị gốc của cột, không phải giá trị sau khi áp function.
 
 ```d2 title="Bọc cột bằng EXTRACT làm mất range liên tục"
-direction: right
+direction: down
 n0: "Index created_at: 2023-11-15 → 2023-12-01 → 2024-01-01 → 2024-01-15 → ..."
 n1: "EXTRACT(MONTH FROM created_at) = 1"
 n2: "Tháng 1 rải ở 2023-01, 2024-01, 2025-01..."
@@ -818,13 +827,24 @@ x != 1 AND x != 2 AND x != NULL
 
 `x != NULL` luôn trả `UNKNOWN` (không phải TRUE, không phải FALSE). `AND UNKNOWN` → kết quả cuối cùng là `UNKNOWN` → row bị loại.
 
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│  NOT IN (1, 2, 3)     →  x!=1 AND x!=2 AND x!=3  → OK ✅     │
-│  NOT IN (1, 2, NULL)  →  x!=1 AND x!=2 AND x!=NULL           │
-│                        →  TRUE AND TRUE AND UNKNOWN          │
-│                        →  UNKNOWN → row bị loại  → BUG ❌    │
-╰──────────────────────────────────────────────────────────────╯
+```d2 title="NOT IN có NULL có thể tạo UNKNOWN"
+direction: down
+b0: "Không NULL trong tập" {
+  n0: "NOT IN (1,2,3)"
+  n1: "x!=1 AND x!=2 AND x!=3"
+  n2: "Với x phù hợp: TRUE"
+  n0 -> n1
+  n1 -> n2
+}
+b1: "Có NULL trong tập" {
+  n0: "NOT IN (1,2,NULL)"
+  n1: "x!=1 AND x!=2 AND x!=NULL"
+  n2: "Ví dụ TRUE AND TRUE AND UNKNOWN → UNKNOWN"
+  n3: "WHERE không giữ row UNKNOWN"
+  n0 -> n1
+  n1 -> n2
+  n2 -> n3
+}
 ```
 
 ### 9.3. Fix: NOT EXISTS
@@ -1038,22 +1058,25 @@ CREATE INDEX idx_orders_status_total ON orders(status, total DESC);
 
 ### 12.3. Quy tắc xây composite index cho WHERE + ORDER BY
 
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│  Composite Index = [equality cols] + [range/sort cols]       │
-│                                                              │
-│  WHERE status = 'paid'  ORDER BY total DESC  LIMIT 20        │
-│        ↑ equality                  ↑ sort                    │
-│  →  INDEX(status, total DESC)                                │
-│                                                              │
-│  WHERE status = 'paid' AND created_at > '2024-01-01'         │
-│        ORDER BY total DESC                                   │
-│        ↑ equality          ↑ range         ↑ sort            │
-│  →  INDEX(status, created_at, total DESC)                    │
-│     ⚠️ Range column CHẶN sort optimization                   │
-│  →  Cân nhắc: INDEX(status, total DESC) + filter created_at  │
-╰──────────────────────────────────────────────────────────────╯
+```d2 title="Range column có thể cản order theo cột phía sau"
+direction: down
+b0: "Equality rồi sort" {
+  n0: "WHERE status=paid ORDER BY total DESC\nLIMIT 20"
+  n1: "Candidate index (status,total DESC)"
+  n0 -> n1
+}
+b1: "Equality, date range rồi sort total" {
+  n0: "WHERE status=paid AND created_at >\n2024-01-01 ORDER BY total DESC"
+  n1: "Candidate (status,created_at,total DESC)\ngiúp date range"
+  n2: "Không tự cung cấp global total order qua\nnhiều dates"
+  n3: "So với (status,total DESC) rồi filter\ncreated_at"
+  n0 -> n1
+  n1 -> n2
+  n2 -> n3
+}
 ```
+
+Composite index thường bắt đầu từ equality prefix, rồi chọn giữa mục tiêu thu hẹp range và tránh sort. Lựa chọn cần đo lượng rows đọc thừa, thứ tự key và LIMIT, không có index tối ưu duy nhất cho mọi phân bố dữ liệu.
 
 > [!TIP]
 > **Equality columns trước, sort columns sau.** Nếu có range condition (`>`, `<`, `BETWEEN`), nó phải đặt **sau equality** nhưng **trước sort** sẽ **chặn** index sort — cân nhắc trade-off.
@@ -1469,25 +1492,20 @@ SELECT DBMS_SQLTUNE.REPORT_SQL_MONITOR(sql_id => 'abc123') FROM dual;
 
 ### 18.4. Checklist review query trước khi deploy
 
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│  □  Có SELECT * không? → Chỉ lấy cột cần                     │
-│  □  Có N+1 không? → Bật eager loading / JOIN                 │
-│  □  Kiểu dữ liệu bind param đúng chưa? → Check type          │
-│  □  Có function trên cột WHERE không? → SARGable rewrite     │
-│  □  Có OR cross-column không? → UNION ALL                    │
-│  □  Correlated subquery trả nhiều rows? → JOIN               │
-│  □  Dùng OFFSET cho API? → Keyset pagination                 │
-│  □  Có NOT IN không? → NOT EXISTS                            │
-│  □  DISTINCT có cần không? → Xem lại JOIN                    │
-│  □  WHERE hay HAVING? → Non-aggregate filter ở WHERE         │
-│  □  ORDER BY có index hỗ trợ không? → Composite index        │
-│  □  Bao nhiêu JOIN? → >5 thì cân nhắc denormalize            │
-│  □  COUNT(*) full table? → Estimate hoặc cache               │
-│  □  Loop INSERT? → Batch / COPY                              │
-│  □  FOR UPDATE scope đúng chưa? → Lock chỉ row cần           │
-╰──────────────────────────────────────────────────────────────╯
-```
+- [ ] SELECT projection đúng các cột cần?
+- [ ] Có N+1, cần batch/eager load/JOIN phù hợp?
+- [ ] Bind parameter đúng kiểu?
+- [ ] Function/cast trên key có sargable hoặc expression index?
+- [ ] OR/UNION có giữ duplicates và NULL semantics đúng?
+- [ ] Correlated subquery có lặp nhiều và có thể decorrelate đúng?
+- [ ] OFFSET sâu có phù hợp keyset?
+- [ ] NOT IN có NULL và DISTINCT có phản ánh đúng multiplicity?
+- [ ] WHERE/HAVING đặt đúng semantics?
+- [ ] ORDER BY/LIMIT và composite key có phù hợp access path?
+- [ ] Nhiều JOIN: đã đo plan trước khi cân nhắc denormalize/MV?
+- [ ] COUNT có cần exact, hay estimate/cache đủ dùng?
+- [ ] Bulk write có thể batch/COPY?
+- [ ] FOR UPDATE giới hạn đúng rows và duration?
 
 ---
 
@@ -1499,27 +1517,23 @@ Quay lại câu hỏi đầu doc: **Tại sao dashboard 200ms biến thành 12 g
 
 ### 19.1. Cheat sheet anti-pattern → fix
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  Anti-pattern                    Fix                          │
-│  ─────────────────────────────────────────────────────────    │
-│  SELECT *                        Chỉ lấy cột cần + covering   │
-│  N+1 query                       JOIN / eager loading         │
-│  Implicit type conversion        Truyền đúng kiểu             │
-│  Function on column              SARGable rewrite / expr idx  │
-│  OR cross-column                 UNION ALL                    │
-│  Correlated subquery (nhiều)     JOIN + GROUP BY              │
-│  OFFSET pagination               Keyset / cursor-based        │
-│  NOT IN (có NULL)                NOT EXISTS                   │
-│  DISTINCT thừa                   EXISTS / fix JOIN            │
-│  HAVING thay WHERE               Đặt filter ở WHERE           │
-│  ORDER BY without index          Composite index              │
-│  Quá nhiều JOIN                  Materialized View            │
-│  COUNT(*) full table             Estimate / cache             │
-│  Loop INSERT                     Batch / COPY                 │
-│  FOR UPDATE quá rộng             Lock đúng row cần            │
-╰───────────────────────────────────────────────────────────────╯
-```
+| Anti-pattern / tình huống | Hướng xem xét, không áp dụng máy móc |
+| --- | --- |
+| SELECT * | Chọn cột cần và covering nếu có lợi |
+| N+1 query | JOIN / eager loading / batching |
+| Implicit conversion | Bind đúng kiểu |
+| Function on column | SARGable predicate hoặc expression index |
+| OR cross-column | Bitmap/index merge hoặc UNION; xử lý duplicates |
+| Correlated subquery lặp nhiều | Decorrelate / JOIN + GROUP BY nếu cùng semantics |
+| OFFSET sâu | Keyset / cursor pagination |
+| NOT IN có NULL | NOT EXISTS nếu đúng ngữ nghĩa |
+| DISTINCT thừa | Kiểm tra multiplicity / EXISTS |
+| HAVING thay WHERE | Non-aggregate filter ở WHERE nếu tương đương |
+| ORDER BY thiếu ordered access | Index phù hợp hoặc chấp nhận sort sau khi đo |
+| Nhiều JOIN | Đo plan trước; không mặc định denormalize/MV |
+| COUNT toàn bảng | Exact count, estimate hoặc cache theo yêu cầu |
+| Loop INSERT | Batch / COPY |
+| FOR UPDATE scope rộng | Chỉ lock rows và thời gian cần thiết |
 
 ### 19.2. Bảng impact ước tính
 

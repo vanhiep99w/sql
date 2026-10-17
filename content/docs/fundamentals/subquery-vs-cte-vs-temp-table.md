@@ -89,30 +89,11 @@ Trong doc này, ta sẽ:
 
 Trước khi đi sâu, hãy nhìn tổng quan:
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  Subquery                                                     │
-│  ─────────                                                    │
-│  • Là một SELECT lồng trong SELECT/WHERE/FROM khác            │
-│  • Không có tên riêng (trừ khi dùng alias trong FROM)         │
-│  • Optimizer có thể inline, flatten, hoặc materialize         │
-│  • Scope: chỉ tồn tại trong câu query chứa nó                 │
-│                                                               │
-│  CTE (Common Table Expression)                                │
-│  ─────────────────────────────                                │
-│  • WITH ... AS (...) — đặt tên cho một block logic            │
-│  • Có thể tham chiếu nhiều lần trong query chính              │
-│  • Có thể recursive (đệ quy)                                  │
-│  • Scope: chỉ tồn tại trong câu query ngay sau WITH           │
-│                                                               │
-│  Temp Table                                                   │
-│  ──────────                                                   │
-│  • CREATE TEMP TABLE hoặc SELECT INTO                         │
-│  • Data được ghi vào disk (hoặc memory) thật sự               │
-│  • Có thể đánh index, ANALYZE, dùng ở nhiều query             │
-│  • Scope: tồn tại đến hết session (hoặc transaction)          │
-╰───────────────────────────────────────────────────────────────╯
-```
+| Công cụ | Cách tổ chức | Tối ưu và phạm vi |
+| --- | --- | --- |
+| Subquery | SELECT lồng trong SELECT/WHERE/FROM; FROM có thể có alias | Optimizer có thể flatten/inline/materialize; scope trong query |
+| CTE | WITH ... AS (...) đặt tên block logic; reuse trong statement; có thể recursive | Scope trong statement sau WITH; materialization tùy engine/version/plan |
+| Temp Table | CREATE TEMP TABLE hoặc dạng tương đương; có storage thực | Có thể tạo index và ANALYZE; reuse qua queries; lifecycle session/transaction theo DB |
 
 | Tiêu chí | Subquery | CTE | Temp Table |
 |----------|----------|-----|------------|
@@ -918,34 +899,17 @@ Kết quả:
 
 ### 8.3. Cách Recursive CTE hoạt động — Step by step
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  Iteration 0 (Base case):                                     │
-│    Working table: {Electronics}                               │
-│    Result: {Electronics}                                      │
-│                                                               │
-│  Iteration 1:                                                 │
-│    Tìm con của {Electronics} → {Computers, Phones}            │
-│    Working table: {Computers, Phones}                         │
-│    Result: {Electronics, Computers, Phones}                   │
-│                                                               │
-│  Iteration 2:                                                 │
-│    Tìm con của {Computers, Phones}                            │
-│    → {Laptops, Desktops, Smartphones, Feature Phones}         │
-│    Working table: {Laptops, Desktops, Smartphones, ...}       │
-│    Result: + {Laptops, Desktops, Smartphones, Feature Phones} │
-│                                                               │
-│  Iteration 3:                                                 │
-│    Tìm con của {Laptops, Desktops, ...}                       │
-│    → {Gaming Laptops, Business Laptops}                       │
-│    Working table: {Gaming Laptops, Business Laptops}          │
-│    Result: + {Gaming Laptops, Business Laptops}               │
-│                                                               │
-│  Iteration 4:                                                 │
-│    Tìm con của {Gaming Laptops, Business Laptops}             │
-│    → {} (không có con)                                        │
-│    Working table: {} → DỪNG                                   │
-╰───────────────────────────────────────────────────────────────╯
+```d2 title="Recursive CTE: working table qua từng vòng"
+direction: down
+n0: "Iteration 0: working={Electronics};\nresult={Electronics}"
+n1: "Iteration 1: working={Computers, Phones};\nthêm hai node vào result"
+n2: "Iteration 2: working={Laptops, Desktops,\nSmartphones, Feature Phones}; thêm vào\nresult"
+n3: "Iteration 3: working={Gaming Laptops,\nBusiness Laptops}; thêm vào result"
+n4: "Iteration 4: không có con → working rỗng →\ndừng"
+n0 -> n1
+n1 -> n2
+n2 -> n3
+n3 -> n4
 ```
 
 > [!IMPORTANT]
@@ -1550,33 +1514,29 @@ DROP TABLE IF EXISTS tmp_work;
 
 ## 13. Decision Framework — Flowchart chọn công cụ đúng
 
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│  Bạn cần chia query phức tạp thành các phần nhỏ?             │
-│                                                              │
-│  ┌─ Logic dùng bao nhiêu lần trong query?                    │
-│  │                                                           │
-│  ├─ 1 lần → Logic phức tạp không?                            │
-│  │  ├─ Đơn giản (1-2 bước) → SUBQUERY                        │
-│  │  └─ Phức tạp (3+ bước) → CTE                              │
-│  │                                                           │
-│  ├─ ≥ 2 lần trong CÙNG query → CTE                           │
-│  │                                                           │
-│  └─ ≥ 2 lần trong KHÁC query → TEMP TABLE                    │
-│                                                              │
-│  ┌─ Cần recursive / duyệt cây?                               │
-│  │  └─ Có → RECURSIVE CTE                                    │
-│  │                                                           │
-│  ┌─ Dataset trung gian lớn, cần index?                       │
-│  │  └─ Có → TEMP TABLE                                       │
-│  │                                                           │
-│  ┌─ Trong VIEW hoặc single statement?                        │
-│  │  └─ Có → CTE (temp table không dùng được)                 │
-│  │                                                           │
-│  ┌─ Stored procedure, cần dùng ở nhiều bước?                 │
-│  │  └─ Có → TEMP TABLE                                       │
-╰──────────────────────────────────────────────────────────────╯
+```d2 title="Chọn Subquery, CTE hay Temp Table"
+direction: down
+need: Cần tách logic truy vấn
+recursive: Cần đệ quy / duyệt cây? { shape: diamond }
+recursive_cte: RECURSIVE CTE
+index: Dataset trung gian cần index hoặc dùng qua nhiều query? { shape: diamond }
+temp: TEMP TABLE
+reuse: Dùng nhiều lần trong cùng query? { shape: diamond }
+cte: CTE
+complex: Logic một lần có phức tạp? { shape: diamond }
+sub: SUBQUERY cho logic đơn giản
+need -> recursive
+recursive -> recursive_cte: Có
+recursive -> index: Không
+index -> temp: Có
+index -> reuse: Không
+reuse -> cte: Có
+reuse -> complex: Không
+complex -> cte: Nhiều bước
+complex -> sub: Một hoặc hai bước
 ```
+
+Trong VIEW hoặc một statement, ưu tiên cấu trúc hợp lệ bên trong statement như CTE/subquery; không tạo temp table trong định nghĩa VIEW. Stored procedure cần reuse qua nhiều bước có thể phù hợp temp table. Việc CTE có materialize hay không vẫn phải kiểm tra theo engine và plan.
 
 ### Bảng quyết định nhanh
 
@@ -1599,18 +1559,14 @@ DROP TABLE IF EXISTS tmp_work;
 
 ### 14.1. Cheat sheet
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  Công cụ           Khi nào dùng                    Khi nào tránh│
-│  ─────────────────────────────────────────────────────────    │
-│  Subquery          Logic đơn giản, 1 lần            Lồng ≥3 level│
-│  CTE               Pipeline phức tạp, reuse        Logic trivial│
-│  CTE MATERIALIZED  CTE dùng ≥2 lần, nặng          CTE dùng 1 lần│
-│  CTE NOT MATERIAL. Filter cần push down            CTE dùng ≥2 lần│
-│  Recursive CTE     Duyệt cây, graph, series        Data phẳng   │
-│  Temp Table        Cross-query, cần index           Dùng 1 lần   │
-╰───────────────────────────────────────────────────────────────╯
-```
+| Công cụ | Khi nên xem xét | Lưu ý |
+| --- | --- | --- |
+| Subquery | Logic đơn giản, dùng một lần | Lồng sâu có thể khó đọc |
+| CTE | Pipeline phức tạp, reuse trong query | Không cần chỉ vì logic trivial |
+| CTE MATERIALIZED | Kết quả reuse, chi phí tính cao | Có thể cản pushdown; đo chi phí |
+| CTE NOT MATERIALIZED | Cần planner inline/pushdown khi hỗ trợ | Có thể tính lặp nếu reuse |
+| Recursive CTE | Cây, graph, series | Không cần cho dữ liệu phẳng đơn giản |
+| Temp Table | Cross-query reuse, cần index/statistics riêng | Có chi phí ghi, lifecycle và cleanup |
 
 ### 14.2. So sánh tổng quan
 

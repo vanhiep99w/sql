@@ -90,33 +90,17 @@ Trong doc này, ta sẽ mổ xẻ từng lớp:
 
 Trước khi đi sâu, hãy nhìn tổng quan:
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  DELETE                                                       │
-│  ──────                                                       │
-│  • Là DML (Data Manipulation Language)                        │
-│  • Đi qua TỪNG dòng thỏa WHERE, đánh dấu "dead"               │
-│  • Sinh MVCC dead tuple → cần VACUUM thu hồi sau              │
-│  • Kích hoạt trigger (BEFORE/AFTER DELETE)                    │
-│  • Tôn trọng FK, ON DELETE CASCADE/RESTRICT                   │
-│  • Ghi WAL cho TỪNG dòng → log khổng lồ                       │
-│  • Row-level lock → đọc/ghi dòng khác vẫn chạy được           │
-│  • KHÔNG trả disk về OS (file giữ nguyên size)                │
-│  • Có WHERE → xóa một phần được                               │
-│                                                               │
-│  TRUNCATE                                                     │
-│  ────────                                                     │
-│  • Là DDL (Data Definition Language)                          │
-│  • KHÔNG nhìn từng dòng — bỏ/đổi cả file dữ liệu              │
-│  • Không sinh dead tuple, không cần VACUUM                    │
-│  • KHÔNG kích hoạt row trigger (chỉ TRUNCATE trigger - PG)    │
-│  • Bị chặn nếu có FK trỏ tới (trừ khi CASCADE)               │
-│  • Ghi WAL rất ít (chỉ metadata thao tác)                     │
-│  • Table-level lock (ACCESS EXCLUSIVE) → khóa cả bảng         │
-│  • TRẢ disk về OS ngay (file co lại 0)                        │
-│  • KHÔNG có WHERE → xóa toàn bộ hoặc không gì cả              │
-╰───────────────────────────────────────────────────────────────╯
-```
+| Khía cạnh trong PostgreSQL | DELETE | TRUNCATE |
+| --- | --- | --- |
+| Phạm vi | Rows thỏa WHERE; có thể xóa một phần | Toàn bộ rows; không WHERE |
+| Thực thi | Đi qua các rows cần xóa và đánh dấu xmax | Thay storage cho cả bảng/index |
+| MVCC và cleanup | Có phiên bản cũ cần VACUUM khi an toàn | Không tạo một dead tuple cho mỗi row bị bỏ |
+| Trigger | BEFORE/AFTER DELETE theo cấu hình | Không chạy row DELETE trigger; có statement TRUNCATE trigger |
+| Foreign key | Tôn trọng RESTRICT / NO ACTION / CASCADE | Có FK tham chiếu thì cần xử lý tập bảng hoặc CASCADE cẩn thận |
+| WAL | Ghi theo thay đổi rows và pages | Chủ yếu metadata/storage operations, thường ít hơn |
+| Lock | Khóa rows bị tác động; các rows khác có thể vẫn dùng được | ACCESS EXCLUSIVE chặn truy cập liên quan |
+| Disk | Không mặc định co file trả disk cho OS | Bỏ file cũ theo commit và engine semantics |
+| Bản chất thường gọi | DML | DDL / utility tùy engine |
 
 Bảng so sánh nhanh — phần còn lại của doc sẽ giải thích **tại sao** từng dòng đúng:
 
@@ -153,15 +137,16 @@ Trong các DB dùng **MVCC** (Postgres, Oracle theo cách khác, MySQL InnoDB th
 
 Khi bạn chạy `DELETE`, Postgres **không** xóa tuple. Nó chỉ set `xmax` = transaction id hiện tại:
 
-```diagram
-Trước DELETE:
-   Heap page:  [ tuple A: xmin=100, xmax=0,   data: 'log #42' ]   ← live
-
-DELETE FROM events WHERE id=42;   (txid=205)
-
-Sau DELETE (chưa COMMIT, chưa VACUUM):
-   Heap page:  [ tuple A: xmin=100, xmax=205, data: 'log #42' ]   ← "dead" với txn mới
+```d2 title="DELETE đánh dấu tuple, chưa xóa vật lý ngay"
+direction: right
+n0: "Trước: tuple A xmin=100, xmax=0, data=log\n#42"
+n1: "TX205 DELETE FROM events WHERE id=42"
+n2: "Sau, trước commit/vacuum: tuple A\nxmax=205; snapshot khác quyết định\nvisibility theo trạng thái TX205"
+n0 -> n1
+n1 -> n2
 ```
+
+Không gọi tuple đã an toàn để thu hồi ngay khi DELETE chưa commit; database còn phải xử lý rollback và các snapshot liên quan.
 
 Tuple A **vẫn nằm nguyên đó**, chiếm nguyên chỗ cũ. Nó chỉ "vô hình" với các transaction bắt đầu **sau** txid 205. Các transaction cũ (snapshot trước đó) vẫn thấy nó — đây chính là tinh thần của MVCC: *xóa nhưng không xóa, để reader cũ không bị ảnh hưởng*.
 
@@ -170,25 +155,24 @@ Tuple A **vẫn nằm nguyên đó**, chiếm nguyên chỗ cũ. Nó chỉ "vô 
 
 ### 3.2. Các bước thực thi một câu DELETE
 
-```diagram
-╭─────────────────────────────────────────────────────────────╮
-│ 1. Parse + plan câu DELETE ... WHERE ...                    │
-│ 2. Chọn access path để tìm dòng thỏa WHERE                  │
-│    (Seq Scan / Index Scan trên điều kiện)                   │
-│ 3. Với MỖI dòng tìm được:                                   │
-│    3a. Acquire row lock (FOR UPDATE ngầm)                   │
-│    3b. Chạy BEFORE DELETE trigger (nếu có)                  │
-│    3c. Kiểm tra FK: dòng này có ai tham chiếu không?        │
-│        → RESTRICT/NO ACTION: báo lỗi nếu có child           │
-│        → CASCADE: đệ quy DELETE child                       │
-│    3d. Set xmax = current txid trên tuple (đánh dấu dead)   │
-│    3e. Ghi WAL record cho thao tác delete tuple này         │
-│    3f. Chạy AFTER DELETE trigger (nếu có)                   │
-│ 4. (Index KHÔNG được sửa ngay — entry trỏ về tuple dead     │
-│     sẽ được dọn bởi VACUUM sau)                             │
-│ 5. COMMIT → flush WAL → fsync                               │
-╰─────────────────────────────────────────────────────────────╯
+```d2 title="Đường đi của DELETE trong PostgreSQL"
+direction: down
+n0: "Parse + plan DELETE WHERE ..."
+n1: "Chọn Seq Scan / Index Scan để tìm row"
+n2: "Mỗi row: row lock → BEFORE DELETE trigger"
+n3: "Kiểm tra FK: RESTRICT / NO ACTION có thể\nlỗi; CASCADE xóa child"
+n4: "Đánh dấu xmax; ghi WAL; AFTER DELETE\ntrigger"
+n5: "COMMIT: flush WAL theo cấu hình durability"
+n6: "VACUUM dọn tuple và index entry khi an\ntoàn"
+n0 -> n1
+n1 -> n2
+n2 -> n3
+n3 -> n4
+n4 -> n5
+n5 -> n6
 ```
+
+Index entry cũ thường chưa bị xóa ngay trong DELETE; việc thu hồi phụ thuộc VACUUM và khả năng còn snapshot cần phiên bản cũ.
 
 Điểm mấu chốt: **bước 3 lặp lại cho từng dòng**. Xóa 180 triệu dòng = 180 triệu lần đánh dấu + 180 triệu WAL record + kiểm tra FK/trigger cho mỗi dòng. Đây là lý do `DELETE` là **O(n)** theo số dòng xóa.
 
@@ -284,16 +268,20 @@ Mấu chốt: nó **không đọc**, **không sửa**, **không đánh dấu** m
 
 Vì không có tuple nào bị đánh dấu `xmax` — cả cái file cũ bị vứt đi nguyên khối. Không có rác MVCC nào để lại → **không cần VACUUM** sau truncate. So sánh:
 
-```diagram
-DELETE 1 triệu dòng:
-   → 1 triệu dead tuple nằm trong heap + index
-   → autovacuum phải quét, dọn, ghi WAL thêm
-   → disk vẫn đầy cho tới khi (có thể) VACUUM FULL
-
-TRUNCATE bảng 1 triệu dòng:
-   → 0 dead tuple
-   → 0 việc cho VACUUM
-   → disk trả về OS ngay tại COMMIT
+```d2 title="DELETE để lại công việc dọn phiên bản, TRUNCATE bỏ dữ liệu cả bảng"
+direction: right
+delete: DELETE một triệu rows {
+  dead: Dead tuples trong heap và index entries cũ
+  vacuum: Autovacuum quét, dọn và có thể ghi thêm WAL
+  disk: Không mặc định co file trả disk cho OS
+  dead -> vacuum -> disk
+}
+truncate: TRUNCATE một triệu rows {
+  empty: Không tạo từng dead tuple
+  cleanup: Không cần VACUUM cho các rows vừa bỏ
+  disk: File cũ được bỏ khi commit trong ví dụ PostgreSQL
+  empty -> cleanup -> disk
+}
 ```
 
 ### 4.3. TRUNCATE nhiều bảng cùng lúc
@@ -372,26 +360,26 @@ EXPLAIN TRUNCATE TABLE events;
 
 ### 5.3. Đường đi của 1 byte — minh họa song song
 
-```diagram
-DELETE FROM events WHERE created_at < X;
-─────────────────────────────────────────
-  Plan → Scan tìm dòng → [với mỗi dòng]:
-     lock row → trigger? → FK? → set xmax
-     → WAL record → dirty page
-  ... lặp 180,000,000 lần ...
-  → COMMIT → flush WAL (60 GB) → fsync
-  → (sau đó) autovacuum dọn dead tuple → thêm WAL
-  → disk: VẪN 80 GB
-
-TRUNCATE TABLE events;
-─────────────────────────────────────────
-  ACCESS EXCLUSIVE lock
-  → tạo relfilenode rỗng mới
-  → catalog trỏ sang file mới
-  → WAL: ~vài KB metadata
-  → COMMIT → unlink file cũ
-  → disk: 0 (trả về OS ngay)
+```d2 title="DELETE và TRUNCATE — hai đường ghi minh họa"
+direction: down
+delete: DELETE WHERE created_at < X {
+  scan: Plan và scan
+  each: Mỗi row — lock, trigger, FK, xmax, WAL, dirty page
+  commit: COMMIT và flush WAL — ví dụ 60 GB
+  vacuum: Autovacuum dọn sau; file vẫn khoảng 80 GB
+  scan -> each: ví dụ 180 triệu rows
+  each -> commit -> vacuum
+}
+truncate: TRUNCATE TABLE events {
+  lock: ACCESS EXCLUSIVE lock
+  file: Rel filenode rỗng mới và cập nhật catalog
+  wal: Ít WAL metadata — ví dụ vài KB
+  commit: COMMIT bỏ file cũ, giải phóng disk
+  lock -> file -> wal -> commit
+}
 ```
+
+Dung lượng và số rows là số liệu minh họa của tình huống trong bài, không phải tỷ lệ chi phí cố định cho mọi hệ thống.
 
 ---
 
@@ -403,19 +391,13 @@ TRUNCATE TABLE events;
 
 Heap của một bảng giống một cái cốc nước. `DELETE` làm **bốc hơi** nước (đánh dấu dead tuple), nhưng **mực cao nhất** (high water mark) — tức kích thước file — không tự hạ xuống. Database giữ nguyên các page đã cấp phát, chỉ đánh dấu chúng "có chỗ trống để tái sử dụng".
 
-```diagram
-Ban đầu:        ████████████████  80 GB (đầy)
-
-Sau DELETE 90%: ░░░░░░░░░░░░░░██  80 GB file size, ~90% là chỗ trống reusable
-                (file KHÔNG co — chỉ có chỗ trống bên trong)
-
-Sau VACUUM:     ░░░░░░░░░░░░░░██  80 GB — chỗ trống nay "chính thức" reusable
-                (vẫn KHÔNG co, chỉ là Postgres giờ biết chỗ nào dùng lại được)
-
-Sau VACUUM FULL:██                ~8 GB (viết lại bảng, co file — nhưng KHÓA bảng!)
-
-Sau TRUNCATE:   (rỗng)            0 GB — file cũ bị vứt đi, trả disk ngay
-```
+| Mốc minh họa | File size | Ý nghĩa |
+| --- | --- | --- |
+| Ban đầu | 80 GB | Đầy dữ liệu |
+| DELETE 90% | 80 GB | Có dead tuples; không mặc định tái sử dụng ngay khi transaction chưa an toàn |
+| VACUUM | Khoảng 80 GB trong mô hình | Chỗ trống có thể dùng lại, không đồng nghĩa file co |
+| VACUUM FULL | Khoảng 8 GB | Rewrite và compact, cần lock và dung lượng làm việc |
+| TRUNCATE | File dữ liệu mới rỗng trong mô hình | Bỏ file cũ khi commit theo semantics engine |
 
 ### 6.2. Tại sao thiết kế như vậy
 
@@ -489,27 +471,34 @@ ROLLBACK;                       -- vô tác dụng với TRUNCATE (và cả INSE
 
 `DELETE` chỉ khóa các **dòng** nó đụng tới. Các dòng khác — và phần lớn người đọc — vẫn hoạt động bình thường (nhờ MVCC, reader đọc snapshot cũ không cần đợi):
 
-```diagram
-DELETE FROM events WHERE user_id = 42;   -- chỉ khóa các dòng user_id=42
-
-Trong lúc đó, các session khác VẪN có thể:
-   ✅ SELECT * FROM events WHERE user_id = 99;   (đọc bình thường)
-   ✅ INSERT INTO events ...                       (ghi dòng mới)
-   ✅ UPDATE events SET ... WHERE user_id = 7;     (sửa dòng khác)
-   ⏳ UPDATE events SET ... WHERE user_id = 42;    (chỉ cái này phải đợi)
+```d2 title="Row DELETE chỉ gây conflict cho tài nguyên liên quan"
+direction: down
+delete: "DELETE WHERE user_id=42 — locks các rows\ntác động"
+reader: "SELECT user_id=99: MVCC đọc bình thường\ntrong ví dụ"
+insert: "INSERT row khác: có thể tiếp tục"
+other: "UPDATE user_id=7: có thể tiếp tục"
+same: "UPDATE user_id=42: chờ writer"
+delete -> reader: "Không row conflict"
+delete -> insert: "Không conflict khác"
+delete -> other: "Không row conflict"
+delete -> same: "Cùng row lock"
 ```
+
+FK, unique constraints, table locks hoặc tài nguyên khác vẫn có thể tạo thêm conflict; đây là mô hình row-lock đơn giản.
 
 ### 8.2. TRUNCATE — Access Exclusive lock
 
 `TRUNCATE` lấy **ACCESS EXCLUSIVE** — mức lock cao nhất. Trong lúc nó chạy (dù chỉ 47ms), **không session nào** được đọc hay ghi bảng đó, kể cả `SELECT`:
 
-```diagram
-TRUNCATE TABLE events;   -- khóa TOÀN BẢNG ở mức cao nhất
-
-Trong lúc đó, MỌI session khác bị chặn:
-   ⏳ SELECT * FROM events ...      (phải đợi!)
-   ⏳ INSERT INTO events ...        (phải đợi!)
-   ⏳ Mọi thứ đụng tới events       (phải đợi!)
+```d2 title="TRUNCATE ACCESS EXCLUSIVE chặn truy cập bảng"
+direction: down
+truncate: "TRUNCATE events giữ ACCESS EXCLUSIVE"
+read: "SELECT events: chờ"
+insert: "INSERT events: chờ"
+other: "Các thao tác cần relation lock xung đột:\nchờ"
+truncate -> read
+truncate -> insert
+truncate -> other
 ```
 
 > [!NOTE]
@@ -735,18 +724,11 @@ Hoặc cân nhắc kiến trúc **partition** ngay từ đầu (xem mục 14): x
 
 Để hoàn chỉnh bức tranh, đặt cạnh nhau ba lệnh hay bị nhầm:
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  DELETE     → Xóa DÒNG (data), giữ bảng + cấu trúc + index    │
-│               → có WHERE, có thể xóa một phần                  │
-│                                                               │
-│  TRUNCATE   → Xóa TẤT CẢ DÒNG, giữ bảng + cấu trúc + index    │
-│               → không WHERE, nhanh, trả disk                  │
-│                                                               │
-│  DROP TABLE → Xóa CẢ BẢNG: data + cấu trúc + index + trigger  │
-│               → bảng biến mất hoàn toàn khỏi schema           │
-╰───────────────────────────────────────────────────────────────╯
-```
+| Lệnh | Phạm vi xóa | Còn lại |
+| --- | --- | --- |
+| `DELETE` | Các rows thỏa WHERE hoặc toàn bộ rows | Bảng, cấu trúc và index |
+| `TRUNCATE` | Toàn bộ rows, không có WHERE | Bảng, cấu trúc và index được reset theo engine |
+| `DROP TABLE` | Cả đối tượng bảng | Bảng biến mất; các đối tượng phụ thuộc phải xử lý theo dependency |
 
 | Tiêu chí | DELETE | TRUNCATE | DROP TABLE |
 |----------|--------|----------|------------|
@@ -895,17 +877,11 @@ need -> periodic -> partition
 
 ### 17.1. Cheat sheet
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  Lệnh        Bản chất   WHERE  Tốc độ   Disk   Trigger  Rollback│
-│  ───────────────────────────────────────────────────────────   │
-│  DELETE      DML        ✅     Chậm     Giữ    ✅       ✅ mọi DB │
-│  TRUNCATE    DDL        ❌     Nhanh    Trả    ❌*      Tùy DB    │
-│  DROP TABLE  DDL        ❌     Nhanh    Trả    —        Tùy DB    │
-│                                                               │
-│  * PG có thể tạo statement-level TRUNCATE trigger riêng        │
-╰───────────────────────────────────────────────────────────────╯
-```
+| Lệnh | Bản chất thường mô tả | WHERE | Chi phí | Disk | Trigger | Rollback |
+| --- | --- | --- | --- | --- | --- | --- |
+| DELETE | DML | Có | Theo rows và workload | Không mặc định co file | DELETE trigger | Có trong transaction theo engine |
+| TRUNCATE | DDL / utility theo engine | Không | Thường thấp hơn xóa từng row | Theo engine | PG có statement-level TRUNCATE trigger | Tùy DB |
+| DROP TABLE | DDL | Không | Theo dependency và engine | Bỏ đối tượng lưu trữ | Theo engine | Tùy DB |
 
 ### 17.2. So sánh tổng quan
 

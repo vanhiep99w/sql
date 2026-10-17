@@ -615,27 +615,16 @@ Câu trả lời này cho thấy bạn không tối ưu theo cảm giác. Bạn 
 
 ## 12. Cheat sheet
 
-```text
-┌───────────────────────────────────────────────────────────────┐
-│ ĐỌC EXPLAIN ANALYZE                                           │
-├───────────────────────────────────────────────────────────────┤
-│ 1. Đọc từ node lá lên node gốc                               │
-│ 2. So estimated rows với actual rows                         │
-│ 3. Với loops > 1: actual time và rows là trung bình mỗi loop │
-│ 4. Không cộng thời gian cha–con vì sẽ đếm trùng               │
-│ 5. Tìm Rows Removed, shared read, temp I/O, spill             │
-│ 6. Thay một thứ rồi đo lại                                    │
-├───────────────────────────────────────────────────────────────┤
-│ CỜ ĐỎ                                                        │
-│ • Estimation lệch hàng chục/hàng trăm lần                     │
-│ • Scan rất nhiều dòng để giữ rất ít dòng                      │
-│ • Node trong Nested Loop có loops cực lớn                     │
-│ • Sort Method: external merge                                │
-│ • Hash Batches > 1                                           │
-│ • temp read/written cao                                      │
-│ • Index Only Scan nhưng Heap Fetches cao                     │
-└───────────────────────────────────────────────────────────────┘
-```
+**Đọc plan:**
+
+1. Từ node lá lên node gốc.
+2. So estimated rows và actual rows.
+3. Khi loops > 1, rows và time là trung bình mỗi loop.
+4. Không cộng thời gian cha–con vì sẽ đếm trùng.
+5. Xem Rows Removed, shared read, temp I/O và spill.
+6. Đổi một thứ rồi đo lại.
+
+**Cờ đỏ cần điều tra:** estimation lệch lớn; scan nhiều để giữ ít; inner Nested Loop loops lớn; external merge sort; Hash Batches > 1; temp read/written cao; Index Only Scan có Heap Fetches cao. Đây là tín hiệu chẩn đoán, không tự xác định lỗi hay cách sửa.
 
 ## 13. Câu hỏi đào sâu
 

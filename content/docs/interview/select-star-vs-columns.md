@@ -70,13 +70,25 @@ SELECT * FROM orders WHERE user_id = 42;
    →  với mỗi entry, fetch heap để lấy các cột còn lại (random I/O)
 ```
 
-```diagram
-SELECT user_id, status          SELECT *
-─────────────────────           ──────────
- chỉ đọc index (nhỏ, nóng)       đọc index RỒI nhảy về heap mỗi dòng
- Heap Fetches: 0                 Heap Fetches: N (random I/O)
- → nhanh                         → chậm hơn nhiều khi N lớn
+```d2 title="Projection ảnh hưởng nhu cầu đọc heap"
+direction: down
+b0: "Chỉ lấy user_id và status" {
+  n0: "Index phù hợp chứa đủ cột"
+  n1: "Index-Only Scan có thể đọc từ index"
+  n2: "Trong ví dụ: Heap Fetches=0"
+  n0 -> n1
+  n1 -> n2
+}
+b1: "SELECT *" {
+  n0: "Index không đủ cột"
+  n1: "Index Scan rồi fetch row trong heap"
+  n2: "Nhiều matches có thể tăng heap fetch và\nI/O"
+  n0 -> n1
+  n1 -> n2
+}
 ```
+
+Covering không tự bảo đảm mọi query đều heap-free trong PostgreSQL: còn phụ thuộc visibility map.
 
 > [!TIP]
 > **Covering index** = index chứa đủ mọi cột một query cần (kể cả cột chỉ để trả về, qua `INCLUDE`):
@@ -112,16 +124,25 @@ n0 -> n1 -> n2 -> n3
 
 Ngay cả khi không có index-only scan hay TOAST, cột thừa vẫn tốn kém ở tầng truyền tải:
 
-```diagram
-SELECT *  trên bảng 30 cột, trả 10,000 dòng:
-   → serialize 30 cột × 10k dòng ở server
-   → đẩy qua mạng (băng thông)
-   → deserialize 30 cột × 10k dòng ở client (CPU + RAM)
-   → ORM map thành 10k object đầy đủ field
-
-SELECT id, name (2 cột):
-   → ~1/15 dữ liệu truyền + map
+```d2 title="Chi phí truyền và tạo object theo số cột"
+direction: down
+b0: "SELECT * — 30 cột, 10K rows" {
+  n0: "Serialize tại server"
+  n1: "Truyền qua mạng"
+  n2: "Deserialize 30 cột × 10K rows"
+  n3: "ORM tạo 10K object đủ field"
+  n0 -> n1
+  n1 -> n2
+  n2 -> n3
+}
+b1: "SELECT id, name" {
+  n0: "Chỉ truyền và map hai cột"
+  n1: "Nếu kích thước cột tương đương: khoảng\n1/15 lượng dữ liệu"
+  n0 -> n1
+}
 ```
+
+Tỷ lệ 1/15 chỉ là phép so minh họa; các cột text/JSON lớn có thể làm tỷ lệ thực tế khác xa.
 
 Với API trả JSON, mỗi cột thừa = thêm byte mạng cho **mọi** request, nhân với QPS → tốn kém thật sự ở quy mô lớn.
 
@@ -229,20 +250,16 @@ Cùng `WHERE`, cùng index, nhưng `SELECT *`: `Index Scan` (không phải *Only
 
 ### 10.1. Cheat sheet
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  SELECT * tốn kém vì:                                          │
-│   1. Phá Index-Only Scan → buộc fetch heap (Heap Fetches > 0)  │
-│   2. Kéo theo TOAST (text/jsonb/bytea lớn) → I/O ẩn            │
-│   3. Băng thông mạng + RAM/CPU client                          │
-│   4. Sort/hash phình → dễ tràn work_mem ra đĩa                 │
-│   5. ORM over-fetch, che N+1                                   │
-│   6. Vỡ khi schema đổi; che việc thiếu covering index          │
-│  ─────────────────────────────────────────────────────────     │
-│  Chọn cột cần → mở đường covering index (INCLUDE) → index-only │
-│  Ngoại lệ OK: EXISTS(SELECT *), COUNT(*), ad-hoc, bảng nhỏ     │
-╰───────────────────────────────────────────────────────────────╯
-```
+Các chi phí cần kiểm tra khi dùng `SELECT *`:
+
+1. Index có thể không đủ cột, dẫn tới thêm heap fetch.
+2. Đọc cột TOAST lớn có thể thêm I/O.
+3. Network, deserialize và object memory ở client.
+4. Rows rộng làm sort/hash tốn memory, tăng nguy cơ spill.
+5. ORM over-fetch và N+1 bị che khuất.
+6. Hợp đồng cột dễ thay đổi khi schema đổi.
+
+Chọn đủ cột cần để mở đường cho covering/index-only access; kiểm tra visibility và plan. `EXISTS(SELECT *)`, `COUNT(*)`, ad-hoc hoặc bảng nhỏ là các ngữ cảnh khác, không áp dụng cùng lời khuyên máy móc.
 
 ### 10.2. 3 nguyên tắc áp dụng ngay
 

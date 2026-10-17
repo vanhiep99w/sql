@@ -196,21 +196,23 @@ WHERE tablename = 'orders' AND attname = 'status';
 
 ### 5.1. n_distinct — số âm nghĩa là gì
 
-```text
- n_distinct = 5       → chính xác 5 giá trị khác nhau
- n_distinct = -1      → mỗi row một giá trị (unique, VD primary key)
- n_distinct = -0.5    → số distinct = 50% số row
-```
+| n_distinct PostgreSQL | Diễn giải |
+| --- | --- |
+| 5 | Ước lượng năm giá trị distinct |
+| -1 | Distinct ước lượng bằng số rows, ví dụ key unique |
+| -0.5 | Distinct ước lượng bằng 50% số rows |
+
+Đây là statistics ước lượng từ quá trình thu thập, không gọi số dương là số đếm chính xác tuyệt đối.
 
 Giá trị âm là **tỉ lệ** so với số row (dùng khi số distinct tăng theo kích thước bảng).
 
 ### 5.2. correlation — quyết định Index Scan hay Bitmap
 
-```text
- correlation = 1.0   → thứ tự vật lý khớp hoàn toàn logic (VD cột id auto-increment)
- correlation = 0.0   → hoàn toàn ngẫu nhiên
- correlation = -1.0  → ngược hoàn toàn
-```
+| correlation | Ý nghĩa mô hình |
+| --- | --- |
+| 1.0 | Thứ tự vật lý khớp thứ tự key |
+| 0.0 | Ít tương quan tuyến tính giữa thứ tự vật lý và key |
+| -1.0 | Thứ tự vật lý ngược thứ tự key |
 
 > [!IMPORTANT]
 > `correlation` gần 1 → các row cùng khoảng giá trị nằm gần nhau trên đĩa → Index Scan rẻ (ít random I/O). `correlation` gần 0 → Index Scan phải nhảy khắp đĩa → optimizer ưu tiên Bitmap Heap Scan. Đây là lý do index trên cột `created_at` (thường tăng dần) rất hiệu quả cho range query.
@@ -223,13 +225,20 @@ Cardinality = số row đi qua mỗi bước. Đây là **con số quan trọng 
 
 ### 6.1. Ước lượng lan truyền qua cây plan
 
-```text
-Bảng orders: 50,000,000 row
-  → WHERE status = 'pending'  (MCV: 15%)     → est 7,500,000 row
-    → AND created_at >= '2026-01-01' (30%)   → est 2,250,000 row
-      → JOIN customers (mỗi order 1 customer) → est 2,250,000 row
-        → GROUP BY status                     → est 5 row
+```d2 title="Cardinality estimate lan qua các operators"
+direction: down
+n0: "orders: 50 triệu rows"
+n1: "status=pending, MCV 15% → ước lượng 7,5\ntriệu"
+n2: "created_at từ 2026-01-01, selectivity 30%\n→ 2,25 triệu"
+n3: "JOIN customers, giả định một\ncustomer/order → 2,25 triệu"
+n4: "GROUP BY status → ước lượng 5 rows trong\nví dụ"
+n0 -> n1
+n1 -> n2
+n2 -> n3
+n3 -> n4
 ```
+
+Các ước lượng phụ thuộc giả định independence, số groups và constraints. Phải so với actual rows; không coi các tỷ lệ là quy luật của dữ liệu thật.
 
 Sai số **tích lũy**: nếu ước lượng bước đầu lệch 10 lần, các bước sau càng lệch xa. Đây là lý do sai cardinality ở node lá gây hậu quả lớn nhất.
 

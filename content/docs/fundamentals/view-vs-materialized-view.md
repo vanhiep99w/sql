@@ -887,13 +887,20 @@ PostgreSQL chỉ cho một refresh chạy tại một thời điểm trên cùng
 
 Xét lịch **giả định**:
 
-```text
-10:00  Refresh bắt đầu đọc nguồn theo snapshot
-10:01  Một đơn mới được COMMIT
-10:02  Refresh hoàn thành và công bố kết quả
-10:05  Refresh tiếp theo bắt đầu
-10:07  Refresh tiếp theo hoàn thành
+```d2 title="Mốc đọc nguồn khác mốc công bố MV"
+direction: down
+n0: "10:00 — refresh bắt đầu đọc theo snapshot"
+n1: "10:01 — đơn mới được commit, ngoài\nsnapshot đó"
+n2: "10:02 — refresh công bố kết quả đầu"
+n3: "10:05 — refresh tiếp theo bắt đầu"
+n4: "10:07 — công bố kết quả tiếp theo"
+n0 -> n1
+n1 -> n2
+n2 -> n3
+n3 -> n4
 ```
+
+Đây là lịch giả định, không biểu diễn khoảng cách thời gian theo tỷ lệ. Đơn commit 10:01 không tự xuất hiện trong snapshot nguồn đã lấy trước đó.
 
 Đơn commit lúc 10:01 không nằm trong snapshot nguồn của lần refresh đầu. Dù dashboard thấy “refreshed at 10:02”, đơn đó chỉ xuất hiện sau lần refresh tiếp theo.
 

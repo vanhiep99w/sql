@@ -196,14 +196,21 @@ Mỗi entry trên leaf node của B-Tree là một **key tuple** + một **point
 
 Một hiểu lầm phổ biến: "Composite index (a, b, c) = ba index (a), (b), (c) gộp lại". **Sai hoàn toàn.**
 
+```d2 title="Một composite tree khác ba single-column trees"
+direction: down
+b0: "Index (a,b,c)" {
+  n0: "Một B-Tree theo tuple key (a,b,c)"
+  n1: "Sort theo tuple và áp dụng prefix rules"
+  n0 -> n1
+}
+b1: "Index (a), (b), (c)" {
+  n0: "Ba B-Trees riêng; mỗi tree sort theo cột\nriêng"
+  n1: "Sử dụng độc lập hoặc kết hợp theo plan"
+  n0 -> n1
+}
 ```
-Index (a, b, c)            ≠     Index (a), Index (b), Index (c)
 
-→ 1 B-Tree, key = a||b||c        → 3 B-Tree riêng biệt
-→ Sort theo tuple                → Mỗi index sort theo cột của mình
-→ Tiết kiệm storage              → Tốn 3x storage
-→ Leftmost prefix rule           → Mỗi index dùng độc lập
-```
+Dung lượng thực tế tùy key, row locator và overhead. Ba tree không đồng nghĩa luôn tốn chính xác ba lần storage của một composite tree.
 
 Key trên leaf không phải 3 ô tách rời, mà là **1 chuỗi byte concat lại** (có terminator để phân tách):
 
@@ -290,28 +297,26 @@ Composite B-Tree hành xử **chính xác** như cuốn danh bạ này.
 
 Index `(a, b, c)`. Query: `WHERE a = 10 AND c = 'X'`. Bỏ qua `b`.
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│ B-Tree đi tới khối a = 10:                                    │
-│                                                               │
-│  (10, 'apple',   'X')   ✓                                     │
-│  (10, 'apple',   'Y')                                         │
-│  (10, 'apple',   'Z')                                         │
-│  (10, 'banana',  'X')   ✓                                     │
-│  (10, 'banana',  'Y')                                         │
-│  (10, 'cherry',  'A')                                         │
-│  (10, 'cherry',  'X')   ✓                                     │
-│  (10, 'durian',  'X')   ✓                                     │
-│  ...                                                          │
-│  (10, 'zebra',   'X')   ✓                                     │
-│                                                               │
-│ → DB phải quét TOÀN BỘ khối a = 10                            │
-│   vì c='X' rải đều giữa các giá trị b khác nhau.              │
-│                                                               │
-│ Index dùng được cho a (access).                               │
-│ c trở thành filter (kiểm tra sau khi đọc).                    │
-╰───────────────────────────────────────────────────────────────╯
+```d2 title="Gap ở cột b làm c trở thành filter trong mô hình prefix scan"
+direction: right
+seek: "Seek tới a=10"
+scan: "Duyệt các b: apple, banana, cherry,\ndurian, zebra"
+filter_node: "Kiểm tra c='X' sau khi đọc entry"
+result: "Giữ các tuple phù hợp"
+seek -> scan
+scan -> filter_node
+filter_node -> result
 ```
+
+| b trong các tuple a=10 | Các giá trị c ví dụ | Giữ khi c=X |
+| --- | --- | --- |
+| apple | X, Y, Z | X |
+| banana | X, Y | X |
+| cherry | A, X | X |
+| durian | X | X |
+| zebra | X | X |
+
+Ở access path đang minh họa, index dùng a làm access; c là filter. Các engine có thể có access path khác như skip scan, cần xác nhận bằng plan.
 
 EXPLAIN tương ứng (Postgres):
 
@@ -353,21 +358,25 @@ Quay lại 2 khái niệm đã gặp ở doc LIKE (xem [LIKE Deep Dive §5](./li
 
 Cho index `(c₁, c₂, c₃, c₄)`, mỗi cột được đánh giá **từ trái sang phải**:
 
+```d2 title="Phân loại predicate theo chuỗi prefix đang xét"
+direction: down
+column: Cột c_i có trong WHERE? { shape: diamond }
+none: Không liên quan tới predicate này
+previous: Mọi cột trước đều có access equality phù hợp? { shape: diamond }
+filter_node: Filter theo mô hình prefix scan
+kind: Predicate của c_i? { shape: diamond }
+equality: Access equality
+range_node: Access range — kết thúc prefix range
+column -> none: Không
+column -> previous: Có
+previous -> filter_node: Không — gap hoặc range trước đó
+previous -> kind: Có
+kind -> equality: Equality / IN một giá trị / IS NULL khi engine tối ưu được
+kind -> range_node: Khoảng / BETWEEN / LIKE prefix khi phù hợp
+kind -> filter_node: Không thành access
 ```
-Cột c_i  →  Access nếu:
-              • c_i có equality predicate (=, IN với 1 giá trị, IS NULL có optimization)
-              • TẤT CẢ c_1 ... c_{i-1} đều là Access cùng dạng
-              
-            →  Access RANGE (cuối chuỗi) nếu:
-              • c_i có range predicate (>, <, BETWEEN, IS NOT NULL, LIKE 'prefix%')
-              • TẤT CẢ c_1 ... c_{i-1} đều là Access equality
-              
-            →  Filter nếu:
-              • Có predicate nhưng không thỏa điều kiện Access
-              • (Tức là bị "đẩy lùi" về sau một range column hoặc một gap)
-            
-            →  Không liên quan nếu không xuất hiện trong WHERE
-```
+
+Đây là mô hình giải thích leftmost-prefix phổ biến, không thay thế việc kiểm tra các tối ưu riêng theo database/version như skip scan và index condition pushdown.
 
 ### 4.2. Bảng phân loại — ví dụ với index `(cust, status, created_at, total)`
 
@@ -390,7 +399,7 @@ Cột c_i  →  Access nếu:
 
 ### 4.3. Đếm thực tế — chênh lệch giữa Access và Filter
 
-Bảng 50M rows. Index `(customer_id, status, created_at)`. 
+Bảng 50M rows. Index `(customer_id, status, created_at)`.
 
 ```sql
 -- Phân bố dữ liệu:
@@ -449,16 +458,15 @@ DB nhảy tới `(10, 2, ...)` rồi quét **xuôi qua hết khối** `a=10`. Tr
 
 Nói cách khác: trong **một khoảng range của `b`**, dữ liệu **không** sort theo `c` toàn cục, mà sort theo `(b, c)` cục bộ. Vì thế:
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│ a = 10 AND b BETWEEN 2 AND 4 AND c = 'X'                      │
-│                                                               │
-│  Access range:  (10, 2)  →  (10, 5)   ← chỉ dùng a và b       │
-│  Filter:        c = 'X'                                       │
-│                                                               │
-│  Rows quét trên index: 7  (tất cả rows trong khoảng b ∈ [2,4])│
-│  Rows match:           3                                      │
-╰───────────────────────────────────────────────────────────────╯
+```d2 title="Range ở b, filter ở c"
+direction: right
+n0: "a=10 AND b BETWEEN 2 AND 4 AND c=X"
+n1: "Access range theo a,b: từ (10,2) tới trước\n(10,5)"
+n2: "Đọc 7 index entries trong khoảng b=2..4"
+n3: "Filter c=X → giữ 3 matches"
+n0 -> n1
+n1 -> n2
+n2 -> n3
 ```
 
 ### 5.3. Ví dụ thực tế — `(country, signup_date, status)`
@@ -534,8 +542,12 @@ Cụm “luôn-luôn-đúng” ở đây nên hiểu là **điểm xuất phát 
 > [!TIP]
 > Với query có dạng `equality + range`, hãy bắt đầu bằng công thức:
 >
-> ```text
-> [các cột equality liên tiếp] → [range quan trọng nhất] → [cột phụ]
+> ```d2 title="Thứ tự key theo equality prefix và range"
+> direction: right
+> equality: Các cột equality liên tiếp
+> range_node: Range quan trọng nhất
+> extra: Cột phụ để filter, order hoặc covering
+> equality -> range_node -> extra
 > ```
 >
 > - Nhóm equality khóa B-Tree vào đúng một nhánh hẹp.
@@ -619,10 +631,10 @@ ON orders (tenant_id, status, total, created_at);
 
 Trong trường hợp này:
 
-```text
-ix_by_time  ≈ quét 10.000 index entries  → lọc total
-ix_by_total ≈ quét 100.000 index entries → lọc created_at
-```
+| Index minh họa | Entries quét | Filter còn lại |
+| --- | --- | --- |
+| ix_by_time | Khoảng 10.000 | total |
+| ix_by_total | Khoảng 100.000 | created_at |
 
 `ix_by_time` thường tốt hơn vì range đầu tiên để lại ít entry hơn. Nếu phân bố dữ liệu đảo ngược, `ix_by_total` có thể thắng.
 
@@ -975,26 +987,20 @@ P -> Q
 
 Bình thường, `WHERE b = X` trên index `(a, b)` → không dùng index. Nhưng nếu `a` có **rất ít** distinct values (vài chục), một số DB tự "lặp" qua từng giá trị `a` rồi sub-seek `b` — gọi là **Skip Scan**.
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│ Index (a, b), a có 4 distinct values: 1, 2, 3, 4              │
-│                                                               │
-│ Query: WHERE b = 'X'                                          │
-│                                                               │
-│ Skip Scan logic:                                              │
-│   1. Đọc distinct value đầu của a → 1                         │
-│      Seek (a=1, b='X')                                        │
-│      Nếu match, đọc và xuôi đến khi b ≠ 'X'                   │
-│                                                               │
-│   2. Tìm distinct value kế tiếp của a → 2                     │
-│      Seek (a=2, b='X')                                        │
-│      ...                                                      │
-│                                                               │
-│   3. Lặp tới 3, 4                                             │
-│                                                               │
-│   Tổng cộng: 4 sub-seek thay vì Seq Scan toàn bảng            │
-╰───────────────────────────────────────────────────────────────╯
+```d2 title="Skip scan thực hiện nhiều seek trên prefix khác nhau"
+direction: down
+n0: "Index (a,b), distinct a={1,2,3,4}; query\nb=X"
+n1: "Lấy a=1 → seek (1,X), đọc hết nhóm b=X"
+n2: "Lấy a=2 → seek (2,X)"
+n3: "Lặp a=3 và a=4"
+n4: "Ví dụ bốn sub-seek thay vì scan toàn bộ"
+n0 -> n1
+n1 -> n2
+n2 -> n3
+n3 -> n4
 ```
+
+Đây là mô tả ý tưởng khi engine có skip scan và planner chọn path đó; không có bảo đảm query luôn dùng skip scan.
 
 ### 8.2. Hỗ trợ theo DB
 
@@ -1643,9 +1649,7 @@ Phải đặt `NULLS FIRST/LAST` trong CREATE INDEX cho khớp với ORDER BY.
 
 InnoDB **luôn** clustered theo PRIMARY KEY. Secondary index chứa **PK value** thay vì RowID:
 
-```
-Index (customer_id, status)  →  leaf entries: (cust, status, pk)
-```
+Trong ví dụ InnoDB, leaf entry của secondary index `(customer_id, status)` mang `(customer_id, status, primary_key)` để tìm row trong clustered primary-key tree.
 
 → Mỗi secondary index lookup = 2 B-Tree traversals (secondary → PK → data). Cân nhắc kích thước PK!
 
@@ -2235,25 +2239,20 @@ Quay lại câu hỏi đầu doc: **Tại sao đổi thứ tự cột làm query
 
 ### 18.1. Cheat sheet thứ tự cột
 
-```diagram
-╭───────────────────────────────────────────────────────────────────────╮
-│   Pattern query                       Thứ tự cột tối ưu               │
-│   ──────────────────────────────────────────────────────────────────  │
-│   WHERE a=? AND b=?                   (a, b)                          │
-│   WHERE a=? AND b=? AND c=?           (a, b, c)                       │
-│   WHERE a=? AND b>?                   (a, b)                          │
-│   WHERE a=? AND b BETWEEN ? AND ?     (a, b)                          │
-│   WHERE a=? AND b=? ORDER BY c        (a, b, c)                       │
-│   WHERE a=? ORDER BY b DESC LIMIT k   (a, b DESC)                     │
-│   WHERE a IN (...) AND b=?            (a, b)                          │
-│   SaaS WHERE tenant=? AND x=? AND y=? (tenant, x, y)                  │
-│   Recent WHERE x=? ORDER BY ts DESC   (x, ts DESC)                    │
-│   Keyset paging                       (scope, sort DESC, pk DESC)     │
-│                                                                       │
-│   Cell phone book:                                                    │
-│     (lastname, firstname, city)  ←  KHÔNG đổi được lastname ↔ city    │
-╰───────────────────────────────────────────────────────────────────────╯
-```
+| Query pattern minh họa | Candidate key order |
+| --- | --- |
+| WHERE a=? AND b=? | (a,b) |
+| WHERE a=? AND b=? AND c=? | (a,b,c) |
+| WHERE a=? AND b>? | (a,b) |
+| WHERE a=? AND b BETWEEN ? AND ? | (a,b) |
+| WHERE a=? AND b=? ORDER BY c | (a,b,c) |
+| WHERE a=? ORDER BY b DESC LIMIT k | (a,b DESC) |
+| WHERE a IN (...) AND b=? | (a,b), cần kiểm tra nhiều ranges và order |
+| SaaS: tenant=? AND x=? AND y=? | (tenant,x,y) |
+| Recent: x=? ORDER BY ts DESC | (x,ts DESC) |
+| Keyset paging | (scope,sort DESC,pk DESC) |
+
+Danh bạ `(lastname,firstname,city)` không có cùng ordering với `(city,firstname,lastname)`. Đây là candidates để đo, không phải công thức tối ưu phổ quát.
 
 ### 18.2. Bảng quyết định cho ORDER BY
 

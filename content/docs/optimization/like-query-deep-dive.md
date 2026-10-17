@@ -267,14 +267,16 @@ SELECT * FROM courses WHERE title LIKE 'SQL%';
 
 Database **không** quét tìm chuỗi chứa `'SQL'`. Nó làm việc tinh vi hơn — **biến câu LIKE thành range scan**:
 
+```d2 title="Prefix được chuyển thành start và stop key trong ví dụ"
+direction: right
+n0: "Pattern LIKE SQL%"
+n1: "start_key=SQL; end_key=SQM"
+n2: "Range tương đương: title ≥ SQL AND title <\nSQM"
+n0 -> n1
+n1 -> n2
 ```
-Optimizer đọc prefix 'SQL' → tính:
 
-   start_key = 'SQL'
-   end_key   = 'SQM'    ← (ký tự cuối '\x4C' + 1 = '\x4D')
-
-→ Tương đương:  title >= 'SQL'  AND  title < 'SQM'
-```
+Việc tăng ký tự cuối từ `0x4C` sang `0x4D` là minh họa trên byte/order đơn giản. Collation và operator class thực tế quyết định planner có tạo được range này hay không.
 
 Quy trình thực thi (`Index Range Scan`):
 
@@ -318,19 +320,18 @@ Kết quả: **bỏ index, chuyển sang Sequential Scan**, đọc toàn bảng 
 
 ### 4.3. Bảng so sánh nhanh
 
-```diagram
-╭──────────────────────────────────────────────────────────╮
-│  LIKE 'SQL%'        →  Index Range Scan       O(log n)   │
-│  LIKE '%SQL'        →  Sequential Scan        O(n)       │
-│  LIKE '%SQL%'       →  Sequential Scan        O(n)       │
-│  LIKE 'SQL%able'    →  Index Range Scan       O(k)*      │
-│  LIKE 'S_L%'        →  Index Range Scan + filter         │
-│  LIKE '_QL%'        →  Sequential Scan        O(n)       │
-│  LIKE '%'           →  ⚠️ Match all → Seq Scan           │
-│  LIKE 'SQL'         →  Index Unique Scan (= equality)    │
-╰──────────────────────────────────────────────────────────╯
-  * k = số rows match prefix 'SQL'
-```
+| LIKE pattern | Hướng access thường xem xét với B-Tree phù hợp |
+| --- | --- |
+| SQL% | Prefix range scan |
+| %SQL | Không có leading literal prefix; đánh giá reversed/trigram/search index |
+| %SQL% | Không có prefix range đơn giản; đánh giá trigram |
+| SQL%able | Range theo SQL rồi filter phần còn lại |
+| S_L% | Range theo literal prefix S khi phù hợp; filter pattern |
+| _QL% | Không có leading literal prefix |
+| % | Match mọi non-NULL string; scan có thể phù hợp |
+| SQL | Equality, không tự là unique lookup nếu key không unique |
+
+Chi phí còn phụ thuộc chiều cao cây, số entries phải scan, fetch rows và filter; không mô tả toàn bộ prefix range bằng O(log n) nếu trả nhiều matches.
 
 Hai dòng đáng chú ý:
 
@@ -410,7 +411,7 @@ Database **chỉ dùng `SQL`** làm access predicate. Toàn bộ `%advanced%basi
 
 Nói cách khác:
 
-```diagram
+```text
 'SQL%advanced%basic'        ──→  access = 'SQL'        (chỉ 3 ký tự)
 'SQL_advanced%basic'        ──→  access = 'SQL_a...'   (nhiều ký tự hơn)
 'SQLadvanced%basic'         ──→  access = 'SQLadvanced'(11 ký tự!)
@@ -544,21 +545,21 @@ MySQL không cache plan giữa các `EXECUTE` của cùng một `PREPARE` quá m
 
 Cơ chế **thú vị nhất**:
 
-```diagram
-╭──────────────────────────────────────────────────────────╮
-│  Lần 1-5:  Custom Plan  (tối ưu riêng cho mỗi giá trị)   │
-│             │                                            │
-│             ▼                                            │
-│  Lần 6+:   Thử tính Generic Plan (không phụ thuộc giá trị)│
-│             │                                            │
-│             ├─ Generic cost ≤ Custom cost trung bình     │
-│             │     → Chuyển sang Generic vĩnh viễn        │
-│             │                                            │
-│             └─ Với LIKE: Generic Plan giả định           │
-│                trường hợp xấu nhất (%...) → bỏ index     │
-│                → Sequential Scan ❌                      │
-╰──────────────────────────────────────────────────────────╯
+```d2 title="Custom plan và generic plan cho prepared statement"
+direction: down
+first: Các lần đầu — thường năm custom plans trong auto mode
+estimate: Tính generic plan cost và so average custom cost
+choice: Generic cost có lợi theo heuristic? { shape: diamond }
+generic: Có thể dùng generic plan cho các lần tiếp theo
+custom: Tiếp tục custom planning
+like_node: Với LIKE parameter, generic plan có thể thiếu prefix cụ thể để range-seek
+first -> estimate -> choice
+choice -> generic: Có
+choice -> custom: Không
+generic -> like_node
 ```
+
+Đây là mô hình `plan_cache_mode=auto` của PostgreSQL, không phải cam kết generic plan “vĩnh viễn”. Invalidation và thay đổi môi trường có thể làm replanning. Không nói generic plan luôn giả định worst case hoặc luôn Seq Scan; kiểm tra plan với tham số thật.
 
 ### 7.2. Kịch bản kinh điển — "query nhanh lúc test, chậm lúc deploy"
 
@@ -679,45 +680,55 @@ SELECT show_trgm('database');
 
 Sau khi có các trigram, database lưu chúng trong một loại index đặc biệt: **GIN** (Generalized Inverted Index). Cấu trúc:
 
+```d2 title="GIN ánh xạ trigram tới posting list"
+direction: right
+abc: "abc"
+abd: "abd"
+abe: "abe"
+ata: "ata"
+dat: "dat"
+dba: "dba"
+p1: "Rows 1,5,8,12,99,1000,..."
+p2: "Rows 2,7"
+p3: "Rows 4,15,22,..."
+p4: "Rows 1,8,99"
+p5: "Rows 3,9,11,..."
+abc -> p1
+abd -> p2
+abe -> p3
+ata -> p4
+dat -> p4
+dba -> p5
 ```
-Posting tree (B-Tree of trigrams)
 
-   "abc" ──→ [posting list: 1, 5, 8, 12, 99, 1000, ...]
-   "abd" ──→ [posting list: 2, 7]
-   "abe" ──→ [posting list: 4, 15, 22, ...]
-   "atab"──→ [posting list: 1, 8, 99]
-   "data"──→ [posting list: 1, 8, 99]
-   "dba" ──→ [posting list: 3, 9, 11, ...]
-   ...
-```
+Các posting lists là dữ liệu minh họa. Trigram là nhóm **ba ký tự**; không dùng nhãn bốn ký tự như `atab` hay `data` để đại diện một trigram.
 
 Mỗi entry trong posting list **đã sort theo CTID/RowID** → cho phép **set intersection** cực nhanh.
 
 ### 9.3. Quy trình query `LIKE '%database%'`
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│ 1. Tách query: trigrams("database")                           │
-│    = { "dat", "ata", "tab", "aba", "bas", "ase" }             │
-│                                                               │
-│ 2. Với mỗi trigram, lấy posting list:                         │
-│    "dat" → [1, 5, 8, 12, ...]                                 │
-│    "ata" → [1, 8, 12, 99, ...]                                │
-│    "tab" → [1, 8, ...]                                        │
-│    "aba" → [1, 8, ...]                                        │
-│    "bas" → [1, 8, ...]                                        │
-│    "ase" → [1, 8, ...]                                        │
-│                                                               │
-│ 3. INTERSECTION (merge join các posting list đã sort):        │
-│    → [1, 8]                                                   │
-│                                                               │
-│ 4. RECHECK: fetch row 1, 8 → kiểm tra có thực sự chứa         │
-│    chuỗi "database" liên tiếp không (vì GIN chỉ biết các      │
-│    trigram cùng tồn tại, không biết chúng có sát nhau)        │
-│                                                               │
-│ 5. Trả về row 1 và 8                                          │
-╰───────────────────────────────────────────────────────────────╯
+```d2 title="GIN trigram: giao posting lists rồi recheck"
+direction: down
+pattern: "LIKE %database%"
+trigrams: "Trigrams: dat, ata, tab, aba, bas, ase"
+dat: "dat → [1,5,8,12,...]"
+ata: "ata → [1,8,12,99,...]"
+others: "tab, aba, bas, ase → mỗi list có [1,8,...]"
+and_node: "Intersection sorted posting lists →\ncandidates [1,8]"
+recheck: "Fetch rows 1,8; kiểm tra chuỗi database\nliên tiếp"
+result: "Trả rows thực sự match"
+pattern -> trigrams
+trigrams -> dat
+trigrams -> ata
+trigrams -> others
+dat -> and_node
+ata -> and_node
+others -> and_node
+and_node -> recheck
+recheck -> result
 ```
+
+GIN chỉ biết các trigrams cần thiết cùng tồn tại trong row; recheck xác nhận toàn bộ predicate. Trả rows 1 và 8 trong dữ liệu minh họa nếu cả hai vượt qua recheck.
 
 **Từ 15 giây Seq Scan → còn ~3-10 milliseconds.**
 
@@ -838,27 +849,20 @@ cùng một từ gốc. User gõ `"optimizing"` thì **không** ra được các
 
 ### 10.1. 3 bước xử lý
 
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│  Document: "SQL tips to optimize database queries"           │
-│                                                              │
-│  Bước 1 — Tokenization (parser tách câu thành từ):           │
-│  → [SQL, tips, to, optimize, database, queries]              │
-│                                                              │
-│  Bước 2 — Normalization (qua dictionary chain):              │
-│   2a. Stopword filter (bỏ từ phổ biến):                      │
-│        Anh: a, an, the, to, of, in, on...                    │
-│        Việt: và, hoặc, là, của, với...                       │
-│   → [SQL, tips, optimize, database, queries]                 │
-│                                                              │
-│   2b. Stemming (đưa về dạng gốc bằng rule Porter/Snowball):  │
-│   → [sql, tip, optim, databas, queri]                        │
-│                                                              │
-│  Bước 3 — Inverted Index:                                    │
-│   "optim"  → [doc 1, doc 5, doc 8]                           │
-│   "queri"  → [doc 1, doc 3, doc 8]                           │
-╰──────────────────────────────────────────────────────────────╯
+```d2 title="Từ document tới inverted index"
+direction: down
+n0: "Document: SQL tips to optimize database\nqueries"
+n1: "Tokenization → SQL, tips, to, optimize,\ndatabase, queries"
+n2: "Stopword filter → bỏ to trong cấu hình\nEnglish minh họa"
+n3: "Stemming / normalization → sql, tip,\noptim, databas, queri"
+n4: "Inverted index: optim → docs 1,5,8; queri\n→ docs 1,3,8"
+n0 -> n1
+n1 -> n2
+n2 -> n3
+n3 -> n4
 ```
+
+Stopwords như `a, an, the, to, of, in, on` phụ thuộc cấu hình English. Các từ tiếng Việt `và, hoặc, là, của, với` chỉ bị lọc nếu có cấu hình/từ điển phù hợp; không tự có cùng pipeline English.
 
 > [!NOTE]
 > `optim` hay `databas` không phải từ thật. Không sao — miễn là **mọi biến thể của một từ đều quy về cùng một gốc**, đó mới là mục tiêu. Mục tiêu của stemming **không phải** ra đúng từ điển, mà là **deterministic mapping**.
@@ -900,17 +904,20 @@ Tất cả chỉ cần **duyệt song song một lượt** là xong (vì đã so
 
 ### 10.4. Khi user search `"optimizing queries"`
 
-```
-1. Normalize query  →  to_tsquery('english', 'optimize & query')
-                    →  'optim' & 'queri'
-
-2. Tra inverted index:
-     "optim" → [1, 5, 8]
-     "queri" → [1, 3, 8]
-
-3. Intersection  →  [1, 8]
-
-4. Trả về docs 1 và 8
+```d2 title="Full-text search giao hai posting lists"
+direction: down
+query: "optimizing queries"
+normalize: "Normalize theo cấu hình; ví dụ\nto_tsquery('english','optimize & query') →\noptim & queri"
+optim: "optim → [1,5,8]"
+queri: "queri → [1,3,8]"
+and_node: "Intersection → [1,8]"
+result: "Trả docs 1 và 8 trong ví dụ"
+query -> normalize
+normalize -> optim
+normalize -> queri
+optim -> and_node
+queri -> and_node
+and_node -> result
 ```
 
 Đây chính là lý do gõ `"optimizing"` vẫn tìm được bài chứa `"optimized"`, `"optimization"` — tất cả đều quy về `"optim"`.
@@ -1592,21 +1599,18 @@ Quay lại câu hỏi đầu doc: **Tại sao index không hoạt động với 
 
 ### 18.1. Cheat sheet pattern → giải pháp
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  Pattern               Status              Fix                │
-│  ─────────────────────────────────────────────────────────    │
-│  'abc%'                ✅ B-Tree           text_pattern_ops   │
-│  'abc%xyz'             ⚠️ Access='abc'    Dùng prefix dài hơn │
-│  '%abc'                ❌ Seq Scan         Reversed column    │
-│  '%abc%'               ❌ Seq Scan         GIN trigram        │
-│  ILIKE bất kỳ          ❌ Seq Scan         GIN trigram        │
-│  Natural language      ❌ Seq Scan         FTS tsvector + GIN │
-│  Typo-tolerant         ❌ Seq Scan         pg_trgm similarity │
-│  Multi-field, ranking  ❌ Seq Scan         FTS + setweight    │
-│  > 100M rows + facet   ❌ Postgres slow    Elasticsearch      │
-╰───────────────────────────────────────────────────────────────╯
-```
+| Nhu cầu / pattern | Candidate cần xem xét |
+| --- | --- |
+| abc% | B-Tree với collation/operator class phù hợp, ví dụ text_pattern_ops |
+| abc%xyz | Prefix access abc rồi recheck pattern |
+| %abc | Reversed expression/index cho suffix nếu phù hợp |
+| %abc% / ILIKE | pg_trgm GIN/GiST tùy query và engine |
+| Natural language | tsvector + GIN, text-search config phù hợp |
+| Typo tolerance | pg_trgm similarity với ngưỡng/query phù hợp |
+| Multi-field/ranking | Full-text với weights và ranking |
+| Quy mô lớn, facets / search features | Đánh giá search engine riêng theo requirements |
+
+Không có ngưỡng “hơn 100M rows là PostgreSQL luôn chậm”; benchmark theo workload, index và phần chức năng cần có.
 
 ### 18.2. So sánh các giải pháp
 

@@ -67,28 +67,17 @@ Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ng�
 
 Hãy phân loại index theo bốn trục:
 
-```text
-Một index
-│
-├── Quan hệ với row data
-│   ├── Clustered
-│   └── Nonclustered hoặc secondary
-│
-├── Cấu trúc dữ liệu
-│   ├── B+Tree
-│   ├── Hash
-│   ├── GIN, GiST, BRIN
-│   └── Cấu trúc khác
-│
-├── Số cột trong key
-│   ├── Single-column
-│   └── Composite
-│
-└── Thuộc tính và phạm vi
-    ├── Unique hoặc non-unique
-    ├── Covering
-    ├── Filtered hoặc partial
-    └── Function hoặc expression
+```d2 title="Các chiều phân loại index độc lập"
+direction: right
+index: "Một index"
+storage: "Quan hệ với row: clustered / nonclustered\n/ secondary"
+structure: "Cấu trúc: B+Tree, Hash, GIN, GiST, BRIN,\n..."
+columns: "Số cột key: single-column / composite"
+props: "Thuộc tính: unique, non-unique, covering,\npartial / filtered, expression"
+index -> storage
+index -> structure
+index -> columns
+index -> props
 ```
 
 ### Trục quan hệ với dữ liệu
@@ -167,16 +156,13 @@ Khi tìm `id = 200`, database đi qua B+Tree và tới thẳng row data ở leaf
 
 Trong clustered index, leaf page chứa toàn bộ các cột của row:
 
-```text
-Clustered leaf entry
-┌──────────────────────────────────────────────────────────┐
-│ id = 42                                                  │
-│ customer_id = 7                                          │
-│ status = 'paid'                                          │
-│ created_at = '2026-02-10 09:30:00'                       │
-│ total = 950000                                           │
-└──────────────────────────────────────────────────────────┘
-```
+| Field trong clustered leaf entry | Giá trị ví dụ |
+| --- | --- |
+| id | 42 |
+| customer_id | 7 |
+| status | paid |
+| created_at | 2026-02-10 09:30:00 |
+| total | 950000 |
 
 Các tầng root và internal không cần chứa toàn bộ row. Chúng chủ yếu chứa separator key và con trỏ tới page con.
 
@@ -222,33 +208,35 @@ n0 -> n1 -> n2
 
 Nhưng vị trí của các page trong data file có thể phân tán:
 
-```text
-Thứ tự vị trí trong data file:
-
-Page 8   → chứa id 1–100
-Page 14  → chứa id 201–300
-Page 31  → chứa id 101–200
-
-Thứ tự logic mà B+Tree sử dụng:
-
-Page 8              Page 31               Page 14
-id 1–100     →       id 101–200     →      id 201–300
+```d2 title="Thứ tự logic theo key khác thứ tự page trong file"
+direction: right
+physical: Vị trí trong data file {
+  p8: Page 8 — id 1..100
+  p14: Page 14 — id 201..300
+  p31: Page 31 — id 101..200
+  p8 -> p14 -> p31: thứ tự vị trí vật lý minh họa
+}
+logical: B+Tree sử dụng thứ tự key {
+  p8: Page 8 — id 1..100
+  p31: Page 31 — id 101..200
+  p14: Page 14 — id 201..300
+  p8 -> p31 -> p14: thứ tự logic
+}
 ```
 
 B+Tree biết page tiếp theo thông qua cấu trúc cây và liên kết giữa các leaf page. Vì vậy, database vẫn đọc đúng thứ tự `id` dù page tiếp theo không nằm ngay cạnh page hiện tại trong data file.
 
 Page thường bị phân tán sau một **page split**. Ví dụ page chứa `id 1–100` đã đầy và database cần chèn thêm row vào giữa khoảng này:
 
-```text
-Trước khi split:
-
-Page 8
-[id 1–100]       ← đã đầy
-
-Sau khi split:
-
-Page 8                         Page 50 mới được cấp phát
-[id 1–50]       →              [id 51–100]
+```d2 title="Split có thể cấp leaf mới ở vị trí vật lý khác"
+direction: down
+before: Page 8 đầy — id 1..100
+after: Sau split {
+  p8: Page 8 — id 1..50
+  p50: Page 50 mới — id 51..100
+  p8 -> p50: liên kết logic theo key
+}
+before -> after
 ```
 
 Database có thể tìm được chỗ trống ở page 50, chứ không nhất thiết ở page 9 ngay cạnh page 8. Nó không di chuyển toàn bộ các page phía sau chỉ để page mới nằm liền kề, vì việc đó quá tốn kém.
@@ -405,13 +393,10 @@ Trong trường hợp thông thường, SQL Server tạo unique clustered index 
 
 Mô hình bảng trở thành:
 
-```text
-PK_users
-└── UNIQUE CLUSTERED INDEX trên id
-
-idx_users_email
-└── NONCLUSTERED INDEX trên email
-```
+| Index SQL Server trong ví dụ | Thuộc tính |
+| --- | --- |
+| `PK_users` | UNIQUE CLUSTERED trên id |
+| `idx_users_email` | NONCLUSTERED trên email |
 
 Primary key và clustered index vẫn là hai khái niệm khác nhau:
 
@@ -623,13 +608,13 @@ CLUSTER users USING idx_users_created_at;
 
 Lệnh này viết lại bảng theo thứ tự của index tại thời điểm chạy. Sau đó, các lệnh `INSERT` và `UPDATE` mới không bắt buộc duy trì thứ tự đó.
 
-```text
-Ngay sau CLUSTER:
-created_at tăng tương đối theo vị trí heap
-
-Sau nhiều INSERT và UPDATE:
-row mới có thể nằm ở vị trí khác
-correlation giảm dần
+```d2 title="PostgreSQL CLUSTER không tự duy trì heap order mãi"
+direction: right
+n0: "CLUSTER: heap tương quan với created_at"
+n1: "Nhiều INSERT / UPDATE sau đó có thể đặt\nrow ở chỗ khác"
+n2: "Correlation có thể giảm theo workload"
+n0 -> n1
+n1 -> n2
 ```
 
 PostgreSQL ghi nhớ index đã dùng để `CLUSTER`, nhưng điều đó không biến index thành clustered index được duy trì liên tục.
@@ -782,12 +767,18 @@ UUID bất biến nếu nghiệp vụ cần UUID
 
 Key tăng dần như identity hoặc sequence thường chèn vào vùng cuối của B+Tree. Điều này thường giảm insert rải rác và page split so với key ngẫu nhiên.
 
-```text
-Key tăng dần:
-1001, 1002, 1003 → thường chèn gần cuối
-
-Key ngẫu nhiên:
-8f..., 1a..., c4... → chèn vào nhiều vùng khác nhau
+```d2 title="Key tăng dần và ngẫu nhiên tác động vùng insert"
+direction: down
+b0: "Tăng dần" {
+  n0: "1001, 1002, 1003, ..."
+  n1: "Thường insert gần rìa phải"
+  n0 -> n1
+}
+b1: "Ngẫu nhiên" {
+  n0: "8f..., 1a..., c4..., ..."
+  n1: "Insert vào nhiều vùng key khác nhau"
+  n0 -> n1
+}
 ```
 
 Tuy nhiên, workload ghi cực lớn có thể tạo contention ở page cuối. SQL Server và InnoDB có các cơ chế và chiến lược riêng để xử lý. Vì vậy, “tăng dần luôn tốt” không phải luật tuyệt đối.
@@ -1161,12 +1152,12 @@ Sau khi thêm index, đo lại `INSERT`, `UPDATE`, `DELETE`, dung lượng và t
 
 Hãy ghi nhớ bốn câu sau:
 
-```text
-Clustered / nonclustered  → row data nằm ở đâu?
-B+Tree / hash             → index dùng cấu trúc gì?
-Single / composite        → key có bao nhiêu cột?
-Unique / partial / cover  → index có thuộc tính gì?
-```
+| Chiều phân loại | Câu hỏi |
+| --- | --- |
+| Clustered / nonclustered | Row data nằm ở đâu? |
+| B+Tree / Hash | Index dùng cấu trúc gì? |
+| Single / composite | Key có bao nhiêu cột? |
+| Unique / partial / covering | Có thuộc tính, phạm vi hoặc khả năng phục vụ nào? |
 
 Về câu hỏi “tại sao tôi chưa bao giờ tự tạo clustered index?”:
 
@@ -1176,16 +1167,11 @@ Về câu hỏi “tại sao tôi chưa bao giờ tự tạo clustered index?”
 
 Một schema phổ biến có thể được đọc như sau:
 
-```text
-Primary key
-└── Clustered B+Tree, single-column, unique
-
-Index trên (customer_id, created_at)
-└── Nonclustered B+Tree, composite, non-unique
-
-Unique index trên email
-└── Nonclustered B+Tree, single-column, unique
-```
+| Index ví dụ | Phân loại |
+| --- | --- |
+| Primary key | Clustered B+Tree, single-column, unique |
+| Index `(customer_id, created_at)` | Nonclustered B+Tree, composite, non-unique |
+| Unique index email | Nonclustered B+Tree, single-column, unique |
 
 <Cards>
   <Card title="B+Tree hoạt động như thế nào" href="/optimization/b-plus-tree-deep-dive/" description="Hiểu root, internal page, leaf page, range scan và page split." />

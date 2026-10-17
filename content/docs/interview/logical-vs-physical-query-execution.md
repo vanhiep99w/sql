@@ -435,12 +435,13 @@ WHERE c.region = 'VN'
 
 Optimizer có thể biến đổi về mặt ý tưởng thành:
 
-```text
-Join(
-    Filter(customers, region = 'VN'),
-    Filter(orders, status = 'paid'),
-    customers.id = orders.customer_id
-)
+```d2 title="Predicate của INNER JOIN được đẩy xuống hai input"
+direction: up
+c: "Customers: filter region=VN"
+o: "Orders: filter status=paid"
+join: "JOIN theo customers.id=orders.customer_id"
+c -> join
+o -> join
 ```
 
 Nếu có index phù hợp, filter còn có thể trở thành access condition:
@@ -998,14 +999,26 @@ N -> A
 
 Không pushdown:
 
-```text
-30 triệu row → network → coordinator filter → 310 nghìn row
+```d2 title="Lọc muộn tại coordinator"
+direction: right
+n0: "30 triệu rows"
+n1: "Network"
+n2: "Coordinator filter"
+n3: "310 nghìn rows"
+n0 -> n1
+n1 -> n2
+n2 -> n3
 ```
 
 Có pushdown:
 
-```text
-mỗi shard filter tại chỗ → tổng 310 nghìn row → network
+```d2 title="Predicate pushdown giảm dữ liệu qua network"
+direction: right
+n0: "Mỗi shard lọc tại chỗ"
+n1: "Tổng 310 nghìn rows"
+n2: "Network"
+n0 -> n1
+n1 -> n2
 ```
 
 ### 12.2. Các tối ưu liên quan
@@ -1028,8 +1041,13 @@ Bài toán tính doanh thu theo region trên nhiều shard.
 
 Không tối ưu:
 
-```text
-Tất cả order row → coordinator → GROUP BY region
+```d2 title="Aggregate tập trung sau network"
+direction: right
+n0: "Tất cả orders rows"
+n1: "Coordinator"
+n2: "GROUP BY region"
+n0 -> n1
+n1 -> n2
 ```
 
 Tối ưu:
@@ -1857,40 +1875,16 @@ Không nên dựa vào evaluation order của predicate để đảm bảo corre
 
 ## 20. Cheat sheet
 
-```text
-┌─────────────────────────────────────────────────────────────────────┐
-│ 1. SQL có 3 "thứ tự"                                               │
-│    Syntax order ≠ Logical order ≠ Physical execution plan           │
-│                                                                     │
-│ 2. Logical model                                                    │
-│    FROM/JOIN → WHERE → GROUP/AGG → HAVING → WINDOW                  │
-│    → SELECT → DISTINCT → ORDER → LIMIT                              │
-│                                                                     │
-│ 3. WHERE vs HAVING                                                  │
-│    WHERE  = lọc row trước aggregate                                 │
-│    HAVING = lọc group sau aggregate                                 │
-│    Row predicate → WHERE; aggregate predicate → HAVING              │
-│                                                                     │
-│ 4. INNER JOIN                                                       │
-│    Predicate thường trong ON hoặc WHERE → cùng semantics, cùng plan │
-│                                                                     │
-│ 5. OUTER JOIN                                                       │
-│    ON    = quyết định match, vẫn bảo toàn phía outer                │
-│    WHERE = lọc null-extended row, có thể biến thành INNER JOIN      │
-│                                                                     │
-│ 6. Performance                                                     │
-│    Vị trí text không quyết định vị trí vật lý                       │
-│    Xem access path, selectivity, rows, loops, I/O, spill            │
-│                                                                     │
-│ 7. Distributed                                                     │
-│    Push predicate + projection + partial aggregate xuống worker     │
-│    Nhưng phải xác nhận bằng stage plan và rows/bytes                 │
-│                                                                     │
-│ 8. Trọng tài cuối cùng                                              │
-│    PostgreSQL: EXPLAIN (ANALYZE, BUFFERS)                           │
-│    MySQL 8.4: EXPLAIN ANALYZE FORMAT=TREE                           │
-└─────────────────────────────────────────────────────────────────────┘
-```
+| Chủ đề | Điểm cần nhớ |
+| --- | --- |
+| Ba thứ tự | Syntax order ≠ logical order ≠ physical plan |
+| Logical model | FROM/JOIN → WHERE → GROUP/AGG → HAVING → WINDOW → SELECT → DISTINCT → ORDER → LIMIT |
+| WHERE và HAVING | WHERE lọc rows; HAVING lọc groups; chỉ di chuyển predicate khi tương đương |
+| INNER JOIN | ON và WHERE thường tương đương cho predicate phù hợp |
+| OUTER JOIN | ON quyết định match; WHERE có thể loại null-extended rows và đổi semantics |
+| Performance | Vị trí text không quyết định physical position; kiểm tra access path, rows, loops, I/O và spill |
+| Distributed | Predicate/projection/partial aggregation pushdown phải xác nhận qua stage plan và rows/bytes |
+| Đo lường | PostgreSQL EXPLAIN (ANALYZE, BUFFERS); MySQL EXPLAIN ANALYZE FORMAT=TREE theo version |
 
 ### Câu trả lời cuối cùng nên nghe như thế này
 

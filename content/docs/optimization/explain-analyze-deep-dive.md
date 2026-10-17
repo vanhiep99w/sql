@@ -553,24 +553,20 @@ Với plan phức tạp (chục node), đọc text rất mệt. Dùng công cụ
 
 ## 15. Tóm tắt — Cheat sheet
 
-```
-╭────────────────────────────────────────────────────────────────╮
-│  ĐỌC EXPLAIN TRONG 5 BƯỚC                                      │
-│                                                                │
-│  1. EXPLAIN (ANALYZE, BUFFERS) — luôn kèm BUFFERS              │
-│  2. Đọc từ node THỤT SÂU NHẤT lên GỐC                          │
-│  3. Tìm node tốn nhất: actual time × loops                     │
-│  4. So est rows vs actual rows (lệch >100× = statistics sai)   │
-│  5. Đổi MỘT thứ → EXPLAIN lại → đo                             │
-│                                                                │
-│  CỜ ĐỎ                                                         │
-│  • Seq Scan bảng lớn + ít row cần    → thêm index              │
-│  • Rows Removed by Filter cao         → index lọc              │
-│  • Sort/Hash: external/Disk/Batches>1 → tăng work_mem          │
-│  • Buffers read cao                    → index / cache         │
-│  • MySQL type: ALL                     → thiếu index           │
-╰────────────────────────────────────────────────────────────────╯
-```
+**Năm bước:**
+
+1. Dùng `EXPLAIN (ANALYZE, BUFFERS)` khi có thể thực thi query an toàn.
+2. Đọc từ node lá lên gốc.
+3. Với node lặp, xét actual time × loops trong ngữ cảnh, tránh cộng trùng cha–con.
+4. So estimated/actual rows; lệch lớn cần điều tra statistics, correlation và predicate.
+5. Đổi một thứ, chạy lại và so điều kiện tương đương.
+
+| Tín hiệu | Điều tra tiếp |
+| --- | --- |
+| Seq Scan lớn giữ ít rows / Rows Removed cao | Selectivity, predicate và index phù hợp |
+| Sort external / Hash batches / temp I/O | Cardinality, row width, memory budget và concurrency |
+| Buffers read cao | I/O, cache và access path |
+| MySQL type ALL | Vì sao table scan có cost thấp; không mặc định thiếu index |
 
 | Bạn muốn biết | Nhìn vào |
 |---------------|----------|

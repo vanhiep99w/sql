@@ -49,17 +49,25 @@ Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ng�
 
 ## 3. Tư duy nền: optimizer chọn theo CHI PHÍ, không theo "có index hay không"
 
-```diagram
-Optimizer KHÔNG hỏi: "Có index trên cột này không?"
-Optimizer hỏi:       "Cách nào RẺ NHẤT để lấy data?"
-
-  Phương án A: Seq Scan       → cost = (đọc tuần tự toàn bộ page)
-  Phương án B: Index Scan     → cost = (đọc index + random fetch heap mỗi dòng)
-  Phương án C: Index-Only Scan→ cost = (chỉ đọc index, nếu covering + VM)
-  Phương án D: Bitmap Scan    → cost = (gom ctid qua index rồi đọc heap theo thứ tự page)
-
-  → chọn cost NHỎ NHẤT
+```d2 title="Optimizer chọn plan theo estimated cost"
+direction: down
+query: "Cách rẻ nhất để lấy dữ liệu?"
+seq: "Seq Scan: đọc tuần tự table pages"
+idx: "Index Scan: đọc index và fetch heap"
+only: "Index-Only: đủ cột; xét thêm visibility"
+bitmap: "Bitmap: gom row locations rồi đọc heap\ntheo page"
+choose: "Chọn estimated cost thấp nhất"
+query -> seq
+query -> idx
+query -> only
+query -> bitmap
+seq -> choose
+idx -> choose
+only -> choose
+bitmap -> choose
 ```
+
+Không chỉ kiểm tra index có tồn tại hay không. Cache, độ phân bố key và cost model ảnh hưởng quyết định.
 
 > [!NOTE]
 > Index scan dùng **random I/O** (nhảy lung tung trên heap), trong khi seq scan dùng **sequential I/O** (đọc liền mạch, có read-ahead). Sequential nhanh hơn random nhiều — nên nếu phải lấy *nhiều* dòng, seq scan thắng. Index chỉ thắng khi lấy **một phần nhỏ** dữ liệu. Đây là gốc rễ của nguyên nhân #1.
@@ -70,16 +78,22 @@ Optimizer hỏi:       "Cách nào RẺ NHẤT để lấy data?"
 
 **Selectivity** = phần dữ liệu mà điều kiện lọc ra. Index hiệu quả khi selectivity **cao** (lọc ra ít dòng).
 
-```diagram
-WHERE status = 'paid'  →  khớp 70% bảng (selectivity thấp)
-   Index scan: đọc 35 triệu entry index + 35 triệu random heap fetch
-   Seq scan:   đọc 50 triệu dòng tuần tự (read-ahead)
-   → Seq scan RẺ HƠN → optimizer chọn seq scan (ĐÚNG)
-
-WHERE status = 'refunded'  →  khớp 0.1% bảng (selectivity cao)
-   Index scan: đọc 50k entry + 50k fetch
-   Seq scan:   đọc 50 triệu dòng
-   → Index scan RẺ HƠN → optimizer dùng index
+```d2 title="Hai độ chọn lọc tạo ra chi phí khác nhau"
+direction: down
+b0: "paid — 70% của bảng 50M rows" {
+  n0: "Index: 35M entries và nhiều heap fetch"
+  n1: "Seq Scan: 50M rows tuần tự"
+  n2: "Trong ví dụ cost model chọn Seq Scan"
+  n0 -> n1
+  n1 -> n2
+}
+b1: "refunded — 0,1%" {
+  n0: "Index: khoảng 50K entries và heap fetch"
+  n1: "Seq Scan vẫn xét cả 50M rows"
+  n2: "Trong ví dụ cost model chọn Index Scan"
+  n0 -> n1
+  n1 -> n2
+}
 ```
 
 > [!IMPORTANT]
@@ -242,30 +256,25 @@ Với bảng vài trăm dòng (nằm gọn trong 1-2 page), **seq scan luôn r�
 
 ## 10. Quy trình chẩn đoán bằng EXPLAIN
 
-```diagram
-╭──────────────────────────────────────────────────────────────╮
-│ B1. EXPLAIN (ANALYZE, BUFFERS) <query>                       │
-│                                                              │
-│ B2. So rows ước lượng vs actual ở node Scan:                 │
-│     • Lệch lớn → STATISTICS sai → ANALYZE (nguyên nhân 5)     │
-│                                                              │
-│ B3. Nhìn Filter / Index Cond:                                │
-│     • Thấy func(col) hoặc (col)::type → cast/function        │
-│       (nguyên nhân 2, 3) → sửa query / expression index      │
-│                                                              │
-│ B4. Đếm thử độ chọn lọc:                                     │
-│     SELECT count(*) FILTER (WHERE <đk>) , count(*) FROM t;    │
-│     • Khớp > ~10% → seq scan ĐÚNG (nguyên nhân 1)             │
-│       → cân nhắc partial index nếu cần giá trị hiếm          │
-│                                                              │
-│ B5. Pattern đặc thù?                                         │
-│     • LIKE '%...' → cần GIN/trigram (nguyên nhân 4)           │
-│     • OR cột khác → UNION / bitmap (6)                        │
-│     • Lọc cột không phải prefix composite → đổi index (7)     │
-│                                                              │
-│ B6. Bảng nhỏ? → seq scan là tối ưu, không cần lo (10)        │
-╰──────────────────────────────────────────────────────────────╯
+```d2 title="Điều tra vì sao planner chọn Seq Scan"
+direction: down
+explain: "EXPLAIN (ANALYZE, BUFFERS) với query an\ntoàn"
+rows: "Estimated rows lệch actual?"
+stats: "Kiểm tra statistics; ANALYZE khi phù hợp"
+predicate: "Soi Filter / Index Cond: function, cast\nhoặc type mismatch"
+selectivity: "Đo tỷ lệ match và lượng pages / rows cần\nđọc"
+pattern: "Kiểm tra leading wildcard, OR, composite\nprefix; bảng nhỏ có thể scan rẻ hơn"
+remeasure: "Đổi một thứ rồi đo lại"
+explain -> rows
+rows -> stats: "Lệch lớn"
+rows -> predicate: "Tiếp tục"
+predicate -> selectivity
+selectivity -> pattern
+stats -> remeasure
+pattern -> remeasure
 ```
+
+Không có ngưỡng 10% cố định quyết định Seq Scan cho mọi workload. Nếu đếm tỷ lệ match bằng query riêng, tính cả chi phí của phép đo đó.
 
 Công cụ ép buộc (chỉ để **chẩn đoán**, không để vá production):
 
@@ -300,25 +309,20 @@ SET enable_seqscan = on;    -- nhớ bật lại!
 
 ### 12.1. Cheat sheet
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  "Có index mà vẫn Seq Scan" — vì sao:                         │
-│  ─────────────────────────────────────────────────────────     │
-│  KHÔNG ĐÁNG dùng:                                              │
-│   • Selectivity thấp (khớp >10%) → seq scan rẻ hơn (ĐÚNG)      │
-│   • Bảng nhỏ → seq scan luôn thắng                            │
-│   • Statistics cũ → ước lượng sai (rows lệch) → ANALYZE        │
-│  KHÔNG THỂ dùng (index bị vô hiệu):                            │
-│   • Type mismatch / cast bọc cột                              │
-│   • func(col) = ... → expression index hoặc viết sargable     │
-│   • LIKE '%x%' → GIN/trigram                                  │
-│   • OR cột khác → UNION                                       │
-│   • Lọc không phải prefix của composite                       │
-│  ─────────────────────────────────────────────────────────     │
-│  Chẩn đoán: EXPLAIN ANALYZE → so rows est vs actual,           │
-│             soi Filter/Index Cond, đo selectivity              │
-╰───────────────────────────────────────────────────────────────╯
-```
+**Có thể không đáng dùng index:**
+
+- Tỷ lệ match lớn, rows rộng hoặc nhiều heap fetch.
+- Bảng nhỏ khiến scan có cost thấp.
+- Statistics cũ có thể gây ước lượng sai.
+
+**Predicate có thể thiếu ordered access phù hợp:**
+
+- Cast/type mismatch hoặc function bọc cột.
+- Leading wildcard cần xét trigram/search access thay cho prefix B-Tree.
+- OR nhiều cột có thể cần kết hợp indexes hoặc viết lại đúng ngữ nghĩa.
+- Composite key thiếu prefix phù hợp; xem thêm scan/skip scan theo engine.
+
+Dùng `EXPLAIN ANALYZE`, so estimated/actual rows, `Filter`/`Index Cond`, I/O và đo selectivity. Không coi tỷ lệ 10% hoặc “bảng nhỏ luôn thắng” là luật cố định.
 
 ### 12.2. 3 nguyên tắc áp dụng ngay
 

@@ -1,14 +1,25 @@
 import { unified } from 'unified';
 import { remarkD2 } from '@vanhiep99w/docs-kit/d2';
 import { readArticles } from './docs-content.mjs';
+import { visit } from 'unist-util-visit';
+import { readFile } from 'node:fs/promises';
+import { findTextDiagramCandidates, validateTextDiagramReview } from './diagram-text-review.mjs';
 
 const processor = unified().use(remarkD2, {
   cacheDir: '.next/cache/docs-kit/d2', defaultCaption: 'Sơ đồ',
 });
 let count = 0;
 const failures = [];
-for (const article of await readArticles()) {
-  const blocks = article.tree.children.filter((node) => node.type === 'code' && node.lang === 'd2');
+const articles = await readArticles();
+const exceptions = JSON.parse(await readFile(new URL('./diagram-text-exceptions.json', import.meta.url), 'utf8'));
+const candidates = findTextDiagramCandidates(articles);
+validateTextDiagramReview(candidates, exceptions);
+console.log(`[text-review] ${candidates.length} reviewed exceptions; no unreviewed text/ASCII candidates`);
+for (const article of articles) {
+  const blocks = [];
+  visit(article.tree, 'code', (node) => {
+    if (node.lang === 'd2') blocks.push(node);
+  });
   if (!blocks.length) continue;
   try {
     await processor.run(article.tree, { path: article.filename });

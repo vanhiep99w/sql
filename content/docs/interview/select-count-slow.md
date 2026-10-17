@@ -43,18 +43,18 @@ Câu hỏi này kiểm tra xem bạn có hiểu **MVCC** và **cách dữ liệu
 
 Trong một database không giao dịch, lưu một biến `row_count` rồi cộng/trừ mỗi lần insert/delete là đơn giản. Nhưng MVCC phá vỡ ý tưởng đó.
 
-```diagram
-Cùng một bảng orders, tại cùng một thời điểm:
-
-  Transaction A (bắt đầu lúc T1):
-     thấy 50,000,000 dòng
-
-  Transaction B (bắt đầu lúc T2, sau khi A xóa 1 triệu nhưng chưa commit):
-     vẫn thấy 50,000,000 dòng (không thấy thay đổi chưa commit của A)
-
-  Transaction C (bắt đầu sau khi A commit + có insert mới):
-     thấy 49,200,000 dòng
+```d2 title="MVCC không có một COUNT chung cho mọi snapshot"
+direction: down
+base: "Cùng bảng orders, các snapshot khác nhau"
+a: "A: snapshot ban đầu thấy 50.000.000 rows"
+b: "B: sau khi A xóa 1M chưa commit, vẫn thấy\n50.000.000"
+c: "C: snapshot sau commit và insert bổ sung,\nthấy 49.200.000"
+base -> a
+base -> b
+base -> c
 ```
+
+Số lượng chỉ minh họa visibility theo snapshot; không phải phép đo cardinality của một dataset thực.
 
 > [!NOTE]
 > "Số dòng của bảng" **không phải** một con số tuyệt đối — nó **phụ thuộc snapshot** của transaction đang hỏi. Một biến đếm toàn cục sẽ sai với ít nhất một trong các transaction trên. Vì thế Postgres **không** giữ biến đếm, mà tính lại theo snapshot mỗi lần — và muốn chính xác thì phải kiểm tra từng tuple.
@@ -65,16 +65,22 @@ Nếu Postgres muốn duy trì counter chính xác cho mọi snapshot, nó sẽ 
 
 ## 4. count(*) phải làm gì ở tầng vật lý
 
-```diagram
-SELECT count(*) FROM orders;
-─────────────────────────────
-  → Chọn đường rẻ nhất để "chạm" mọi dòng:
-      • Seq Scan toàn heap (đọc mọi page), HOẶC
-      • Index-only scan trên index nhỏ nhất (nếu được)
-  → Với MỖI tuple gặp: kiểm tra "có visible với snapshot của tôi không?"
-      (xét xmin/xmax + commit status + visibility map)
-  → Đếm các tuple visible
-  → Trả về 1 con số
+```d2 title="COUNT chính xác phải xét dữ liệu visible"
+direction: down
+count: "SELECT count(*) FROM orders"
+path: "Chọn access path có cost phù hợp"
+heap: "Seq Scan heap"
+index: "Index-Only Scan nếu phù hợp"
+visible: "Kiểm tra visibility theo snapshot; dùng VM\nkhi đủ điều kiện"
+sum: "Đếm tuple visible"
+result: "Trả một số"
+count -> path
+path -> heap
+path -> index
+heap -> visible
+index -> visible
+visible -> sum
+sum -> result
 ```
 
 `EXPLAIN (ANALYZE, BUFFERS)` điển hình:
@@ -246,21 +252,16 @@ Nếu cần chính xác mà chấp nhận chậm hơn ước lượng: đảm b�
 
 ### 10.1. Cheat sheet
 
-```diagram
-╭───────────────────────────────────────────────────────────────╮
-│  count(*) chậm vì: MVCC → không có row count toàn cục          │
-│                    → phải kiểm tra visibility từng tuple        │
-│                    → gần như scan toàn bảng (I/O-bound)         │
-│  ─────────────────────────────────────────────────────────     │
-│  Tăng tốc:                                                     │
-│   • Chấp nhận ước lượng → pg_class.reltuples (tức thì)          │
-│   • Cần chính xác → index-only scan + VACUUM (Heap Fetches=0)   │
-│   • Đọc nhiều + chính xác → bảng đếm + trigger (coi chừng hot row)│
-│   • Chỉ cần "có hay không" → EXISTS, đừng count > 0             │
-│  ─────────────────────────────────────────────────────────     │
-│  count(*) == count(1)  ≠  count(col)  (col bỏ NULL)            │
-╰───────────────────────────────────────────────────────────────╯
-```
+COUNT chính xác dưới MVCC phải xác định rows visible với snapshot, không có một global count đúng cho mọi transaction. Chi phí có thể chủ yếu ở scan và I/O.
+
+| Yêu cầu | Hướng xem xét |
+| --- | --- |
+| Ước lượng đủ dùng | pg_class.reltuples; chấp nhận sai số |
+| Chính xác | Scan phù hợp; index-only khi đủ cột và visibility map cho phép |
+| Đọc count nhiều | Summary/count table duy trì đúng; kiểm tra contention/hot rows |
+| Chỉ cần có row không | EXISTS thay vì COUNT > 0 khi đúng ngữ nghĩa |
+
+`count(*)` và `count(1)` đếm rows; `count(col)` không đếm giá trị NULL. VACUUM có thể giúp visibility map nhưng không bảo đảm mọi count luôn Heap Fetches=0.
 
 ### 10.2. 3 nguyên tắc áp dụng ngay
 

@@ -53,11 +53,16 @@ Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ng�
 
 Nếu không có lock, hai transaction UPDATE cùng một row có thể dẫn đến **lost update** — transaction sau ghi đè kết quả của transaction trước mà không biết.
 
-```
-T1: READ balance = 100
-T2: READ balance = 100
-T1: balance = 100 - 30 → WRITE 70
-T2: balance = 100 - 50 → WRITE 50   ← T1 bị mất!
+```d2 title="Ghi đè số dư từ hai lần đọc cùng giá trị"
+shape: sequence_diagram
+t1: "T1"
+db: "Database"
+t2: "T2"
+t1 -> db: "READ balance=100"
+t2 -> db: "READ balance=100"
+t1 -> db: "WRITE 100-30 = 70"
+t2 -> db: "WRITE 100-50 = 50"
+db.note4: "Cập nhật của T1 bị mất"
 ```
 
 ## Locking Levels
@@ -191,10 +196,16 @@ COMMIT;
 
 Khi TX1 chạy lại query, nhân viên Bình có thể xuất hiện trong tập kết quả. Đây là **Phantom Read**.
 
-```text
-Lần 1: salary = {10M, 20M}
-TX2:    INSERT salary = 15M; COMMIT
-Lần 2: salary = {10M, 15M, 20M}  ← row mới xuất hiện
+```d2 title="Phantom trong tập salary"
+shape: sequence_diagram
+reader: "TX1"
+db: "Salary rows"
+writer: "TX2"
+reader -> db: "Đọc lần 1"
+db -> reader: "{10M,20M}"
+writer -> db: "INSERT 15M; COMMIT"
+reader -> db: "Đọc lần 2 theo cùng điều kiện"
+db -> reader: "{10M,15M,20M} trong mô hình cho phantom"
 ```
 
 Muốn ngăn hiện tượng này bằng locking, database phải bảo vệ cả nơi mà row mới **có thể được chèn vào**, không chỉ các row đang tồn tại.
@@ -203,12 +214,15 @@ Muốn ngăn hiện tượng này bằng locking, database phải bảo vệ c�
 
 **Range Lock** bảo vệ một khoảng key trong index, ví dụ `salary` từ `10M` đến `20M`:
 
-```text
-Index salary:
-
-... ── 10M ═══════════════════ 20M ── ...
-          khoảng cần bảo vệ
+```d2 title="Range lock bảo vệ khoảng key"
+direction: right
+low: Key 10M
+range_node: Khoảng cần bảo vệ
+high: Key 20M
+low -> range_node -> high
 ```
+
+Sơ đồ mô tả khoảng key, không khẳng định inclusive/exclusive endpoints cho mọi lock mode.
 
 Trong thời gian range được bảo vệ, thao tác chèn hoặc cập nhật làm một key đi vào khoảng đó có thể bị block. Range Lock gần với câu hỏi **"khóa phạm vi giá trị nào?"** hơn là một lock mode ngang hàng với Shared/Exclusive Lock.
 
@@ -226,14 +240,17 @@ MySQL InnoDB phân biệt:
 
 Ví dụ index có các key `10`, `20`, `30`:
 
-```text
-        Gap                 Gap
-10 ───────────── 20 ───────────── 30
-                  ▲
-               Record
-
-Next-Key Lock có thể bảo vệ cả gap + record.
+```d2 title="Next-Key Lock kết hợp gap với record"
+direction: right
+k10: Record 10
+gap1: Gap giữa 10 và 20
+k20: Record 20
+gap2: Gap giữa 20 và 30
+k30: Record 30
+k10 -> gap1 -> k20 -> gap2 -> k30
 ```
+
+Một next-key lock có thể bảo vệ record cùng gap liền trước theo range lock semantics của InnoDB. Kiểm tra predicate, index và isolation level để xác định lock thực tế.
 
 Một locking read có thể tạo Next-Key Lock trên những khoảng index được quét:
 
@@ -263,14 +280,19 @@ PostgreSQL dùng **Serializable Snapshot Isolation (SSI)** ở isolation level `
 
 Điểm quan trọng là Predicate Lock của PostgreSQL **không block writer giống MySQL Gap Lock**:
 
-```text
-MySQL Next-Key Lock:
-Conflict → transaction khác thường phải chờ
-
-PostgreSQL SSI / Predicate Lock:
-Cho các transaction tiếp tục chạy
-→ phát hiện dependency nguy hiểm
-→ abort một transaction với serialization failure
+```d2 title="Next-Key Lock và SSI xử lý conflict khác nhau"
+direction: right
+mysql: MySQL Next-Key Lock {
+  conflict: Conflict trên phạm vi được bảo vệ
+  wait: Transaction khác thường phải chờ
+  conflict -> wait
+}
+pg: PostgreSQL SSI / Predicate Lock {
+  run: Cho transaction tiếp tục chạy
+  dependency: Phát hiện dependency nguy hiểm
+  abort: Abort một transaction với serialization failure
+  run -> dependency -> abort
+}
 ```
 
 Ứng dụng PostgreSQL phải sẵn sàng retry toàn bộ transaction khi gặp lỗi:
@@ -311,20 +333,16 @@ Predicate Lock  = theo dõi/bảo vệ tập dữ liệu theo điều kiện log
 
 ### Ví dụ Deadlock scenario
 
-```
-Transaction A                    Transaction B
-─────────────                    ─────────────
-BEGIN;                           BEGIN;
-UPDATE accounts SET ...          UPDATE orders SET ...
-  WHERE id = 1;                    WHERE id = 100;
-  (lock row accounts#1)            (lock row orders#100)
-
-UPDATE orders SET ...            UPDATE accounts SET ...
-  WHERE id = 100;                  WHERE id = 1;
-  ⏳ Chờ B giải phóng              ⏳ Chờ A giải phóng
-       orders#100                       accounts#1
-
-→ DEADLOCK!
+```d2 title="Deadlock do hai transaction lấy lock ngược thứ tự"
+shape: sequence_diagram
+a: "Transaction A"
+db: "Lock manager"
+b: "Transaction B"
+a -> db: "BEGIN; UPDATE accounts id=1 → giữ row lock"
+b -> db: "BEGIN; UPDATE orders id=100 → giữ row lock"
+a -> db: "UPDATE orders id=100 → chờ B"
+b -> db: "UPDATE accounts id=1 → chờ A"
+db.note4: "Chu trình chờ: deadlock; database cần chọn\nnạn nhân để hủy"
 ```
 
 ### Mermaid Diagram minh họa

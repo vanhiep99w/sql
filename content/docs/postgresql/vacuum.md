@@ -121,10 +121,30 @@ VACUUM my_table;
 - Cập nhật **Visibility Map** và **Free Space Map**
 - **Không trả disk về OS** — chỉ cho phép tái sử dụng nội bộ
 
+```d2 title="VACUUM giữ lại không gian để dùng lại"
+direction: down
+before: Trước dọn — sáu pages {
+  grid-columns: 6
+  p0: Live
+  p1: Dead
+  p2: Live
+  p3: Dead
+  p4: Dead
+  p5: Live
+}
+after: Sau dọn {
+  grid-columns: 6
+  p0: Live
+  p1: Free
+  p2: Live
+  p3: Free
+  p4: Free
+  p5: Live
+}
+before -> after: VACUUM dọn và cho tái sử dụng chỗ trống
 ```
-Trước VACUUM:  [Live][Dead][Live][Dead][Dead][Live]  → 6 pages
-Sau VACUUM:    [Live][Free][Live][Free][Free][Live]  → 6 pages (same size on disk)
-```
+
+Đây là sơ đồ pages giản lược. Sáu pages vẫn ở file trong mô hình, các vùng Free có thể tái sử dụng; không đồng nghĩa luôn trả dung lượng về OS.
 
 ### VACUUM FULL
 
@@ -137,10 +157,27 @@ VACUUM FULL my_table;
 - **Trả disk về OS** — table size giảm thực sự
 - Rebuild lại tất cả indexes
 
+```d2 title="VACUUM FULL co file"
+direction: down
+before: Trước dọn — sáu pages {
+  grid-columns: 6
+  p0: Live
+  p1: Dead
+  p2: Live
+  p3: Dead
+  p4: Dead
+  p5: Live
+}
+after: Sau dọn {
+  grid-columns: 3
+  p0: Live
+  p1: Live
+  p2: Live
+}
+before -> after: VACUUM FULL viết lại bảng
 ```
-Trước VACUUM FULL:  [Live][Dead][Live][Dead][Dead][Live]  → 6 pages, 60KB
-Sau VACUUM FULL:    [Live][Live][Live]                    → 3 pages, 30KB ← disk freed!
-```
+
+Đây là sơ đồ pages giản lược. Ví dụ tổng dung lượng 60 KB xuống 30 KB do rewrite/compact; thao tác cần lock và dung lượng làm việc phù hợp.
 
 > [!IMPORTANT]
 > VACUUM FULL cần **dung lượng trống tương đương kích thước table** để tạo bản copy. Không chạy khi disk gần đầy!
@@ -195,12 +232,23 @@ VM giúp:
 - VACUUM chạy nhanh hơn vì chỉ quét page cần thiết
 - **Index-Only Scan** hoạt động hiệu quả — chỉ cần check VM thay vì đọc heap
 
+```d2 title="Visibility Map chỉ ra pages cần kiểm tra"
+direction: down
+vm: Visibility Map — ví dụ sáu pages {
+  grid-columns: 6
+  p0: Page 0 — bit 1
+  p1: Page 1 — bit 0
+  p2: Page 2 — bit 1
+  p3: Page 3 — bit 1
+  p4: Page 4 — bit 0
+  p5: Page 5 — bit 1
+}
+scan: VACUUM có thể cần scan các pages chưa all-visible
+vm.p1 -> scan
+vm.p4 -> scan
 ```
-Visibility Map:  [1][0][1][1][0][1]
-                      ↑           ↑
-                 VACUUM quét  VACUUM quét
-                 (có dead)    (có dead)
-```
+
+Bit 0 nghĩa là chưa có bảo đảm all-visible, **không chứng minh** page chắc chắn có dead tuples. VACUUM có thêm rules cho freezing và các chế độ khác.
 
 ### Free Space Map (FSM)
 
@@ -210,12 +258,23 @@ Visibility Map:  [1][0][1][1][0][1]
 - INSERT mới sẽ **tái sử dụng** free space thay vì append cuối file
 - FSM giúp PostgreSQL tìm nhanh page có đủ chỗ cho row mới
 
+```d2 title="Free Space Map giúp tìm page có chỗ"
+direction: down
+fsm: "Free Space Map"
+p0: "Page 0 — khoảng 2 KB free"
+p1: "Page 1 — 0 KB, full"
+p2: "Page 2 — khoảng 6 KB free"
+p3: "Page 3 — khoảng 8 KB free"
+insert: "INSERT chọn page có đủ chỗ cho tuple"
+fsm -> p0
+fsm -> p1
+fsm -> p2
+fsm -> p3
+p2 -> insert: "Ví dụ đủ space"
+p3 -> insert: "Ví dụ đủ space"
 ```
-Free Space Map:  Page 0: 2KB free
-                 Page 1: 0KB free (full)
-                 Page 2: 6KB free  ← INSERT sẽ dùng page này
-                 Page 3: 8KB free  ← hoặc page này
-```
+
+FSM là chỉ dẫn tìm free space theo page; không cam kết luôn chọn page nhiều chỗ nhất hoặc chính xác số byte như sơ đồ.
 
 ### Quy trình VACUUM thường
 
@@ -259,12 +318,16 @@ Nếu không freeze dead tuples kịp thời:
 - Tuples với txid cũ sẽ **biến mất** — hệ thống coi chúng là "từ tương lai"
 - PostgreSQL sẽ **từ chối mọi write** (emergency shutdown) để bảo vệ dữ liệu
 
+```d2 title="Transaction ID wraparound và cách nhìn theo cửa sổ"
+direction: right
+zero: ID 0
+half: Khoảng 2 tỷ — nửa không gian ID
+end: Khoảng 4,2 tỷ — gần cuối không gian 32-bit
+zero -> half -> end
+end -> zero: wrap modulo 2^32
 ```
-  Txid:  0 ──────── 2 tỷ ──────── 4.2 tỷ ──────── WRAP → 0
-         ↑                                            ↑
-   "quá khứ"                                     "tương lai"
-         ← visible ──────── invisible →
-```
+
+PostgreSQL xét thứ tự transaction ID theo quy tắc modular và cửa sổ khoảng nửa không gian ID; đây không phải thứ tự số nguyên tăng mãi. VACUUM freeze giúp tránh các tuple quá cũ bị hiểu sai visibility khi ID quay vòng.
 
 ### VACUUM Freeze
 

@@ -75,11 +75,16 @@ Ví dụ sản phẩm đang có giá `120.000` và `version = 7`:
 4. B chỉ đổi tên sản phẩm, nhưng frontend gửi lại toàn bộ object cũ gồm `price = 120.000`.
 5. Lệnh ghi của B chạy sau và ghi đè giá của A.
 
-```text
-Admin A: đọc price=120.000, version=7 ── đổi giá ──► lưu price=90.000
-Admin B: đọc price=120.000, version=7 ── đổi tên ──► lưu cả object có price=120.000
-
-Kết quả cuối: price=120.000  ← thay đổi của A bị mất
+```d2 title="Lost update khi hai admin lưu cùng object cũ"
+shape: sequence_diagram
+a: "Admin A"
+db: "Product"
+b: "Admin B"
+a -> db: "Đọc price=120.000, version=7"
+b -> db: "Đọc cùng price=120.000, version=7"
+a -> db: "Đổi giá, lưu price=90.000"
+b -> db: "Đổi tên, ghi cả object với price=120.000"
+db.note4: "Giá cuối 120.000: thay đổi của A bị mất"
 ```
 
 Đây là **lost update**: thay đổi đã commit của A bị một thao tác dựa trên dữ liệu cũ ghi đè mà hệ thống không phát hiện.
@@ -336,15 +341,20 @@ Ví dụ: giữ ghế trong một giao dịch ngắn, chuyển trạng thái đ�
 
 Không gọi network I/O trong transaction đang giữ row lock:
 
-```text
-Sai:
-BEGIN
-SELECT ... FOR UPDATE
-Gọi payment provider trong 5 giây
-Gọi shipping provider trong 2 giây
-UPDATE ...
-COMMIT
+```d2 title="Không giữ row lock trong lúc gọi dịch vụ bên ngoài"
+direction: down
+n0: "BEGIN"
+n1: "SELECT FOR UPDATE: lấy row lock"
+n2: "Payment provider khoảng 5 giây"
+n3: "Shipping provider khoảng 2 giây"
+n4: "UPDATE rồi COMMIT"
+n0 -> n1
+n1 -> n2
+n2 -> n3
+n3 -> n4
 ```
+
+Đây là anti-pattern: transaction và lock kéo dài qua I/O ngoài database.
 
 Trong 7 giây đó, lock bị giữ và database connection bị chiếm. Khi tải tăng, connection pool có thể cạn trước cả khi CPU database đạt ngưỡng.
 
@@ -533,11 +543,15 @@ WHERE resource_key = :resource_key
 
 TTL ngăn orphan lock tồn tại mãi, nhưng nó tạo ra một rủi ro khác.
 
-```text
-Worker A lấy lease token=10, TTL=30s
-Worker A bị pause quá 30s
-Worker B lấy lease token=11 và tiếp tục xử lý
-Worker A hoạt động lại, vẫn tưởng mình được phép ghi
+```d2 title="Lease hết hạn không tự dừng worker cũ"
+shape: sequence_diagram
+a: "Worker A"
+lease: "Lease owner"
+b: "Worker B"
+a -> lease: "Acquire token=10, TTL=30s"
+a.note1: "Bị pause quá 30 giây"
+b -> lease: "Acquire token=11 và tiếp tục"
+a.note3: "Chạy lại, vẫn tưởng mình được ghi;\nresource phải kiểm tra fencing token"
 ```
 
 Nếu A và B đều ghi được, mutual exclusion đã bị phá vỡ. Đây thường được gọi là **split-brain**.
@@ -623,13 +637,17 @@ Trong các tình huống này, ưu tiên transaction/constraint/conditional upda
 
 **Thiết kế đề xuất:** Optimistic lock theo product row.
 
-```text
-GET product → trả version 7
-PATCH product với expected version 7
-UPDATE ... WHERE id = 42 AND version = 7
-
-A ghi thành công → version 8
-B ghi affected_rows = 0 → 409/412, UI reload hoặc merge
+```d2 title="Kiểm tra expected version từ client"
+direction: down
+get: "GET product → version 7"
+patch: "PATCH với expected_version=7"
+update: "UPDATE WHERE id=42 AND version=7"
+ok: "A thành công: version 8"
+conflict: "B: affected_rows=0 → 409/412; reload hoặc\nmerge"
+get -> patch
+patch -> update
+update -> ok
+update -> conflict
 ```
 
 Nếu API chỉ hỗ trợ partial update, nó giảm rủi ro B ghi đè trường `price`. Nhưng vẫn cần version nếu hai người cùng sửa một field hoặc có invariant liên trường.
@@ -643,7 +661,7 @@ Không giữ database transaction và row locks suốt ba phút. Không gọi ex
 Luồng khuyến nghị:
 
 ```d2 title="Import 20.000 dòng"
-direction: right
+direction: down
 A: "Upload file"
 B: "Parse và validate cú pháp"
 C: "Staging tables theo import_id"

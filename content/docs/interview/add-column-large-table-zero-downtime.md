@@ -227,7 +227,7 @@ n0 -> n1 -> n2 -> n3
 ## 5. Chiến lược tổng thể: Expand → Migrate → Contract
 
 ```d2 title="5. Chiến lược tổng thể: Expand → Migrate → Contract"
-direction: right
+direction: down
 A: "0. Chuẩn bị"
 B: "1. Expand schema"
 C: "2. Deploy dual-write"
@@ -437,14 +437,13 @@ Hai giá trị phải được ghi trong **cùng transaction** để không xu�
 
 Nếu `email` có thể thay đổi, row cũ đã backfill vẫn có thể trở nên sai:
 
-```diagram
-Backfill hoàn tất:
-email = Alice@Example.com
-email_normalized = alice@example.com
-
-Code cũ UPDATE email:
-email = Bob@Example.com
-email_normalized = alice@example.com   ← dữ liệu lệch
+```d2 title="Writer cũ có thể làm lệch dữ liệu sau backfill"
+direction: right
+n0: "Backfill: email=Alice@Example.com;\nnormalized=alice@example.com"
+n1: "Code cũ UPDATE email=Bob@Example.com"
+n2: "email_normalized vẫn alice@example.com →\nlệch dữ liệu"
+n0 -> n1
+n1 -> n2
 ```
 
 Do đó phải cập nhật mọi write path làm thay đổi nguồn dữ liệu, không chỉ lúc tạo row mới.
@@ -892,10 +891,15 @@ Sau một khoảng soak time:
 
 Tình huống:
 
-```diagram
-T1: Backfill đọc email cũ
-T2: User đổi email; app ghi email + email_normalized mới
-T3: Backfill ghi email_normalized tính từ email cũ
+```d2 title="Backfill ghi từ giá trị cũ có thể đè dữ liệu mới"
+shape: sequence_diagram
+backfill: "Backfill"
+db: "Row email"
+user: "Ứng dụng"
+backfill -> db: "T1: đọc email cũ"
+user -> db: "T2: người dùng đổi email; ghi cả email và\nnormalized mới"
+backfill -> db: "T3: ghi normalized tính từ email cũ"
+db.note3: "Dữ liệu có thể lệch nếu không có điều kiện\nkiểm tra phiên bản / giá trị nguồn"
 ```
 
 Kết quả column mới bị stale.
@@ -1362,26 +1366,25 @@ Có, nhưng index sẽ phải được duy trì cho từng update backfill, làm
 
 ### 18.1. Flow hoàn chỉnh
 
-```diagram
-╭──────────────────────────────────────────────────────────────────╮
-│  1. XÁC MINH engine/version + lock behavior                     │
-│                           ↓                                      │
-│  2. ADD nullable column, no risky default, lock timeout          │
-│                           ↓                                      │
-│  3. DEPLOY code backward-compatible + dual-write INSERT/UPDATE   │
-│                           ↓                                      │
-│  4. CHỜ mọi writer cũ rời hệ thống                              │
-│                           ↓                                      │
-│  5. BACKFILL PK range/keyset, batch nhỏ, idempotent, throttled   │
-│                           ↓                                      │
-│  6. VALIDATE completeness + correctness + final sweep            │
-│                           ↓                                      │
-│  7. CANARY rồi switch read path                                  │
-│                           ↓                                      │
-│  8. ENFORCE constraint/index/default nếu cần                     │
-│                           ↓                                      │
-│  9. SOAK rồi cleanup trong release riêng                         │
-╰──────────────────────────────────────────────────────────────────╯
+```d2 title="Expand–migrate–contract không bỏ sót writer cũ"
+direction: down
+n0: "Xác minh engine/version và lock behavior"
+n1: "ADD nullable column: tránh default rủi ro,\nđặt lock timeout"
+n2: "Deploy backward-compatible + dual-write\nINSERT/UPDATE"
+n3: "Chờ mọi writer cũ rời hệ thống"
+n4: "Backfill theo PK range/keyset: batch nhỏ,\nidempotent, throttle"
+n5: "Validate completeness và correctness;\nfinal sweep"
+n6: "Canary rồi chuyển read path"
+n7: "Enforce constraint / index / default nếu\ncần"
+n8: "Soak rồi cleanup trong release riêng"
+n0 -> n1
+n1 -> n2
+n2 -> n3
+n3 -> n4
+n4 -> n5
+n5 -> n6
+n6 -> n7
+n7 -> n8
 ```
 
 ### 18.2. Sáu nguyên tắc cần nhớ trong phỏng vấn

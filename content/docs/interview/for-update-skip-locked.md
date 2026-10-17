@@ -121,20 +121,17 @@ B -> DB: "UPDATE 102 thành running; COMMIT"
 
 Ví dụ có ba job cùng `status = 'queued'`.
 
-```text
-Ban đầu:  1 queued | 2 queued | 3 queued
-
-TX-A: BEGIN
-TX-A: SELECT ... FOR UPDATE SKIP LOCKED LIMIT 2
-      → lock 1, lock 2
-
-TX-B: BEGIN
-TX-B: SELECT ... FOR UPDATE SKIP LOCKED LIMIT 2
-      → thấy 1, 2 đã lock: bỏ qua
-      → lock 3
-
-TX-A: UPDATE 1,2 SET status='running'; COMMIT
-TX-B: UPDATE 3   SET status='running'; COMMIT
+```d2 title="Hai worker claim một batch mà không chờ nhau"
+shape: sequence_diagram
+a: "TX-A"
+db: "Jobs 1, 2, 3 queued"
+b: "TX-B"
+a -> db: "BEGIN; SELECT FOR UPDATE SKIP LOCKED LIMIT\n2"
+db -> a: "Lock 1 và 2"
+b -> db: "BEGIN; SELECT FOR UPDATE SKIP LOCKED LIMIT\n2"
+db -> b: "Bỏ 1,2 đang lock; lock 3"
+a -> db: "UPDATE 1,2 thành running; COMMIT"
+b -> db: "UPDATE 3 thành running; COMMIT"
 ```
 
 Không có worker nào claim trùng `1`, `2` hoặc `3`. Quan trọng: đây là kết quả của **lock + cùng transaction cập nhật trạng thái**, không chỉ của từ khóa `SKIP LOCKED`.
@@ -173,7 +170,7 @@ Các tình huống phù hợp:
 Luồng chuẩn là **claim nhanh → commit → process → hoàn tất**:
 
 ```d2 title="5. Use case đúng: database-backed job queue"
-direction: right
+direction: down
 A: "Worker"
 B: "BEGIN"
 C: "Lock + claim vài job queued"
@@ -265,10 +262,17 @@ COMMIT;
 
 Mỗi worker chạy câu trên sẽ nhận một tập row khác nhau trong lúc các transaction claim chồng lấn. Sau `COMMIT`, worker xử lý các payload đã nhận **ngoài transaction**.
 
-```text
-Worker W1: claim [1..20] → status=running, locked_by=W1 → COMMIT
-Worker W2: claim [21..40] → status=running, locked_by=W2 → COMMIT
-Worker W3: claim [41..60] → status=running, locked_by=W3 → COMMIT
+```d2 title="Ba worker claim các batch riêng"
+direction: right
+w1: "W1"
+w2: "W2"
+w3: "W3"
+j1: "Claim 1..20 → running, locked_by=W1 →\nCOMMIT"
+j2: "Claim 21..40 → running, locked_by=W2 →\nCOMMIT"
+j3: "Claim 41..60 → running, locked_by=W3 →\nCOMMIT"
+w1 -> j1
+w2 -> j2
+w3 -> j3
 ```
 
 `FOR UPDATE` không tự đổi `status`. Câu `UPDATE` mới biến lock tạm thời thành quyền sở hữu công việc bền vững trong dữ liệu.
@@ -414,12 +418,17 @@ Trong PostgreSQL, tài liệu mô tả `SKIP LOCKED` tạo ra một view không 
 
 Sai:
 
-```text
-BEGIN
-SELECT ... FOR UPDATE SKIP LOCKED
-Gọi payment/email provider trong 10 giây
-UPDATE job SET status = 'completed'
-COMMIT
+```d2 title="Anti-pattern: process provider khi vẫn giữ transaction"
+direction: down
+n0: "BEGIN"
+n1: "SELECT FOR UPDATE SKIP LOCKED → giữ row\nlocks"
+n2: "Gọi payment/email provider khoảng 10 giây"
+n3: "UPDATE job completed"
+n4: "COMMIT mới nhả locks"
+n0 -> n1
+n1 -> n2
+n2 -> n3
+n3 -> n4
 ```
 
 Trong 10 giây đó row lock và database connection đều bị giữ. Khi worker tăng, pool cạn hoặc worker khác bắt đầu skip quá nhiều row.
@@ -552,22 +561,26 @@ Có thể phù hợp khi throughput vừa phải, transactional outbox, vận h�
 
 ## 14. Cheat sheet
 
-```text
-FOR UPDATE             → row đang lock: CHỜ
-FOR UPDATE NOWAIT      → row đang lock: LỖI NGAY
-FOR UPDATE SKIP LOCKED → row đang lock: BỎ QUA, tìm row khác
-
-Queue pattern đúng:
-BEGIN
-  chọn queued jobs + FOR UPDATE SKIP LOCKED + LIMIT N
-  UPDATE jobs SET status='running', locked_by, lease_until
-COMMIT                 ← nhả DB row lock thật sớm
-process ngoài DB       ← có idempotency key
-UPDATE completed/retry ← owner check + backoff
-
-SKIP LOCKED bảo đảm: claim song song không chờ dây chuyền.
-SKIP LOCKED không bảo đảm: FIFO tuyệt đối, retry khi crash, exactly-once.
+```d2 title="Queue worker: claim ngắn, xử lý ngoài transaction"
+direction: down
+n0: "BEGIN; chọn queued jobs FOR UPDATE SKIP\nLOCKED LIMIT N"
+n1: "UPDATE running, locked_by và lease_until"
+n2: "COMMIT để nhả DB row locks sớm"
+n3: "Process ngoài transaction với idempotency\nkey"
+n4: "UPDATE completed / retry với owner check\nvà backoff"
+n0 -> n1
+n1 -> n2
+n2 -> n3
+n3 -> n4
 ```
+
+| Locking read | Khi gặp row đã bị lock |
+| --- | --- |
+| FOR UPDATE | Chờ theo lock/timeout rules |
+| FOR UPDATE NOWAIT | Lỗi ngay |
+| FOR UPDATE SKIP LOCKED | Bỏ qua, tìm row khác |
+
+SKIP LOCKED tránh chờ dây chuyền khi claim song song; không tự bảo đảm FIFO tuyệt đối, recovery khi worker crash hay exactly-once.
 
 ## 15. Tài liệu liên quan
 
