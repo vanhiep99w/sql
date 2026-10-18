@@ -3,6 +3,12 @@ import { DocsPage, DocsBody, DocsTitle, DocsDescription } from 'fumadocs-ui/page
 import { notFound, redirect } from 'next/navigation';
 import defaultMdxComponents from 'fumadocs-ui/mdx';
 import { D2Diagram } from '@vanhiep99w/docs-kit/components/d2';
+import { D2InteractiveDiagram } from '@vanhiep99w/docs-kit/components/d2-interactive';
+import { CodeWalkthrough } from '@vanhiep99w/docs-kit/components/code-walkthrough';
+import { CodeDiff } from '@vanhiep99w/docs-kit/components/code-diff';
+import { TerminalSession } from '@vanhiep99w/docs-kit/components/terminal-session';
+import { ProtocolExchange } from '@vanhiep99w/docs-kit/components/protocol-exchange';
+import { SpanWaterfall } from '@vanhiep99w/docs-kit/components/span-waterfall';
 import { SourceRef } from '@vanhiep99w/docs-kit/components/source-explorer';
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Card, Cards } from 'fumadocs-ui/components/card';
@@ -28,7 +34,12 @@ export default async function Page({
       <DocsTitle>{page.data.title}</DocsTitle>
       <DocsDescription>{page.data.description}</DocsDescription>
       <DocsBody>
-        <MDX components={{ ...defaultMdxComponents, D2Diagram, SourceRef, Callout, Card, Cards, Step, Steps, Tab, Tabs, Accordion, Accordions, TypeTable }} />
+        <MDX components={{
+          ...defaultMdxComponents,
+          D2Diagram, D2InteractiveDiagram,
+          CodeWalkthrough, CodeDiff, TerminalSession, ProtocolExchange, SpanWaterfall,
+          SourceRef, Callout, Card, Cards, Step, Steps, Tab, Tabs, Accordion, Accordions, TypeTable,
+        }} />
       </DocsBody>
     </DocsPage>
   );

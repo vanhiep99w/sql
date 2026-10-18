@@ -357,11 +357,15 @@ UUID = **Universally Unique Identifier**. Một số nguyên 128 bit, format chu
 
 ### 6.1. Anatomy 128 bit
 
-```
-xxxxxxxx-xxxx-Mxxx-Nxxx-xxxxxxxxxxxx
-                 │    │
-                 │    └── 1-3 bit đầu của N = "variant" (10x = RFC variant)
-                 └──────  4 bit cao = "version" (1, 4, 6, 7, ...)
+Mẫu literal UUID vẫn là `xxxxxxxx-xxxx-Mxxx-Nxxx-xxxxxxxxxxxx`. D2 chỉ ra hai trường bit được nhắc tới, không thay đổi vị trí của chúng trong payload.
+
+```d2 title="Version và variant trong mẫu UUID"
+direction: down
+uuid: "xxxxxxxx-xxxx-Mxxx-Nxxx-xxxxxxxxxxxx"
+version: "M: 4 bit cao = version\n1, 4, 6, 7, ..."
+variant: "N: 1–3 bit đầu = variant\n10x = RFC variant"
+uuid -> version: "nhóm thứ ba"
+uuid -> variant: "nhóm thứ tư"
 ```
 
 | Field | Bit | Vai trò |
@@ -679,16 +683,24 @@ Tổng: **48 (time) + 74 (random) + 6 (version/variant) = 128 bit**.
 
 Một UUIDv7 sinh lúc `2024-05-19 06:26:40 UTC`:
 
+UUID literal minh họa: `018f8f87-e900-7a8c-b3ed-9ad1d4a8f00d`.
+
+```d2 title="Các trường bit của UUID v7"
+direction: down
+uuid: "018f8f87-e900-7a8c-b3ed-9ad1d4a8f00d"
+time: "unix_ms\n48 bit timestamp: 018f8f87-e900"
+version: "version\n4 bit = 0111 = 7"
+a: "rand_a\n12 bit random: a8c"
+variant: "variant\n2 bit = 10 (đầu nhóm b3ed)"
+b: "rand_b\n62 bit random: phần còn lại của b3ed + 9ad1d4a8f00d"
+uuid -> time: bit 0–47
+uuid -> version: bit 48–51
+uuid -> a: bit 52–63
+uuid -> variant: bit 64–65
+uuid -> b: bit 66–127
 ```
-   018f8f87-e900-7a8c-b3ed-9ad1d4a8f00d
-   ───────────── ─ ─── ── ──────────────
-        │        │  │   │       │
-        │        │  │   │       └─ rand_b   (62 bit random)
-        │        │  │   └────────  variant  (2 bit  = 10)
-        │        │  └────────────  rand_a   (12 bit random)
-        │        └───────────────  version  (4 bit  = 0111 = 7)
-        └────────────────────────  unix_ms  (48 bit timestamp)
-```
+
+Bit được đánh số từ bit cao nhất theo layout UUID. Ký tự `b` chứa cả 2 bit variant và 2 bit đầu của rand_b, không phải toàn bộ ký tự đều thuộc variant.
 
 | Hex chars | Bits | Field | Giá trị trong ví dụ |
 |-----------|------|-------|---------------------|

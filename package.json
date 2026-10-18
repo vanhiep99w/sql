@@ -12,10 +12,12 @@
     "prebuild": "npm run sources:build",
     "typecheck": "tsc --noEmit",
     "diagrams:check": "node scripts/check-diagrams.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "docs:audit": "node scripts/audit-docs.mjs",
+    "test:browser": "playwright test"
   },
   "dependencies": {
-    "@vanhiep99w/docs-kit": "0.5.0",
+    "@vanhiep99w/docs-kit": "0.9.0",
     "fumadocs-core": "16.17.5",
     "fumadocs-mdx": "15.4.7",
     "fumadocs-ui": "16.17.5",
@@ -27,6 +29,7 @@
   },
   "devDependencies": {
     "@mdx-js/mdx": "^3.1.1",
+    "@playwright/test": "1.64.1",
     "@types/mdx": "^2.0.14",
     "@types/node": "^22.0.0",
     "@types/react": "19.3.0",
@@ -37,7 +40,8 @@
     "remark-parse": "^11.0.0",
     "shiki": "^4.5.0",
     "typescript": "^5.7.0",
-    "unified": "^11.0.5"
+    "unified": "^11.0.5",
+    "yaml": "^2.9.1"
   },
   "engines": {
     "node": ">=22"

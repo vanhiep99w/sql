@@ -7,6 +7,7 @@ import remarkFrontmatter from 'remark-frontmatter';
 import { promoteSourceRefs } from './remark-source-refs.mjs';
 import GithubSlugger from 'github-slugger';
 import { visit } from 'unist-util-visit';
+import { parse } from 'yaml';
 
 export const docsDir = 'content/docs';
 const markdown = unified().use(remarkParse).use(remarkFrontmatter);
@@ -49,17 +50,34 @@ export function extractArticle(filename, content) {
       sectionTitle = nodeText(node);
       section = slugger.slug(sectionTitle) || 'section';
     }
-    if (node.type === 'code' && extensions[node.lang]) {
-      const number = (counters.get(section) ?? 0) + 1;
-      counters.set(section, number);
-      files.push({
-        path: `${section}/${number}.${extensions[node.lang]}`,
-        displayPath: `${sectionTitle} / ${number}.${extensions[node.lang]}`,
-        language: node.lang === 'redis' ? 'text' : node.lang,
-        code: node.value,
-        regions: {},
-        position: node.position,
-      });
+    if (node.type === 'code') {
+      // Keep the original snippet's path when migrating it to a descriptor.
+      // Descriptors are validated by the learning plugins in checks/build.
+      let snippets = [{ language: node.lang, code: node.value }];
+      if (['code-walkthrough', 'code-diff', 'terminal-session'].includes(node.lang)) {
+        const data = parse(node.value);
+        if (node.lang === 'code-walkthrough') {
+          snippets = data.snapshots.map((s) => ({ language: s.language ?? data.language, code: s.code }));
+        } else if (node.lang === 'code-diff') {
+          // The replaced fix snippet remains first; the old version is additional.
+          snippets = [data.after, data.before].map((s) => ({ language: data.language, code: s.code }));
+        } else {
+          snippets = data.steps.map((s) => ({ language: 'bash', code: s.command }));
+        }
+      }
+      for (const snippet of snippets) {
+        if (!extensions[snippet.language]) continue;
+        const number = (counters.get(section) ?? 0) + 1;
+        counters.set(section, number);
+        files.push({
+          path: `${section}/${number}.${extensions[snippet.language]}`,
+          displayPath: `${sectionTitle} / ${number}.${extensions[snippet.language]}`,
+          language: snippet.language === 'redis' ? 'text' : snippet.language,
+          code: snippet.code,
+          regions: {},
+          position: node.position,
+        });
+      }
     }
     if (node.type === 'mdxJsxFlowElement' || node.type === 'mdxJsxTextElement') {
       if (node.name !== 'SourceRef') return;

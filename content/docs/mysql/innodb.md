@@ -41,6 +41,7 @@ InnoDB là storage engine mặc định của MySQL từ phiên bản 5.5+. Đâ
 ```d2 title="MySQL Server và InnoDB"
 direction: down
 server: MySQL Server Layer {
+  icon: ../../diagram-assets/mysql.svg
   parser: Query Parser
   optimizer: Optimizer
   executor: Execution Engine

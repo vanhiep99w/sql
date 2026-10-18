@@ -347,7 +347,9 @@ db.note4: "Chu trình chờ: deadlock; database cần chọn\nnạn nhân để 
 
 ### Mermaid Diagram minh họa
 
-```d2 title="Mermaid Diagram minh họa"
+Tên heading cũ được giữ để các anchor link vẫn hoạt động; sơ đồ bên dưới dùng D2, không còn Mermaid renderer.
+
+```d2 title="Deadlock: chu trình chờ giữa hai transaction"
 direction: down
 A: "Transaction A"
 R1: "accounts id=1"

@@ -198,8 +198,18 @@ SET GLOBAL log_queries_not_using_indexes = 'ON';
 
 Phân tích bằng `pt-query-digest` (Percona Toolkit) hoặc `mysqldumpslow`:
 
-```bash
-pt-query-digest /var/log/mysql/slow.log
+Chạy trên host có Percona Toolkit và quyền đọc slow log. Lệnh chỉ đọc file; báo cáo có thể chứa câu SQL và dữ liệu nhạy cảm, nên redact trước khi chia sẻ. Kết quả mong đợi dưới đây là hướng dẫn kiểm tra, không phải output đã chạy trong repo.
+
+```terminal-session
+title: Đọc báo cáo từ MySQL slow log
+context:
+  kind: remote
+  label: Host có bản slow.log cần phân tích
+steps:
+  - id: digest
+    command: pt-query-digest /var/log/mysql/slow.log
+    expected: Báo cáo nhóm query theo fingerprint, có tổng thời gian, số lần gọi và phân bố latency để tìm query tốn tổng thời gian nhiều nhất.
+    warning: Kiểm tra quyền đọc và dung lượng log; không công bố literal nhạy cảm trong báo cáo.
 ```
 
 > [!WARNING]

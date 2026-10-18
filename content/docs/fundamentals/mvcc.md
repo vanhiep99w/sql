@@ -195,15 +195,27 @@ xip_list      = [10, 12]
 
 Có thể hình dung:
 
-```text
-        đã cũ                vùng đang xét              tương lai
-          │                                               │
-          ▼                                               ▼
-... 8, 9  |  10, 11, 12  |  13, 14, 15 ...
-             ↑   ↑   ↑
-          active │ active
-              committed
+Sơ đồ phân vùng transaction ID tại thời điểm snapshot; đây không phải trục thời gian theo mili-giây.
+
+```d2 title="Snapshot xmin=10, xmax=13, xip_list=[10,12]"
+direction: right
+past: "Đã cũ: ID < xmin" {
+  ids: "... 8, 9"
+}
+window: "Vùng đang xét: xmin ≤ ID < xmax" {
+  t10: "10: active"
+  t11: "11: committed"
+  t12: "12: active"
+  t10 -> t11 -> t12: thứ tự ID
+}
+future: "Tương lai: ID ≥ xmax" {
+  ids: "13, 14, 15 ..."
+}
+past -> window: "xmin = 10"
+window -> future: "xmax = 13"
 ```
+
+Trong vùng đang xét, `xip_list` giữ các ID còn active (10 và 12); ID 11 đã commit. Mũi tên chỉ thứ tự ID, không phải phụ thuộc giữa các transaction.
 
 Ý nghĩa visibility của các transaction trong ví dụ:
 

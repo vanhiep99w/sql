@@ -502,7 +502,8 @@ Sự khác biệt **nằm ở kiến trúc storage**:
 
 ```d2 title="PostgreSQL dọn version cũ trong heap"
 direction: right
-heap: Heap {
+heap: PostgreSQL Heap {
+  icon: ../../diagram-assets/postgresql.svg
   old: Row v1 — DEAD
   new: Row v2 — LIVE
 }

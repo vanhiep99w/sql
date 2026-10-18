@@ -740,10 +740,21 @@ Mỗi index insert/update = 1 WAL record riêng. Bảng 10 index → **10 WAL re
 
 Mỗi `checkpoint_timeout` (default 5 phút), checkpointer phải flush **mọi page dirty** về data file. Sau đó, mọi modification lại bắt đầu FPW chu kỳ mới.
 
-```text
-Time:    ▼ checkpoint                       ▼ checkpoint
-WAL bps: ▁▁▇▆▅▅▄▄▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▁▁▇▆▅▅▄▄▃▃▃...
+Sơ đồ giữ nhịp tăng rồi giảm của WAL sau mỗi checkpoint. Độ cao sparkline cũ chỉ mang tính định tính; không có dữ liệu đo WAL bps để suy ra biên độ hay thời lượng.
+
+```d2 title="Chu kỳ checkpoint và đợt tăng WAL do full-page writes"
+direction: down
+c1: "Checkpoint 1"
+spike1: "WAL bps tăng mạnh\nFPW sau checkpoint"
+fall1: "WAL bps giảm dần"
+base: "WAL bps ổn định thấp hơn"
+c2: "Checkpoint 2"
+spike2: "WAL bps lại tăng\nFPW chu kỳ mới"
+fall2: "WAL bps lại giảm dần ..."
+c1 -> spike1 -> fall1 -> base -> c2 -> spike2 -> fall2: "thời gian tiến tới"
 ```
+
+Mũi tên biểu diễn thứ tự các pha, không phải biểu đồ tỷ lệ hay một trace đã đo.
 
 Right after checkpoint, FPW gây surge WAL. Nhiều index = surge to hơn. Tune `max_wal_size`, `checkpoint_completion_target` để smooth.
 

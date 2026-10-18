@@ -7,6 +7,7 @@ import { findTextDiagramCandidates, validateTextDiagramReview } from './diagram-
 
 const processor = unified().use(remarkD2, {
   cacheDir: '.next/cache/docs-kit/d2', defaultCaption: 'Sơ đồ',
+  assetsRoot: 'content/diagram-assets',
 });
 let count = 0;
 const failures = [];

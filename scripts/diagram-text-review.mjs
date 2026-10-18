@@ -4,7 +4,7 @@ import { visit } from 'unist-util-visit';
 const textLanguages = new Set(['', 'text', 'plaintext', 'diagram']);
 // A review aid, not a diagram parser: some query outputs and byte layouts also
 // match. Those need an explicit exception rather than an automatic conversion.
-const diagramMarks = /[┌┐└┘├┤┬┴┼│→▼↓⇄╭╰]|-->|─[►▶]/u;
+const diagramMarks = /[┌┐└┘├┤┬┴┼│→←↑↓↔▼▲⇄╭╰╔╗╚╝═▁▂▃▄▅▆▇█]|(?:<[-=]+|[-=]+>)|─[►▶]/u;
 
 export function findTextDiagramCandidates(articles) {
   const candidates = [];

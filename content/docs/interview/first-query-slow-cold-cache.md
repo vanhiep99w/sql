@@ -151,6 +151,52 @@ b1: "Warm" {
 
 Ví dụ dùng khoảng 8 ms cho một lần random disk read, tổng latency có thể khoảng 2 giây so với 50 ms khi warm. Đây là kịch bản minh họa, không phải benchmark hay cam kết về số physical reads.
 
+Waterfall sau trả lời câu hỏi khác với sơ đồ luồng: **2 giây được phân bổ vào những khoảng nào?** Các span hoàn toàn giả định, cùng mốc 0 ms; chúng không được suy từ số liệu EXPLAIN ở mục sau. Hai query được đặt cùng gốc để so sánh, không ngụ ý chúng chạy đồng thời.
+
+```span-waterfall
+title: Cold và warm — phân bổ latency giả định
+unit: ms
+provenance:
+  kind: illustrative
+  description: Số tổng hợp để minh họa chờ I/O; không phải trace đo, benchmark hay chuyển đổi execution plan thành span.
+spans:
+  - id: cold
+    name: Query cold — tổng 2000 ms
+    service: postgresql
+    start: 0
+    duration: 2000
+    status: ok
+  - id: cold-cpu
+    parent: cold
+    name: Parse, plan và xử lý trước I/O
+    service: executor
+    start: 0
+    duration: 50
+    status: ok
+  - id: reads
+    parent: cold
+    name: Chờ đọc pages — gộp minh họa
+    service: storage
+    start: 50
+    duration: 1900
+    status: ok
+  - id: result
+    parent: cold
+    name: Xử lý phần còn lại và trả kết quả
+    service: executor
+    start: 1950
+    duration: 50
+    status: ok
+  - id: warm
+    name: Query warm — tổng 50 ms
+    service: postgresql
+    start: 0
+    duration: 50
+    status: ok
+```
+
+Span cha đã bao gồm các span con; không cộng 2000 ms với các khoảng con một lần nữa. Trace thực cần instrumentation riêng, và `shared read` không tự chứng minh mọi page đều đọc từ thiết bị vật lý (có thể trúng OS cache).
+
 Chú ý bước 4: index trỏ bạn tới đúng row, nhưng **20 row đó nằm rải rác** trên nhiều heap page khác nhau (vì chúng được insert ở những thời điểm khác nhau). Mỗi page là **một lần random read riêng biệt**. Đây là lý do "chỉ lấy 20 dòng" mà lần đầu vẫn chậm: không phải vì quét nhiều, mà vì **mỗi dòng ở một chỗ trên đĩa**.
 
 > [!TIP]

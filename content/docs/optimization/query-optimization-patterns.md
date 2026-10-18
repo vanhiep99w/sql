@@ -478,11 +478,25 @@ n0 -> n1 -> n2 -> n3
 
 ### 5.3. Fix: Chuyển thành range condition
 
-```sql
--- ✅ Sargable — dùng được index range scan
-SELECT * FROM orders
-WHERE created_at >= '2024-01-01'
-  AND created_at < '2024-02-01';
+Diff làm rõ thay đổi ở predicate, không thay projection. Ví dụ giả định `created_at` là timestamp không kèm timezone; nếu dùng timestamptz, phải xác định biên tháng theo múi giờ nghiệp vụ. Khả năng dùng index không đảm bảo planner luôn chọn index — vẫn cần đo bằng EXPLAIN.
+
+```code-diff
+title: Từ EXTRACT trên cột sang khoảng nửa mở
+language: sql
+view: split
+before:
+  label: Hàm trên created_at
+  code: |-
+    SELECT * FROM orders
+    WHERE EXTRACT(YEAR FROM created_at) = 2024
+      AND EXTRACT(MONTH FROM created_at) = 1;
+after:
+  label: Range trên giá trị gốc
+  code: |-
+    -- ✅ Sargable — dùng được index range scan
+    SELECT * FROM orders
+    WHERE created_at >= '2024-01-01'
+      AND created_at < '2024-02-01';
 ```
 
 EXPLAIN sau fix:

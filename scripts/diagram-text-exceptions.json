@@ -1,5 +1,23 @@
 [
   {
+    "file": "content/docs/fundamentals/delete-vs-truncate.md",
+    "sha256": "ecfc03c7eb2df7b145985dadbae3a66b75f8f5a7b79cd5ee2e6b8ed7ebe61f0f",
+    "firstLine": " Delete on events  (actual time=2418200.1..2418200.1 rows=0 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/fundamentals/isolation-levels.md",
+    "sha256": "a07fb954614c26ef895e4ca88ba3ac2e2c8cba742d2b6625118c2143cf031d3d",
+    "firstLine": "T1 thấy:",
+    "reason": "Giá trị quan sát và COUNT của từng transaction; dấu ← chỉ chú thích nguồn giá trị, không phải luồng."
+  },
+  {
+    "file": "content/docs/fundamentals/isolation-levels.md",
+    "sha256": "fec208b867efd48739d320ebf3edf6134d5228fc5e9bd6a3dcb7ebb33587ddcc",
+    "firstLine": "T2 thấy:",
+    "reason": "Giá trị quan sát và COUNT của từng transaction; dấu ← chỉ chú thích nguồn giá trị, không phải luồng."
+  },
+  {
     "file": "content/docs/fundamentals/isolation-levels.md",
     "sha256": "a51a6e4ae3127f98bb601b585b28f01dc545a800137330bcaebea86913cb98dd",
     "firstLine": "T1 → COMMIT thành công",
@@ -30,10 +48,46 @@
     "reason": "Bảng dữ liệu mẫu/kết quả SQL hoặc entries trong leaf: giữ các rows, cột và giá trị đối chiếu với query; không phải sơ đồ."
   },
   {
-    "file": "content/docs/fundamentals/mvcc.md",
-    "sha256": "20140ef5866540e28845632bfac88306f8413d77303cf468c1ad9d8aa90dcf53",
-    "firstLine": "        đã cũ                vùng đang xét              tương lai",
-    "reason": "Snapshot transaction-ID timeline, vị trí active/committed trên cùng thang cần giữ để đối chiếu xmin/xmax."
+    "file": "content/docs/fundamentals/join-deep-dive.md",
+    "sha256": "451a427ad3fcbae2225748d9b8f2ff8ef3bce47dbdaf9206e895a75efabc682f",
+    "firstLine": " Nested Loop  (cost=0.86..842.13 rows=520 width=40)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/fundamentals/join-deep-dive.md",
+    "sha256": "37cf8e806bc4050d48b97b349490c05b09f137759abfbffb40067d06ea52da10",
+    "firstLine": " Nested Loop  (actual time=... rows=900000 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/fundamentals/join-deep-dive.md",
+    "sha256": "acac993de8913d95673eac95513ffdc2b5097fab4ec27adf86d88f06c5ddfd93",
+    "firstLine": " Hash Join  (cost=32150..1284301 rows=50000000 width=40)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/fundamentals/join-deep-dive.md",
+    "sha256": "1b558313b7829342870a10e7bef5c0744929b0422adae5c806f14d89a1cbd790",
+    "firstLine": " Merge Join  (actual time=0.06..1820 rows=49999500 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/fundamentals/join-deep-dive.md",
+    "sha256": "746a8cedcfdd5136447bb38a41cff6100808a99110564bdcc91a95b4283a715b",
+    "firstLine": "->  Nested Loop  (cost=... rows=5 ...) (actual ... rows=5000000 ...)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/fundamentals/join-deep-dive.md",
+    "sha256": "754286c58d5e140d92466b9f58c6ad3cbcaf28d289ebf40d403659fde8f3ff5b",
+    "firstLine": " Hash Join                          ← (3) ghép kết quả 2 node con",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/fundamentals/locking-isolation-relationship.md",
+    "sha256": "64ca7ca8abded854e26cc973b831f45fece2f6e18955390c062bdd8ce9d79958",
+    "firstLine": "Lock {",
+    "reason": "Pseudo-record resource/mode/duration; dấu ← chú thích thuộc tính, không phải hình hoặc payload thực thi."
   },
   {
     "file": "content/docs/fundamentals/mvcc.md",
@@ -43,15 +97,123 @@
   },
   {
     "file": "content/docs/fundamentals/subquery-vs-cte-vs-temp-table.md",
+    "sha256": "1dd4bffbbe17a03b153ecbc969cc3aa68df24df738262cc77ce3e62ff61ee0ee",
+    "firstLine": " Hash Join  (actual time=234.567..456.789 rows=1500000 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/fundamentals/subquery-vs-cte-vs-temp-table.md",
+    "sha256": "3f199b7a5dc929bd49a5be5a81d2a69340750cdc7aaa31619c61c3ad1de48740",
+    "firstLine": " Hash Semi Join  (actual time=45.678..234.567 rows=1200000 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/fundamentals/subquery-vs-cte-vs-temp-table.md",
+    "sha256": "c1a82f7406db384a1e61d919cd67635b80c95b662fb3f82df247e30ca8e9b7f9",
+    "firstLine": " Seq Scan on users u  (actual time=0.012..8945.678 rows=2000000 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/fundamentals/subquery-vs-cte-vs-temp-table.md",
+    "sha256": "30c5c937a19670b391ed1a81d904a876e6c4c98f7fde8a7d3cadfd376510b1a9",
+    "firstLine": " Limit  (actual time=456.789..456.823 rows=20 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/fundamentals/subquery-vs-cte-vs-temp-table.md",
+    "sha256": "ed47599a4bba4ad5dcf39b548376ac6e8be1fbb4b0adc31e27ad195cc5da6c6f",
+    "firstLine": " Limit  (actual time=458.123..458.156 rows=20 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/fundamentals/subquery-vs-cte-vs-temp-table.md",
+    "sha256": "aebec4907518450f8a42cfad61518d64d350801e57bb3b3772d5da51e408bff5",
+    "firstLine": " Limit  (actual time=0.089..0.234 rows=20 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/fundamentals/subquery-vs-cte-vs-temp-table.md",
+    "sha256": "8d923cb26431db0482483ad1546ee022a5b599ca970ed9f198078637c4928dfb",
+    "firstLine": " CTE Scan on all_orders  (actual time=2345.678..4567.890 rows=8 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/fundamentals/subquery-vs-cte-vs-temp-table.md",
     "sha256": "a210fd9f1bfbf42c1dcbc32392d66d9eaabe97bb1ddd9f66af16b6458a63339b",
     "firstLine": "-- MySQL: nếu thấy `<derived2>` hoặc `<subquery2>` → materialized",
     "reason": "SQL EXPLAIN nguyên văn và comment về materialized/inlined, không phải flowchart."
+  },
+  {
+    "file": "content/docs/interview/first-query-slow-cold-cache.md",
+    "sha256": "f250762f1463ca603b45acd3101439b4f17d258aa7fdafb2f843a044fcf421b5",
+    "firstLine": " Limit  (actual time=1980.114..1980.142 rows=20 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/interview/first-query-slow-cold-cache.md",
+    "sha256": "057f49ef169eb26e78a81d47caeefc830678d41c3e977f48dfedcbecc862e339",
+    "firstLine": " Limit  (actual time=0.071..0.095 rows=20 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/interview/in-vs-exists-vs-join.md",
+    "sha256": "4e8f972687cd4d6e3b7118afeeaec226640d3403594f7e29b2e40759c96d4406",
+    "firstLine": "Hash Semi Join",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/interview/index-not-used-seq-scan.md",
+    "sha256": "8c51fa0c98fe9ecfa21436dce74e2a61bca9daa2661154d4fc1775f1ce70fe21",
+    "firstLine": " Seq Scan on orders",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
   },
   {
     "file": "content/docs/interview/logical-vs-physical-query-execution.md",
     "sha256": "eac16cfab366af63fc024b4f0850d1723f36dcfcb3004d6c5ce83cbc71bd1bd6",
     "firstLine": "customers",
     "reason": "Bảng dữ liệu mẫu/kết quả SQL hoặc entries trong leaf: giữ các rows, cột và giá trị đối chiếu với query; không phải sơ đồ."
+  },
+  {
+    "file": "content/docs/interview/logical-vs-physical-query-execution.md",
+    "sha256": "982e994cf18adb6d069bf2d154a7e50e640dd2a11f9913022f69aab331f25155",
+    "firstLine": "HashAggregate",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/interview/offset-pagination-slow.md",
+    "sha256": "f79454c5acb79fc95e92bae3f996ae9f83768af03da3545720db0b5d1d98c8e3",
+    "firstLine": " Limit  (actual time=0.03..0.06 rows=20 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/interview/offset-pagination-slow.md",
+    "sha256": "7ad23e9f416a98a0242ec48f0b2643ea4599237e9fa13abac9671f108387b923",
+    "firstLine": " Limit  (actual time=2980.1..2980.2 rows=20 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/interview/read-explain-analyze-postgresql.md",
+    "sha256": "38ca591f6b92c70a793f1501b220ed6beafba1c30678bc7257f3423840d55b32",
+    "firstLine": "Limit  (cost=52144.10..52144.15 rows=20 width=40)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/interview/read-explain-analyze-postgresql.md",
+    "sha256": "3cb856e216ef78903133f1c5c2d14b7be2c0a81454a4eb877d756befae47a33b",
+    "firstLine": "Limit  (actual time=34.020..34.028 rows=20 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/interview/select-count-slow.md",
+    "sha256": "1b8386b0700cf25389156d3e787710af1050df64a25f7da03e3c2d1d1cd75b17",
+    "firstLine": " Finalize Aggregate  (actual time=8021.5..8021.5 rows=1 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/interview/select-count-slow.md",
+    "sha256": "cec93f43ed94a0683756bad82a63049e25eed2ab6d7b34cabf24002deb4b3cee",
+    "firstLine": " Aggregate ...",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
   },
   {
     "file": "content/docs/interview/select-star-vs-columns.md",
@@ -64,6 +226,36 @@
     "sha256": "18e52e9eba1079a33bda581fab9bd8cd11c16ee75b6a0ad4fc228b227c61067d",
     "firstLine": " Index Scan using idx_orders_user on orders   ← KHÔNG phải \"Index ONLY\"",
     "reason": "Execution plan và chú thích estimated/actual giữ indentation, tên node, số liệu và format để đọc cùng EXPLAIN."
+  },
+  {
+    "file": "content/docs/interview/select-star-vs-columns.md",
+    "sha256": "32e00c1cb0e788889ddb556de92fafda49943c9f05a6d635b6e2d1298e04bfdd",
+    "firstLine": " Sort  (... Sort Method: external merge  Disk: 412800kB)   ← tràn đĩa vì dòng to",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/interview/select-star-vs-columns.md",
+    "sha256": "9216a183f99aca4fc248251f7335e43a21459ebe56e6460f68c851c0a0927c54",
+    "firstLine": " Index Scan using idx_orders_user on orders",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/interview/sharding-at-scale.md",
+    "sha256": "259eecdf7bbce28f927054a041f0c15d51a16851b677d937cb43d72402cd0fb2",
+    "firstLine": "hash(101) % 4 = 2",
+    "reason": "Hai phép tính hash/modulo minh họa đích thay đổi khi tăng số shard; giữ biểu thức số, không phải sơ đồ."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "f70c3920fc3cd5d66922c6123c8d7c87f8472861cd83f832c82c393f1781ce92",
+    "firstLine": "                                  QUERY PLAN",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "be68e6acf7b3e93b229d9521260a79960a270ab896115e0f0149cfb366c6d161",
+    "firstLine": " Limit  (actual time=0.087..0.142 rows=12 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
   },
   {
     "file": "content/docs/optimization/composite-index-deep-dive.md",
@@ -79,15 +271,27 @@
   },
   {
     "file": "content/docs/optimization/composite-index-deep-dive.md",
-    "sha256": "e5645abd838df585635ae33b8578f42bd3da6ff8bbcb7511bfded1a260710589",
-    "firstLine": "┌──────────────────────────────────────────────────────────────────────┐",
-    "reason": "Bảng dữ liệu mẫu/kết quả SQL hoặc entries trong leaf: giữ các rows, cột và giá trị đối chiếu với query; không phải sơ đồ."
+    "sha256": "89266b975e3fe97aa0a22f6fd68afde787ab9b4563a0b7b17687d0006da06c0f",
+    "firstLine": "✅  (a)",
+    "reason": "Checklist tuple prefix hợp lệ/không hợp lệ; dấu ← giải thích gap của (a,c), không phải sơ đồ."
   },
   {
     "file": "content/docs/optimization/composite-index-deep-dive.md",
-    "sha256": "623073f482446d4d1833052ccedd97e8243561e3fcd148ab7a873fb0f118e2e7",
-    "firstLine": "Encoded key của (90341, 'paid', '2025-01-15')",
-    "reason": "Byte/bit layout cần căn đúng vị trí các phần key hoặc UUID; giữ để đối chiếu ký tự literal."
+    "sha256": "7fdaba07213c7bb8609a59d5814014526cb8db983338ee144fd1bf7c1f294d0d",
+    "firstLine": "Index Scan using idx_abc on tbl",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "cbee6fa5dfd9b69609d360a6f08c6412b3320a043e82a2f6ca10b6e9f74a6f8a",
+    "firstLine": "Index Scan using idx_users",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "700430d7eb0edcc41f1ec0441682633fd2fd37a04b3d36db4947370c0d0333cc",
+    "firstLine": "Index Scan using idx_users_fixed",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
   },
   {
     "file": "content/docs/optimization/composite-index-deep-dive.md",
@@ -103,15 +307,93 @@
   },
   {
     "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "7130e94a674e26b7477dc13a0e5d0eefd5e70dcb8662e670a8243dd27a3ef65a",
+    "firstLine": "Index Only Scan using ix_four_unique1 on tbl",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "62123ad61e39c4f44573eafbaad52c44ec6b840c07dfb6f52b79425cfc58c957",
+    "firstLine": "Bitmap Heap Scan on orders",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
     "sha256": "048568efe41ddb3d97d2e61b060d80cfc351aeba48d25e711af9e6c449a4dd9b",
     "firstLine": "customer_id BIGINT     → 8 bytes",
     "reason": "Số liệu selectivity/cardinality hoặc công thức số byte key_len cần đọc như bảng số liệu, không phải luồng."
   },
   {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "fbc30a07a98eb5563bb053412bd9258167d7b879e65e89babbac13fe194ddbe6",
+    "firstLine": "Limit  ",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "d8bb5ad8180f2373bcce56307f437b3bd1d6ffd632cfda44346fbd3234ec40ad",
+    "firstLine": "Limit  ",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "747b1cf5d19da6fabc799111ce26573b34030ea1de03f3639b9bc9c7e72a0162",
+    "firstLine": "Limit  ",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "99daba01bfb3d9d572a9db874097749a96076761f3183dddf7f03926abbe855b",
+    "firstLine": "Index Only Scan using ix_covering on orders",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/composite-index-deep-dive.md",
+    "sha256": "11be30ea813ec57fbb61db2dd5801b9c52def1e8980464b5bcf86ceae0b0c1d3",
+    "firstLine": "Bitmap Heap Scan on orders",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
     "file": "content/docs/optimization/dml-index-impact-deep-dive.md",
-    "sha256": "9f2ba5125c5732e16c28301827bd9a681757d5fb64d383428814d5a54a106ff3",
-    "firstLine": "Time:    ▼ checkpoint                       ▼ checkpoint",
-    "reason": "Sparkline WAL theo thời gian; cần trục thời gian, D2 graph không thể hiện định lượng đúng."
+    "sha256": "4f432ead829dfe54cade889c9475f3a4d355c06367c4d8251565d54c6e2d68c5",
+    "firstLine": " Update on orders  (actual time=32125.4..32125.4 rows=0 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/explain-analyze-deep-dive.md",
+    "sha256": "a7e7e98778d61d21ae61491064a4fd98e478b607a04a7936139c02fd029c9a95",
+    "firstLine": " Sort                              ← (4) GỐC: chạy cuối, trả kết quả",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/explain-analyze-deep-dive.md",
+    "sha256": "9ed6bccbae61544f099315232a589c314e8ab2bcb05d256034438d9ebd19a748",
+    "firstLine": "Seq Scan on orders  (cost=0.00..185430.00 rows=1240 width=32)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/explain-analyze-deep-dive.md",
+    "sha256": "ef3d8305c05a58fad2706f8da45fe228bcdec758273612f2de30bf6eb08ea196",
+    "firstLine": "->  Sort  (cost=1000.00..1000.50 ...)   ← startup=1000: phải sort XONG mới trả row đầu",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/explain-analyze-deep-dive.md",
+    "sha256": "ebd9a7541e382cd412a2a48a60c9aee001945e08f6020c5bf1f516da929edf34",
+    "firstLine": "Seq Scan on orders  (cost=0.00..185430.00 rows=1240 width=32)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/explain-analyze-deep-dive.md",
+    "sha256": "72419f9b1ddac0b8abc5b1924a58f73140537873de90b49ddce20e619c1f94c7",
+    "firstLine": "->  Index Scan on orders  (actual time=0.004..0.142 rows=10 loops=50000)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/explain-analyze-deep-dive.md",
+    "sha256": "467001c4169cdef3d4f677ceed563698f8abd12dd0d31bd232dffc9b254202e1",
+    "firstLine": " Planning Time: 0.213 ms      ← thời gian optimizer nghĩ ra plan",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
   },
   {
     "file": "content/docs/optimization/explain-analyze-deep-dive.md",
@@ -127,9 +409,45 @@
   },
   {
     "file": "content/docs/optimization/explain-analyze-deep-dive.md",
+    "sha256": "b82e68729d218a932bae33e150460c512d76b0065703665c50ca44a8ffa029a5",
+    "firstLine": "Seq Scan on orders (actual time=0.02..842 rows=1198 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/explain-analyze-deep-dive.md",
     "sha256": "d5a867924786cb7a8dab68421138a666ee67954c2a02038b260c221964fa2df4",
     "firstLine": "-- Ít row → Index Scan (đi thẳng)",
     "reason": "Execution plan và chú thích estimated/actual giữ indentation, tên node, số liệu và format để đọc cùng EXPLAIN."
+  },
+  {
+    "file": "content/docs/optimization/explain-analyze-deep-dive.md",
+    "sha256": "82b14fb176a6b4f3a0389c578d528a2e7ff7f2302871a435f0b6de28e6e1d04c",
+    "firstLine": "Sort  (actual time=... rows=100000)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/explain-analyze-deep-dive.md",
+    "sha256": "e7db790e0edc7103150de2536bdd4aa320e8564aba4399c1670e298f3017abc1",
+    "firstLine": "   Sort Method: external merge  Disk: 82304kB    ← sort tràn ĐĨA, chậm",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/explain-analyze-deep-dive.md",
+    "sha256": "cf0a0f48ef91f8ad15971c8d854045c8b93a10fb21e3007ee10c4bf3a4630ba1",
+    "firstLine": "Seq Scan on orders (actual ... rows=100 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/explain-analyze-deep-dive.md",
+    "sha256": "5fa9fe55398a1665583c3e4c9fcd55137df71dfe37ef9436656189143015a537",
+    "firstLine": " HashAggregate  (actual time=12043 rows=4 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/explain-analyze-deep-dive.md",
+    "sha256": "fd4ee916b041f696de56423fa7be5a37161a006880201b1b068e6e0c508cc1d9",
+    "firstLine": " HashAggregate  (actual time=39.8 rows=4 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
   },
   {
     "file": "content/docs/optimization/join-algorithms-deep-dive.md",
@@ -145,15 +463,33 @@
   },
   {
     "file": "content/docs/optimization/join-algorithms-deep-dive.md",
-    "sha256": "a8e2e067e1cf8a153d4f458dee1cebfd86fd5144a97f830be4e415b3b3762a10",
-    "firstLine": "Thời gian",
-    "reason": "Đồ thị cost/complexity theo trục số; giữ text vì D2 không phải công cụ quantitative plotting."
+    "sha256": "85e555c507a282e6c0234122a0d4d9089bfc0879216ceb9451a032839a93b2b6",
+    "firstLine": "Merge Join  (cost=0.86..487352.15 rows=5000000 width=52) (actual time=0.031..4521.87 rows=4998723 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/join-algorithms-deep-dive.md",
+    "sha256": "9ebd736b028057d13419df482dfe35dc21fd9fcc25dc95733e90d63143673279",
+    "firstLine": "-> Nested loop inner join  (cost=45632.10 rows=500000)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/join-algorithms-deep-dive.md",
+    "sha256": "1c8df733a48d07adf4b36de4af1782a4ed1402a68968dcde46727cde0461f50f",
+    "firstLine": "-> Nested loop inner join  (cost=45632.10 rows=500000) (actual time=0.089..2341.56 rows=498723 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
   },
   {
     "file": "content/docs/optimization/like-query-deep-dive.md",
     "sha256": "1838d99148d5b38ada7ea9698e427591528545df7bb36251c78d2dbe63f6e52b",
     "firstLine": "\"SQL\"     (UTF-8)  →   0x53 0x51 0x4C                       (3 byte)",
     "reason": "Ví dụ UTF-8 bytes, LIKE literals hoặc so sánh tuple theo vị trí; không chuyển các giá trị cần đối chiếu thành nodes."
+  },
+  {
+    "file": "content/docs/optimization/like-query-deep-dive.md",
+    "sha256": "80b768c9855695cf2e81270c72abecd0a69aad34cdb4e75c4baaa75c24619b4c",
+    "firstLine": " Bitmap Heap Scan on courses  (actual rows=12 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
   },
   {
     "file": "content/docs/optimization/like-query-deep-dive.md",
@@ -180,27 +516,93 @@
     "reason": "Bảng dữ liệu mẫu/kết quả SQL hoặc entries trong leaf: giữ các rows, cột và giá trị đối chiếu với query; không phải sơ đồ."
   },
   {
-    "file": "content/docs/optimization/primary-key-uuid-vs-integer-deep-dive.md",
-    "sha256": "29bcff0a63c4bd3e5519254807c15c0c81d5bb300430e93d44607a6c3c664187",
-    "firstLine": "xxxxxxxx-xxxx-Mxxx-Nxxx-xxxxxxxxxxxx",
-    "reason": "Byte/bit layout cần căn đúng vị trí các phần key hoặc UUID; giữ để đối chiếu ký tự literal."
+    "file": "content/docs/optimization/query-optimization-patterns.md",
+    "sha256": "2dc65d4f8d2f0d534af958e48698844c42b04764c11fc8960ac4cdf0696a127c",
+    "firstLine": " Limit  (actual time=0.845..234.567 rows=20 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
   },
   {
-    "file": "content/docs/optimization/primary-key-uuid-vs-integer-deep-dive.md",
-    "sha256": "64cc4b13b8869d8b072363324a15d55edc79dc5066b3f93db1fb619ba4492226",
-    "firstLine": "   018f8f87-e900-7a8c-b3ed-9ad1d4a8f00d",
-    "reason": "Byte/bit layout cần căn đúng vị trí các phần key hoặc UUID; giữ để đối chiếu ký tự literal."
+    "file": "content/docs/optimization/query-optimization-patterns.md",
+    "sha256": "b7b139a070db9e650ee2fad2542f4c3cc924074ae4f1b2e01c1493d81bc9e3f8",
+    "firstLine": " Limit  (actual time=0.034..0.089 rows=20 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
   },
   {
-    "file": "content/docs/optimization/statistics-query-planner-deep-dive.md",
-    "sha256": "ff504db0f663e2ccbdc0484b62ccc2538cdfed7919d2494f95625e5ec5257624",
-    "firstLine": "cost",
-    "reason": "Đồ thị cost/complexity theo trục số; giữ text vì D2 không phải công cụ quantitative plotting."
+    "file": "content/docs/optimization/query-optimization-patterns.md",
+    "sha256": "45ad245e66c95cff70477b78416fc5b97d3225f882a49c16a7499212e1691fe2",
+    "firstLine": " Limit  (actual time=0.045..0.312 rows=50 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/query-optimization-patterns.md",
+    "sha256": "a878fc87584b9830540b01933adb72684e060fbcbc3dd33a8a9da8eb4a4386e2",
+    "firstLine": " Unique  (actual time=0.035..0.042 rows=1 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/query-optimization-patterns.md",
+    "sha256": "e7f4c314edf34ebdf9e34f3c0980ac7d634b8c0a51d5d242d4e43b185b12017a",
+    "firstLine": " Seq Scan on users u  (actual time=0.045..8945.678 rows=100000 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/query-optimization-patterns.md",
+    "sha256": "9a5a4318e4da6331c8ab5b7bd7f2172766bf94a5c13ba45224f327c68778100a",
+    "firstLine": " Hash Join  (actual time=345.123..412.456 rows=100000 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/query-optimization-patterns.md",
+    "sha256": "b959da8719cf3ff6e1b0b0e58880e8be9637ea6997f8fd74c6aa167760e839df",
+    "firstLine": " Limit  (actual time=0.035..0.089 rows=20 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/query-optimization-patterns.md",
+    "sha256": "1d2ecf0f3e58cef69e154817a802178491460e8c1c4b8fbf3ffefaf27d7ae5ab",
+    "firstLine": " HashAggregate  (actual time=2345.678..2567.890 rows=45000 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/query-optimization-patterns.md",
+    "sha256": "a6352ee43fffd7027fe4567a4a660e1d441e9e25fec8afa150aa4e4f41220bc8",
+    "firstLine": " Hash Semi Join  (actual time=12.345..189.012 rows=45000 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/query-optimization-patterns.md",
+    "sha256": "d9b08faca9a441500df333347107c22e8768fdbba0a98ee9d2f5103543f0840f",
+    "firstLine": " Limit  (actual time=1234.567..1234.589 rows=20 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/query-optimization-patterns.md",
+    "sha256": "4493826d0b5f52e55a572217ef07a52ae546f1420db2abdfba7534e24911524a",
+    "firstLine": " Limit  (actual time=0.035..0.078 rows=20 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/query-optimization-patterns.md",
+    "sha256": "310367e23eb68c7afda8ec88fe0fe2fb621e55b87f10bfc21d78ccf2cc6cd202",
+    "firstLine": " Aggregate  (actual time=3456.789..3456.791 rows=1 loops=1)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
   },
   {
     "file": "content/docs/optimization/statistics-query-planner-deep-dive.md",
     "sha256": "18a22da48d4515976564a74aaa687d93bde560836310c1c8ef642a8b4eb9701f",
     "firstLine": "Seq Scan on orders (cost=... rows=7500000 ...) (actual ... rows=7480210 ...)",
     "reason": "Execution plan và chú thích estimated/actual giữ indentation, tên node, số liệu và format để đọc cùng EXPLAIN."
+  },
+  {
+    "file": "content/docs/optimization/statistics-query-planner-deep-dive.md",
+    "sha256": "9e1618ecfe617ad3af5b3330c248a0cf2b3471013508b077b3e39163b32de12d",
+    "firstLine": "->  Index Scan (cost=... rows=12 ...) (actual ... rows=1850000 ...)",
+    "reason": "Execution plan/EXPLAIN và chú thích: giữ tên node, indentation, predicate, estimated/actual, loops và số liệu; dấu ->/▲/← thuộc cách đọc output, không phải sơ đồ kiến trúc."
+  },
+  {
+    "file": "content/docs/optimization/statistics-query-planner-deep-dive.md",
+    "sha256": "b660676d0d1240a7a5589bf7f693e21eba0e9da36a4732d087da30e47994f293",
+    "firstLine": "-- TRƯỚC (giả định độc lập): rows=100   ← sai gấp 100 lần",
+    "reason": "So sánh hai giá trị rows ước lượng trước/sau extended statistics và độ lệch; không phải sơ đồ."
   }
 ]

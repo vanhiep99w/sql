@@ -1,0 +1,12 @@
+[
+  {
+    "file": "mysql.svg",
+    "source": "https://icons.d2lang.com/dev/mysql.svg",
+    "sha256": "9b53df11d210f23761ffb58d4459d9a1b851172ab8731914ea0a5ca326e00f9e"
+  },
+  {
+    "file": "postgresql.svg",
+    "source": "https://icons.d2lang.com/dev/postgresql.svg",
+    "sha256": "b629cb7e0251e2c22b5b35182ff26f1e5cc620d036f873a4fddd30a569dd461b"
+  }
+]

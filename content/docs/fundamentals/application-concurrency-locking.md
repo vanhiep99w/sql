@@ -216,13 +216,32 @@ Sai:   expected_version = version backend vừa SELECT từ database
 
 Ví dụ client đổi giá từ `120.000` thành `90.000`:
 
-```sql
-UPDATE products
-SET price = :price,
-    version = version + 1,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = :id
-  AND version = :expected_version;
+Đọc từng phần của câu lệnh: điều kiện version kiểm tra dữ liệu client đã thấy, còn tăng version làm request cũ tiếp theo không thể khớp. Viewer chỉ giải thích SQL, không chạy câu lệnh.
+
+```code-walkthrough
+title: Một UPDATE vừa kiểm tra vừa thay đổi version
+language: sql
+snapshots:
+  - id: guarded
+    title: Conditional UPDATE products
+    code: |-
+      UPDATE products
+      SET price = :price,
+          version = version + 1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = :id
+        AND version = :expected_version;
+steps:
+  - id: predicate
+    snapshot: guarded
+    title: So phiên bản client đã đọc
+    description: expected_version phải đến từ request. Điều kiện id và version cùng nằm trong UPDATE để tránh khoảng hở giữa SELECT và ghi.
+    ranges: [[5, 6]]
+  - id: change
+    snapshot: guarded
+    title: Ghi giá và tăng version cùng thao tác
+    description: Chỉ row khớp điều kiện mới được cập nhật. version tăng lên khiến request vẫn mang version cũ không thể ghi đè lần tiếp theo.
+    ranges: [[1, 4]]
 ```
 
 Cần kiểm tra số row bị ảnh hưởng:
@@ -275,6 +294,38 @@ Quy ước thực tế:
 - Dùng trường `version` riêng trong JSON: `409 Conflict` là lựa chọn phổ biến.
 
 Không cần dùng cả ETag lẫn `version` trong body nếu chúng mang cùng một ý nghĩa. Chọn một contract rõ ràng.
+
+So sánh hai contract khi **phiên bản đã cũ**. Đây là các HTTP message minh họa cho cùng một conflict, không phải hai request cần gửi nối tiếp. JSON giữ các giá trị demo, không chứa credential.
+
+```protocol-exchange
+title: Version cũ — HTTP precondition hay version trong JSON
+variants:
+  - id: etag
+    title: If-Match — 412
+    request:
+      method: PATCH
+      url: /products/42
+      headers:
+        - {id: match, name: If-Match, value: '"product-42-v7"'}
+        - {id: type, name: Content-Type, value: application/json}
+      body: {kind: json, json: '{"price":90000}'}
+    response:
+      status: 412
+      statusText: Precondition Failed
+  - id: version
+    title: JSON version — 409
+    request:
+      method: PATCH
+      url: /products/42
+      headers:
+        - {id: type, name: Content-Type, value: application/json}
+      body: {kind: json, json: '{"price":90000,"version":7}'}
+    response:
+      status: 409
+      statusText: Conflict
+```
+
+Với cả hai biến thể, client phải tải lại dữ liệu hoặc cho người dùng merge. Chỉ đổi status code không giải quyết lost update; SQL vẫn phải kiểm tra version.
 
 ### Xử lý conflict
 

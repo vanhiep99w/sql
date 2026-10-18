@@ -165,22 +165,29 @@ Khi cột đầu khác nhau, **không quan tâm cột sau là gì**:
 
 Mỗi entry trên leaf node của B-Tree là một **key tuple** + một **pointer** trỏ về row trong table (CTID trên Postgres, primary-key trong InnoDB):
 
+Leaf page #4172 của `idx_orders (customer_id, status, created_at)` chứa các entries sau; giữ nguyên tuple và row locator để đối chiếu:
+
+```text
+(90340, 'paid',     '2024-12-29 10:01:55+07') | ctid (1234, 7)
+(90340, 'paid',     '2024-12-30 14:22:08+07') | ctid (1234, 8)
+(90340, 'shipped',  '2024-12-25 09:15:33+07') | ctid (1198, 3)
+(90341, 'cancelled','2024-11-12 12:01:09+07') | ctid (8771, 9)
+(90341, 'paid',     '2025-01-04 16:33:21+07') | ctid (9911, 2)
+(90341, 'paid',     '2025-01-15 08:14:55+07') | ctid (9911, 3)
+(90341, 'pending',  '2025-01-03 11:01:48+07') | ctid (9911, 4)
+(90341, 'pending',  '2025-01-21 17:50:02+07') | ctid (9911, 5)
+(90342, 'delivered','2024-08-01 09:00:00+07') | ctid (7723, 1)
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│ Leaf page #4172 của idx_orders (customer_id, status, created_at)   │
-├──────────────────────────────────────────────────────────────────────┤
-│  (90340, 'paid',     '2024-12-29 10:01:55+07')  →  ctid (1234, 7)    │
-│  (90340, 'paid',     '2024-12-30 14:22:08+07')  →  ctid (1234, 8)    │
-│  (90340, 'shipped',  '2024-12-25 09:15:33+07')  →  ctid (1198, 3)    │
-│  (90341, 'cancelled','2024-11-12 12:01:09+07')  →  ctid (8771, 9)    │
-│  (90341, 'paid',     '2025-01-04 16:33:21+07')  →  ctid (9911, 2)    │
-│  (90341, 'paid',     '2025-01-15 08:14:55+07')  →  ctid (9911, 3)    │
-│  (90341, 'pending',  '2025-01-03 11:01:48+07')  →  ctid (9911, 4)    │
-│  (90341, 'pending',  '2025-01-21 17:50:02+07')  →  ctid (9911, 5)    │
-│  (90342, 'delivered','2024-08-01 09:00:00+07')  →  ctid (7723, 1)    │
-└──────────────────────────────────────────────────────────────────────┘
-                              ↓ ↑
-                  liên kết với leaf trước/sau (B+Tree)
+
+Liên kết giữa các leaf độc lập với các giá trị entry:
+
+```d2 title="Leaf page #4172 liên kết với leaf trước và sau"
+direction: right
+previous: Leaf trước
+current: "Leaf #4172\nidx_orders (customer_id, status, created_at)"
+next: Leaf sau
+previous <-> current: "liên kết B+Tree"
+current <-> next: "liên kết B+Tree"
 ```
 
 Đọc dọc xuống ta thấy:
@@ -214,17 +221,24 @@ Dung lượng thực tế tùy key, row locator và overhead. Ba tree không đ�
 
 Key trên leaf không phải 3 ô tách rời, mà là **1 chuỗi byte concat lại** (có terminator để phân tách):
 
-```
-Encoded key của (90341, 'paid', '2025-01-15')
+Giữ literal byte của ví dụ key `(90341, 'paid', '2025-01-15')` trong bảng; các dấu `...` là phần rút gọn của ví dụ cũ, không phải một encoding đầy đủ có thể dùng để tái tạo key.
 
-  ┌────────────────────┬──────────────┬──────────────────────────┐
-  │ 0x00 00 01 60 95   │ 'paid' 0x00  │ 0x00 02 8D F0 E2 B4 ...  │
-  │ (bigint big-endian)│ (text + NULL)│ (timestamp 8 bytes)      │
-  └────────────────────┴──────────────┴──────────────────────────┘
-                      ↓
-              Tất cả ghép thành 1 key byte string
-              So sánh bằng memcmp() trên toàn chuỗi
+| Thành phần | Byte/literal minh họa | Diễn giải |
+|---|---|---|
+| customer_id | `0x00 00 01 60 95` | bigint big-endian |
+| status | `'paid' 0x00` | text + NULL |
+| created_at | `0x00 02 8D F0 E2 B4 ...` | timestamp 8 bytes |
+
+```d2 title="Ghép các thành phần thành một encoded key"
+direction: down
+parts: "customer_id, status, created_at\nTheo thứ tự các cột trong index"
+concat: "Ghép tất cả thành 1 key byte string"
+compare: "So sánh bằng memcmp() trên toàn chuỗi\nMô hình encoding minh họa của mục này"
+parts -> concat: nối theo thứ tự
+concat -> compare
 ```
+
+Encoding và phép so sánh thật còn tùy engine, kiểu dữ liệu và collation; sơ đồ không khẳng định mọi SQL B-Tree đều dùng memcmp() trực tiếp.
 
 Vì so sánh là **memcmp tuyến tính**, byte đầu tiên khác biệt **quyết định kết quả**. Đây là lý do thứ tự cột tương đương thứ tự byte — không tự nhiên đổi được.
 

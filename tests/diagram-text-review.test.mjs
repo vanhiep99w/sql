@@ -51,3 +51,9 @@ test('repository diagram-like text is explicitly reviewed; no legacy diagram fen
     });
   }
 });
+
+test('also reviews plain ASCII arrows and Unicode annotation/timing marks', () => {
+  for (const body of ['A -> B', 'A <== B', 'field ↑ label', 'WAL: ▁▇▃']) {
+    assert.equal(findTextDiagramCandidates([article(`\`\`\`text\n${body}\n\`\`\``)]).length, 1, body);
+  }
+});

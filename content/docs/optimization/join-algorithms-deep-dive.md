@@ -537,33 +537,24 @@ Execution Time: 4987.12 ms
 
 ### Biểu đồ hiệu năng theo kích thước dữ liệu
 
+Sơ đồ thay đồ thị định tính cũ: câu hỏi là chi phí tăng theo kích thước đầu vào ra sao, không phải thuật toán nào luôn nhanh hơn theo một đường đo. Miền kích thước minh họa giữ các mốc 1K, 10K, 100K, 1M, 10M và 100M; trục còn lại là thời gian.
+
+```d2 title="Chi phí tăng theo N và M của các thuật toán join"
+direction: down
+size: "Kích thước dữ liệu N, M\n1K · 10K · 100K · 1M · 10M · 100M"
+simple: "Simple Nested Loop\nO(N × M)"
+indexed: "Index Nested Loop\nO(N log M)"
+hash: "Hash Join\nO(N + M)"
+sorted: "Merge Join — đã sort\nO(N + M)"
+sort: "Merge Join — cần sort\nO(N log N + M log M)\nNếu N ≈ M: O(N log N)"
+size -> simple: "mỗi outer row quét inner"
+size -> indexed: "tra index cho mỗi outer row"
+size -> hash: "build + probe"
+size -> sorted: "merge hai đầu vào có thứ tự"
+size -> sort: "sort hai đầu vào rồi merge"
 ```
-Thời gian
-  │
-  │                                          ╱ Simple Nested Loop O(N×M)
-  │                                        ╱
-  │                                      ╱
-  │                                    ╱
-  │                                  ╱
-  │                                ╱
-  │                              ╱
-  │                           ╱
-  │                         ╱            ╱ Merge Join (cần sort) O(N log N)
-  │                       ╱            ╱
-  │                     ╱           ╱
-  │                   ╱          ╱          ╱── Hash Join O(N + M)
-  │                 ╱         ╱          ╱
-  │               ╱        ╱          ╱
-  │             ╱       ╱─ ─ ─ ─ ─ ╱── Index Nested Loop O(N log M)
-  │           ╱      ╱── ─ ─ ─ ╱
-  │         ╱     ╱─ ─ ─ ─ ╱── Merge Join (đã sort) O(N + M)
-  │       ╱    ╱─ ─ ─ ╱
-  │     ╱   ╱─ ─ ╱
-  │   ╱  ╱─ ╱
-  │  ╱╱╱
-  └──────────────────────────────────────────────────→ Kích thước dữ liệu
-       1K    10K    100K    1M     10M    100M
-```
+
+Không suy ra thời gian cụ thể từ Big-O: memory, spill, index và LIMIT có thể đổi lựa chọn. Công thức tổng quát cho hai đầu vào cần sort được ghi đầy đủ; nhãn O(N log N) của hình cũ là trường hợp hai phía cùng bậc kích thước.
 
 ### Ma trận quyết định
 

@@ -21,3 +21,7 @@ __pycache__/
 .cache/
 public/source-examples/
 *.tsbuildinfo
+
+# Browser smoke artifacts
+playwright-report/
+test-results/

@@ -43,6 +43,7 @@ description: "So sánh chi tiết MySQL và PostgreSQL — MVCC, JSON, Performan
 ```d2 title="Các cấu trúc lưu trữ InnoDB"
 direction: down
 innodb: MySQL InnoDB {
+  icon: ../../diagram-assets/mysql.svg
   buffer: Buffer Pool — RAM {
     data: Data Pages
     index: Index Pages
@@ -64,6 +65,7 @@ innodb: MySQL InnoDB {
 ```d2 title="Các cấu trúc lưu trữ PostgreSQL"
 direction: down
 postgres: PostgreSQL {
+  icon: ../../diagram-assets/postgresql.svg
   buffer: Shared Buffers — RAM {
     data: Data Pages
     index: Index Pages

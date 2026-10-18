@@ -119,17 +119,27 @@ Hai đường cắt nhau tại **N ≈ 296.000 row**:
 - N < 296K → Index Scan rẻ hơn → optimizer chọn index.
 - N > 296K → Seq Scan rẻ hơn → optimizer bỏ index.
 
+D2 dưới đây biểu diễn phép so sánh cost thay vì vẽ hai đường theo tỷ lệ. Trục N cũ là số row; cost là đơn vị của mô hình, không phải thời gian đo.
+
+```d2 title="Điểm cắt cost: Seq Scan khoảng 1.18M và Index Scan khoảng 4N"
+direction: down
+input: "N — số row cần lấy"
+seq: "Seq Scan: cost ≈ 1,185,000\nPhẳng theo N trong mô hình"
+idx: "Index Scan: cost ≈ 4N\nTăng theo N"
+compare: "So sánh hai cost\nĐiểm cắt N ≈ 296K" { shape: diamond }
+small: "N < 296K: Index Scan rẻ hơn"
+large: "N > 296K: Seq Scan rẻ hơn"
+equal: "N ≈ 296K: cost xấp xỉ nhau"
+input -> seq
+input -> idx
+seq -> compare
+idx -> compare
+compare -> small: dưới điểm cắt
+compare -> large: trên điểm cắt
+compare -> equal: tại điểm cắt
 ```
-cost
- │        Seq Scan (phẳng, ~1.18M)
- │  ─────────────────────────────
- │            ╱  Index Scan (dốc lên = 4N)
- │          ╱
- │        ╱
- │      ╱ ◀── điểm cắt N≈296K
- │    ╱
- └──────────────────────────────▶ N (số row)
-```
+
+Giữ nguyên các công thức ở trên khi tính; vị trí và chiều dài cạnh trong D2 không mã hóa giá trị cost.
 
 > [!IMPORTANT]
 > Đây là lý do "có index mà không dùng" **không phải bug**. Khi query lấy quá nhiều row, Seq Scan thật sự rẻ hơn (đọc tuần tự < nhiều random I/O). Optimizer chọn đúng — miễn là **cardinality ước lượng đúng**. Vấn đề chỉ nảy sinh khi nó đoán sai N.

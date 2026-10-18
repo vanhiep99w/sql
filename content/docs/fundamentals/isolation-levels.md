@@ -439,6 +439,8 @@ SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 
 ## Mermaid Diagram minh họa
 
+Tên heading cũ được giữ để các anchor link vẫn hoạt động; sơ đồ bên dưới dùng D2, không còn Mermaid renderer.
+
 ### Dirty Read (Read Uncommitted)
 
 ```d2 title="Dirty Read (Read Uncommitted)"
