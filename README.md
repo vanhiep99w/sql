@@ -34,7 +34,7 @@ npm run test:browser     # Chromium smoke trên dist/; cần Python 3
 
 ## Sơ đồ D2
 
-Dùng [`@vanhiep99w/docs-kit@0.9.0`](https://www.npmjs.com/package/@vanhiep99w/docs-kit). `remarkD2` trong `source.config.ts` render SVG lúc build; `D2Diagram` và `D2InteractiveDiagram` được đăng ký tại `src/app/[[...slug]]/page.tsx`. Không đưa renderer/WASM vào client bundle. Light/dark theo theme của website.
+Dùng [`@vanhiep99w/docs-kit@0.12.0`](https://www.npmjs.com/package/@vanhiep99w/docs-kit). `remarkD2` trong `source.config.ts` render SVG lúc build; `D2Diagram` và `D2InteractiveDiagram` được đăng ký tại `src/app/[[...slug]]/page.tsx`. Không đưa renderer/WASM vào client bundle. Light/dark theo theme của website.
 
 ````md
 ```d2 title="Refresh và đọc báo cáo"
