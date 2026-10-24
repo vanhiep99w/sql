@@ -233,7 +233,31 @@ SELECT * FROM users WHERE id = 1003;
 
 ### 3.2. Vấn đề cốt lõi
 
-```d2 title="N+1: một query orders và N query users"
+> Playback dưới đây minh họa thứ tự các bước do tác giả chọn; không gửi request thật, không mô phỏng concurrency và tốc độ phát không phải latency. Bạn có thể chạy hoặc xem từng bước.
+
+```d2 title="N+1: một query orders và N query users" mode=flow interactive=true
+# @flow
+# scenarios:
+#   - id: main
+#     label: "Kịch bản minh họa"
+#     steps:
+#       - edge: "(app -> db)[0]"
+#         description: "App → Database: Lấy 50 orders — query 1"
+#       - edge: "(db -> app)[0]"
+#         description: "Database → App: order1, order2, ..., order50"
+#       - edge: "(app -> db)[1]"
+#         description: "App → Database: User của order1? — query 2"
+#       - edge: "(db -> app)[1]"
+#         description: "Database → App: user_1001"
+#       - edge: "(app -> db)[2]"
+#         description: "App → Database: User của order2? — query 3"
+#       - edge: "(db -> app)[2]"
+#         description: "Database → App: user_1002"
+#       - edge: "(app -> db)[3]"
+#         description: "App → Database: ... User của order50? — query 51"
+#       - edge: "(db -> app)[3]"
+#         description: "Database → App: user_1050"
+# @endflow
 shape: sequence_diagram
 app: App
 db: Database
