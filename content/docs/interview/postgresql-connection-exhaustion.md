@@ -160,25 +160,7 @@ Khi client mở một connection trực tiếp đến PostgreSQL, nó thường 
 6. parse/execute query;
 7. giữ socket cho tới khi client disconnect.
 
-> Playback dưới đây minh họa thứ tự các bước do tác giả chọn; không gửi request thật, không mô phỏng concurrency và tốc độ phát không phải latency. Bạn có thể chạy hoặc xem từng bước.
-
-```d2 title="4. Connection PostgreSQL thực sự là gì?" mode=flow interactive=true
-# @flow
-# scenarios:
-#   - id: main
-#     label: "Kịch bản minh họa"
-#     steps:
-#       - edge: "(App -> PG)[0]"
-#         description: "App → PostgreSQL: TCP/TLS connect"
-#       - edge: "(App -> PG)[1]"
-#         description: "App → PostgreSQL: Authenticate"
-#       - edge: "(PG -> App)[0]"
-#         description: "PostgreSQL → App: Tạo backend process"
-#       - edge: "(App -> PG)[2]"
-#         description: "App → PostgreSQL: Query/transaction"
-#       - edge: "(PG -> App)[1]"
-#         description: "PostgreSQL → App: Result"
-# @endflow
+```d2 title="4. Connection PostgreSQL thực sự là gì?"
 shape: sequence_diagram
 App: "App"
 PG: "PostgreSQL"
@@ -547,27 +529,7 @@ await db.transaction(async (tx) => {
 
 Timeline:
 
-```d2 title="9.1. Code có vấn đề" mode=flow interactive=true
-# @flow
-# scenarios:
-#   - id: main
-#     label: "Kịch bản minh họa"
-#     steps:
-#       - edge: "(App -> DB)[0]"
-#         description: "App → PostgreSQL: BEGIN"
-#       - edge: "(App -> DB)[1]"
-#         description: "App → PostgreSQL: INSERT order PENDING"
-#       - edge: "(DB -> App)[0]"
-#         description: "PostgreSQL → App: OK"
-#       - edge: "(App -> Pay)[0]"
-#         description: "App → Payment Provider: Charge payment"
-#       - edge: "(Pay -> App)[0]"
-#         description: "Payment Provider → App: Success"
-#       - edge: "(App -> DB)[2]"
-#         description: "App → PostgreSQL: UPDATE order PAID"
-#       - edge: "(App -> DB)[3]"
-#         description: "App → PostgreSQL: COMMIT"
-# @endflow
+```d2 title="9.1. Code có vấn đề"
 shape: sequence_diagram
 App: "App"
 DB: "PostgreSQL"
@@ -1089,31 +1051,7 @@ Có thể dùng `SELECT ... FOR UPDATE SKIP LOCKED` cho queue trong PostgreSQL, 
 
 Nếu muốn gọi payment bất đồng bộ:
 
-```d2 title="16.4. Transactional Outbox" mode=flow interactive=true
-# @flow
-# scenarios:
-#   - id: main
-#     label: "Kịch bản minh họa"
-#     steps:
-#       - edge: "(API -> DB)[0]"
-#         description: "API → DB: BEGIN"
-#       - edge: "(API -> DB)[1]"
-#         description: "API → DB: INSERT order/payment PENDING"
-#       - edge: "(API -> DB)[2]"
-#         description: "API → DB: INSERT outbox event PaymentRequested"
-#       - edge: "(API -> DB)[3]"
-#         description: "API → DB: COMMIT"
-#       - edge: "(DB -> API)[0]"
-#         description: "DB → API: Accepted"
-#       - edge: "(Worker -> DB)[0]"
-#         description: "Worker → DB: Đọc/claim outbox"
-#       - edge: "(Worker -> Pay)[0]"
-#         description: "Worker → Payment Provider: Charge với idempotency key"
-#       - edge: "(Pay -> Worker)[0]"
-#         description: "Payment Provider → Worker: Result"
-#       - edge: "(Worker -> DB)[1]"
-#         description: "Worker → DB: Transaction cập nhật payment/order"
-# @endflow
+```d2 title="16.4. Transactional Outbox"
 shape: sequence_diagram
 API: "API"
 DB: "DB"
