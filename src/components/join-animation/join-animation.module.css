@@ -48,6 +48,8 @@
 }
 .customer { color: var(--green); background: var(--green-wash); border-color: #6a917d; }
 .order { color: var(--rust); background: var(--rust-wash); border-color: #b18673; }
+.hashValue { display: block; font-weight: normal; white-space: nowrap; }
+.role { display: block; color: var(--quiet); font-size: .72rem; }
 .token b { display: inline-grid; place-items: center; min-width: 1.35rem; min-height: 1.35rem; border: 1px solid currentColor; background: var(--panel); }
 .token[data-active="true"] { outline: 2px solid currentColor; outline-offset: -2px; }
 .operator { background: var(--night); color: var(--snow); }

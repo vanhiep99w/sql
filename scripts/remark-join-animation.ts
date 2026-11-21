@@ -5,6 +5,7 @@ import { visit } from 'unist-util-visit';
 const markers = new Map([
   ['<JoinAnimation />', 'JoinAnimation'],
   ['<NestedLoopIndexAnimation />', 'NestedLoopIndexAnimation'],
+  ['<HashBucketAnimation />', 'HashBucketAnimation'],
 ]);
 
 export function remarkJoinAnimation() {

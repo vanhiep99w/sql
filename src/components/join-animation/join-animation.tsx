@@ -2,18 +2,20 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { captureTransition } from './motion';
-import { comparisonInputs, indexEntries, inputs, pairId, sortedInputs, traces, type JoinRow, type Mode } from './trace';
+import { comparisonInputs, duplicateInputs, illustratedHash, indexEntries, inputs, ordersBuildInputs, pairId, sortedInputs, traces, type JoinRow, type Mode } from './trace';
 import styles from './join-animation.module.css';
 
 const joinModes = { loop: 'Nested Loop', hash: 'Hash Join', merge: 'Merge Join' };
 const indexModes = { scan: 'Quét từng đơn', indexed: 'Tra index' };
+const hashModes = { ordersBuild: 'Đơn trùng khóa và va chạm', duplicates: 'Khóa trùng hai bên: 2 × 3' };
 const reducedMotion = '(prefers-reduced-motion: reduce)';
 
-function Tokens({ rows, active }: { rows?: JoinRow[]; active?: Set<string> }) {
+function Tokens({ rows, active, showHash = false }: { rows?: JoinRow[]; active?: Set<string>; showHash?: boolean }) {
   return rows?.map((row) => (
     <li key={row.id} data-row={row.id} data-active={active?.has(row.id)}
       className={`${styles.token} ${row.id.startsWith('c') ? styles.customer : styles.order}`}>
-      <span>{row.label}</span><b aria-label={`Khóa ${row.key}`}>{row.key}</b>
+      <span>{row.label}{showHash && <small className={styles.hashValue}>hash {illustratedHash(row)}</small>}</span>
+      <b aria-label={`Khóa ${row.key}`}>{row.key}</b>
     </li>
   ));
 }
@@ -23,18 +25,25 @@ export function JoinAnimation() {
 }
 
 export function NestedLoopIndexAnimation() {
-  return <Workbench id="nested-loop-index-animation" title="So sánh Nested Loop có và không dùng index" comparison />;
+  return <Workbench id="nested-loop-index-animation" title="So sánh Nested Loop có và không dùng index" variant="index" />;
 }
 
-function Workbench({ id, title, comparison = false }: { id: string; title: string; comparison?: boolean }) {
-  const modes: Partial<Record<Mode, string>> = comparison ? indexModes : joinModes;
-  const [cursor, setCursor] = useState({ mode: (comparison ? 'scan' : 'loop') as Mode, step: 0, playing: false });
+export function HashBucketAnimation() {
+  return <Workbench id="hash-bucket-animation" title="Hash Join: dựng từ orders và duyệt bucket" variant="hash" />;
+}
+
+function Workbench({ id, title, variant = 'join' }: { id: string; title: string; variant?: 'join' | 'index' | 'hash' }) {
+  const comparison = variant === 'index';
+  const hashDetails = variant === 'hash';
+  const modes: Partial<Record<Mode, string>> = hashDetails ? hashModes : comparison ? indexModes : joinModes;
+  const [cursor, setCursor] = useState({ mode: (hashDetails ? 'ordersBuild' : comparison ? 'scan' : 'loop') as Mode, step: 0, playing: false });
   const [speed, setSpeed] = useState(1300);
   const { mode, step, playing } = cursor;
   const frames = traces[mode];
   const frame = frames[step];
   const last = frames.length - 1;
-  const rows = comparison ? comparisonInputs : frame.sorted ? sortedInputs : inputs;
+  const rows = mode === 'duplicates' ? duplicateInputs : hashDetails ? ordersBuildInputs
+    : comparison ? comparisonInputs : frame.sorted ? sortedInputs : inputs;
   const active = new Set([...(frame.left ?? []), ...(frame.right ?? []), ...(frame.build ? [frame.build] : [])].map((row) => row.id));
   const root = useRef<HTMLElement>(null);
   const layer = useRef<HTMLDivElement>(null);
@@ -91,7 +100,7 @@ function Workbench({ id, title, comparison = false }: { id: string; title: strin
 
   return (
     <section id={id} className={`${styles.lab} not-prose`} aria-label={title} ref={root}>
-      <div className={styles.modes} role="group" aria-label={comparison ? 'Chọn cách tìm đơn ở inner' : 'Chọn thuật toán'}>
+      <div className={styles.modes} role="group" aria-label={hashDetails ? 'Chọn dữ liệu Hash Join' : comparison ? 'Chọn cách tìm đơn ở inner' : 'Chọn thuật toán'}>
         {(Object.keys(modes) as Mode[]).map((name) => (
           <button key={name} type="button" aria-pressed={mode === name} onClick={() => { if (mode !== name) seek(0, name); }}>{modes[name]}</button>
         ))}
@@ -128,23 +137,24 @@ function Workbench({ id, title, comparison = false }: { id: string; title: strin
         <section className={styles.source} data-zone="inputs" aria-labelledby={`${label}-input`}>
           <h3 className={styles.sectionTitle} id={`${label}-input`}><span className={styles.index} aria-hidden="true">01</span> Đầu vào</h3>
           <div className={styles.decks}>
-            <div><h4>customers</h4><ul className={styles.rows} aria-label="customers"><Tokens rows={rows.customers} active={active} /></ul></div>
-            <div><h4>orders</h4><ul className={styles.rows} aria-label="orders"><Tokens rows={rows.orders} active={active} /></ul></div>
+            <div><h4>customers</h4>{hashDetails && <small className={styles.role}>Dò theo id</small>}<ul className={styles.rows} aria-label="customers"><Tokens rows={rows.customers} active={active} /></ul></div>
+            <div><h4>orders</h4>{hashDetails && <small className={styles.role}>Dựng theo customer_id</small>}<ul className={styles.rows} aria-label="orders"><Tokens rows={rows.orders} active={active} /></ul></div>
           </div>
         </section>
         <section className={styles.operator} aria-labelledby={`${label}-operator`}>
           <h3 className={styles.sectionTitle} id={`${label}-operator`}><span className={styles.index} aria-hidden="true">02</span> Bộ xử lý</h3>
           <div className={styles.slots}>
-            <ul className={styles.slot} data-zone="left" aria-label="Khách đang xét"><Tokens rows={frame.left} /></ul>
+            <ul className={styles.slot} data-zone="left" aria-label="Khách đang xét"><Tokens rows={frame.left} showHash={hashDetails} /></ul>
             <strong className={styles.gate} data-gate data-value={frame.gate && frame.gate !== '=' ? 'miss' : ''} aria-hidden="true">{frame.gate ?? '·'}</strong>
-            <ul className={styles.slot} data-zone="right" aria-label="Đơn đang xét"><Tokens rows={frame.right} /></ul>
+            <ul className={styles.slot} data-zone="right" aria-label="Đơn đang xét"><Tokens rows={frame.right} showHash={hashDetails} /></ul>
           </div>
-          {mode === 'hash' && (
-            <div className={styles.bank} data-zone="bank" role="group" aria-label="Bảng băm, h(key) = key % 2">
+          {(mode === 'hash' || hashDetails) && (
+            <div className={styles.bank} data-zone="bank" role="group" aria-label={hashDetails ? 'Bảng băm dựng từ orders' : 'Bảng băm, h(key) = key % 2'}>
               {[0, 1].map((index) => (
                 <div key={index} className={styles.bucket} data-active={frame.bucket === index}>
                   <span className={styles.index}>BUCKET {index}</span>
-                  <ul aria-label={`Bucket ${index}`}><Tokens rows={frame.buckets?.[index]} /></ul>
+                  <ul aria-label={`Bucket ${index}`}><Tokens rows={frame.buckets?.[index]} showHash={hashDetails}
+                    active={hashDetails && frame.right?.length ? new Set(frame.right.map((row) => row.id)) : undefined} /></ul>
                 </div>
               ))}
             </div>
@@ -182,7 +192,7 @@ function Workbench({ id, title, comparison = false }: { id: string; title: strin
           </ul>
         </section>
       </div>
-      <noscript><p>Bật JavaScript để chạy mô phỏng. Các cặp khách/đơn là (1, 10), (1, 11) và (2, 12).</p></noscript>
+      <noscript><p>Bật JavaScript để chạy mô phỏng.</p></noscript>
       <div className={styles.layer} ref={layer} aria-hidden="true" data-animation-layer />
     </section>
   );

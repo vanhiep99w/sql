@@ -360,7 +360,7 @@ o9 -> miss
 
 Optimizer thường dựng bảng băm từ phía ước tính có ít dữ liệu hơn **sau khi lọc**. Nó cân nhắc số dòng, độ rộng dòng và chi phí của plan, không chỉ kích thước bảng gốc. Trong `EXPLAIN` của PostgreSQL, nhìn node con dưới `Hash` ở [mục 5.4](#54-explain-thực-tế) để biết dữ liệu dùng để dựng bảng băm đến từ đâu.
 
-Giả sử `orders` là phía **build**: database dùng các dòng đơn hàng để dựng bảng băm và băm theo **`orders.customer_id`**, không phải mã đơn `orders.id`. Nếu đơn `#10` và `#11` đều có `customer_id = 1`, chúng vào cùng bucket nhưng vẫn là **hai mục riêng**, không ghi đè nhau. Khi `customers` làm phía **probe**, khách An (`id = 1`) ghép với cả hai đơn. Nếu hai phía có lần lượt 2 và 3 dòng cùng một khóa, `INNER JOIN` xuất đủ **2 × 3 = 6 cặp** cho khóa đó.
+Giả sử `orders` là phía **build**: database dùng các dòng đơn hàng để dựng bảng băm và băm theo **`orders.customer_id`**, không phải mã đơn `orders.id`. Nếu đơn `#10` và `#11` đều có `customer_id = 1`, chúng vào cùng bucket nhưng vẫn là **hai mục riêng**, không ghi đè nhau. Khi `customers` làm phía **probe**, khách An (`id = 1`) ghép với cả hai đơn. Nếu hai phía có lần lượt 2 và 3 dòng cùng một khóa, `INNER JOIN` xuất đủ **2 × 3 = 6 cặp** cho khóa đó. Bạn có thể chạy cả hai tình huống trong [mô phỏng bên dưới](#hash-bucket-animation).
 
 #### 5.1.2. Tìm đúng dòng trong bucket
 
@@ -372,6 +372,16 @@ Giả sử khóa đang dò là `1`, hash đầy đủ là `101`, và ta chọn b
 | Hash `101`, khóa `1` | Hash trùng: so khóa `1 = 1` rồi xuất cặp khớp. |
 
 Hash trùng **chưa đủ** để kết luận khóa trùng. Ngược lại, nếu nhiều dòng thật sự có cùng khóa, Hash Join phải xuất đủ các cặp khớp. Tăng số bucket có thể giảm va chạm giữa các khóa khác nhau, nhưng không tách các dòng có cùng khóa.
+
+Bấm **Bước sau** để đưa từng đơn vào bảng băm. Khi An dò bucket `1`, hãy theo dõi ba trường hợp:
+
+- Đơn `#13` có khóa `9`, hash `109`: cùng bucket nhưng bị loại ở bước **so hash**.
+- Đơn `#15` có khóa `11`, hash `101`: qua bước so hash, nhưng bị loại ở bước **so khóa thật** vì `11 ≠ 1`.
+- Hai đơn `#10` và `#11` cùng có khóa `1`, hash `101`: cả hai đều khớp và tạo **hai cặp riêng**.
+
+Mô phỏng dùng `hash = 100 + (key % 10)` và `bucket = hash % 2` để dễ thấy hai kiểu va chạm; đây không phải hàm băm của PostgreSQL. Chế độ **2 × 3** dùng hai dòng khách giả lập cùng khóa `1` để cho thấy vì sao kết quả có sáu cặp.
+
+<HashBucketAnimation />
 
 ### 5.2. Vì sao nhanh
 

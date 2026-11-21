@@ -69,8 +69,57 @@ for (const order of sortedInputs.orders) {
 }
 export const indexEntries = Array.from(ordersByCustomer);
 export const comparisonInputs = { customers: sortedInputs.customers, orders };
+export const ordersBuildInputs = {
+  customers: comparisonInputs.customers,
+  orders: [...orders, { id: 'o15', label: '#15', key: 11 }],
+};
+export const duplicateInputs = {
+  customers: [{ id: 'c1a', label: 'An A', key: 1 }, { id: 'c1b', label: 'An B', key: 1 }],
+  orders: [orders[0], orders[3], { id: 'o14', label: '#14', key: 1 }],
+};
+// Deliberately simple teaching hash; PostgreSQL does not use this formula.
+export const illustratedHash = (row: JoinRow) => 100 + (row.key % 10);
+
+function ordersBuild(data: typeof inputs) {
+  return makeTrace('Dựng bảng băm từ orders', 'Bấm Bước sau để băm customer_id của từng đơn. Giữ từng đơn riêng, kể cả khi khóa trùng.', (add, compare) => {
+    const buckets: [JoinRow[], JoinRow[]] = [[], []];
+    const view = (bucket?: number) => ({ buckets: buckets.map((entries) => [...entries]), bucket });
+    for (const order of data.orders) {
+      const h = illustratedHash(order);
+      const bucket = h % 2;
+      buckets[bucket].push(order);
+      add('BUILD · DỰNG', `Đưa đơn ${order.label} vào bucket ${bucket}`,
+        `Khóa là ${order.key}, hash là ${h}, và ${h} % 2 = ${bucket}. Giữ đơn này thành một mục riêng.`,
+        { ...view(bucket), build: order });
+    }
+    let matches = 0;
+    for (const customer of data.customers) {
+      const h = illustratedHash(customer);
+      const bucket = h % 2;
+      add('PROBE · CHỌN BUCKET', `${customer.label} dò bucket ${bucket}`,
+        `Băm customers.id = ${customer.key} được ${h}; ${h} % 2 = ${bucket}. Giờ mới duyệt các mục trong bucket này.`,
+        { ...view(bucket), left: [customer] });
+      for (const order of buckets[bucket]) {
+        const candidate = illustratedHash(order);
+        const sameHash = h === candidate;
+        const state = { ...view(bucket), left: [customer], right: [order] };
+        add('PROBE · SO HASH', `${h} ${sameHash ? '=' : '≠'} ${candidate} · ${sameHash ? 'Hash trùng' : 'Bỏ mục này'}`,
+          sameHash ? `Hash của đơn ${order.label} trùng, nhưng vẫn phải so khóa thật.`
+            : `Đơn ${order.label} cùng bucket nhưng hash khác; bỏ qua mà không cần so khóa thật.`, state);
+        if (!sameHash) continue;
+        compare(customer, order, { ...state, phase: 'PROBE · SO KHÓA THẬT' });
+        if (customer.key === order.key) matches++;
+      }
+    }
+    add('HOÀN TẤT', `Xuất đủ ${matches} cặp khớp`, data === duplicateInputs
+      ? 'Hai dòng An ở đầu vào dò, mỗi dòng ghép với ba đơn: 2 × 3 = 6 cặp.'
+      : 'An ghép với cả #10 và #11. Đơn #13 bị loại khi so hash; #15 bị loại khi so khóa thật.', view());
+  });
+}
 
 export const traces = {
+  ordersBuild: ordersBuild(ordersBuildInputs),
+  duplicates: ordersBuild(duplicateInputs),
   loop: nestedLoop(customers),
   scan: nestedLoop(comparisonInputs.customers),
   indexed: makeTrace('Dùng mã khách để tra index', 'Bấm Bước sau để tra khóa 1 của An trên index orders.customer_id đã có sẵn.', (add) => {

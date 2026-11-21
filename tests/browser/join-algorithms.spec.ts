@@ -129,3 +129,33 @@ test('4.3 shows an indexed lookup skipping nonmatching orders without changing r
   await expect(output).toHaveText(['1An#10', '1An#11', '2Bình#12']);
   await expect(page.getByRole('region', { name }).getByRole('slider')).toHaveValue('0');
 });
+
+test('5.1.2 animates bucket collisions, full hash collisions and duplicate join keys', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1080 });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.goto(`${article}#hash-bucket-animation`);
+  const lab = page.getByRole('region', { name: 'Hash Join: dựng từ orders và duyệt bucket' });
+  const next = lab.getByRole('button', { name: 'Bước sau' });
+  const bucket = lab.getByRole('list', { name: 'Bucket 1' });
+  const output = lab.getByRole('list', { name: 'Các cặp INNER JOIN' });
+  const slider = lab.getByRole('slider');
+  await next.click();
+  await expect(lab.locator('[data-animation-layer] [data-row="o10"]')).toHaveCount(1);
+  for (let i = 0; i < 4; i++) await next.click();
+  await expect(bucket.locator('li')).toHaveText(['#10hash 1011', '#13hash 1099', '#11hash 1011', '#15hash 10111']);
+  await expect(output.locator('li')).toHaveCount(0);
+
+  for (let i = 0; i < 5; i++) await next.click();
+  await expect(lab.getByRole('heading', { name: '101 ≠ 109 · Bỏ mục này' })).toBeVisible();
+  await expect(output.locator('li')).toHaveCount(1);
+  for (let i = 0; i < 5; i++) await next.click();
+  await expect(lab.getByRole('heading', { name: '1 ≠ 11 · Không ghép' })).toBeVisible();
+  await expect(output.locator('li')).toHaveText(['1An#10', '1An#11']);
+  await slider.press('End');
+  await expect(output.locator('li')).toHaveCount(3);
+
+  await lab.getByRole('button', { name: 'Khóa trùng hai bên: 2 × 3' }).click();
+  await expect(slider).toHaveValue('0');
+  await slider.press('End');
+  await expect(output.locator('li')).toHaveText(['1An A#10', '1An A#11', '1An A#14', '1An B#10', '1An B#11', '1An B#14']);
+});
