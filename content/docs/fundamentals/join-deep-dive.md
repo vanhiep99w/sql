@@ -13,10 +13,10 @@ Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ng�
 
 ## Mục lục
 
-- [Mô phỏng: Đường đi của một dòng](#mô-phỏng-đường-đi-của-một-dòng)
 - [Bối cảnh: Cùng một JOIN, hai plan, chênh nhau 400 lần](#1-bối-cảnh-cùng-một-join-hai-plan-chênh-nhau-400-lần)
 - [JOIN logic vs JOIN vật lý — Hai tầng khác nhau](#2-join-logic-vs-join-vật-lý--hai-tầng-khác-nhau)
 - [Các loại JOIN logic — INNER, LEFT, RIGHT, FULL, CROSS](#3-các-loại-join-logic--inner-left-right-full-cross)
+- [Các loại JOIN vật lý](#các-loại-join-vật-lý)
 - [Nested Loop Join — Thuật toán đơn giản nhất](#4-nested-loop-join--thuật-toán-đơn-giản-nhất)
 - [Hash Join — Vũ khí cho bảng lớn không sắp xếp](#5-hash-join--vũ-khí-cho-bảng-lớn-không-sắp-xếp)
 - [Merge Join — Khi dữ liệu đã sắp xếp sẵn](#6-merge-join--khi-dữ-liệu-đã-sắp-xếp-sẵn)
@@ -29,16 +29,6 @@ Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ng�
 - [So sánh giữa Postgres / MySQL / Oracle / SQL Server](#13-so-sánh-giữa-postgres--mysql--oracle--sql-server)
 - [Anti-patterns cần tránh](#14-anti-patterns-cần-tránh)
 - [Tóm tắt — Cheat sheet](#15-tóm-tắt--cheat-sheet)
-
----
-
-## Mô phỏng: Đường đi của một dòng
-
-Cả ba chế độ ghép cùng 3 khách và 4 đơn hàng theo `customers.id = orders.customer_id`. Số trong ô vuông trên mỗi thẻ là khóa JOIN. Bấm **Bước sau** để theo dõi thẻ vào bộ xử lý, vào bucket hoặc sang vùng kết quả.
-
-<JoinAnimation />
-
-Thử **Merge Join** và để ý khóa `1`: An ghép với cả đơn `#10` lẫn `#11`. Cả ba cách đều cho cùng 3 cặp `INNER JOIN`; số bước mô phỏng không đo hiệu năng.
 
 ---
 
@@ -200,6 +190,30 @@ D: "CROSS\nmọi cặp có thể"
 
 > [!TIP]
 > `WHERE b.col = x` trên cột của bảng **outer** (bên phải LEFT JOIN) sẽ **âm thầm biến LEFT JOIN thành INNER JOIN**, vì row NULL bị `WHERE` loại bỏ. Muốn giữ ngữ nghĩa LEFT, đặt điều kiện vào `ON` chứ không phải `WHERE`.
+
+---
+
+## Các loại JOIN vật lý
+
+`INNER JOIN` nói **cặp dòng nào được giữ lại**. Nó không nói database phải tìm các cặp đó như thế nào. Với phép ghép theo dấu `=` dưới đây, cả ba thuật toán đều có thể cho cùng kết quả:
+
+- **Nested Loop Join:** giữ một khách rồi tìm đơn khớp. Bản mô phỏng quét lại danh sách đơn từ đầu cho mỗi khách.
+- **Hash Join:** đưa khách vào các bucket theo khóa, rồi dùng khóa trên từng đơn để dò bucket. Cùng bucket vẫn phải kiểm tra khóa thật.
+- **Merge Join:** đi qua hai dãy đã sắp theo khóa. Nếu hai khóa khác nhau, tiến bên có khóa nhỏ hơn; nếu bằng nhau, ghép đủ các cặp trong nhóm cùng khóa.
+
+Đây là câu SQL mà cả ba chế độ bên dưới minh họa:
+
+```sql
+SELECT c.id AS customer_id, c.name, o.id AS order_id
+FROM customers AS c
+INNER JOIN orders AS o ON c.id = o.customer_id;
+```
+
+`c.id` là mã khách, còn `o.customer_id` là mã khách ghi trên đơn. Hai cột này là khóa ghi trong ô vuông trên mỗi thẻ. `o.id` chỉ là **mã đơn** dùng để nhận diện kết quả, không phải khóa đem ra so.
+
+<JoinAnimation />
+
+Bấm **Bước sau** trong **Merge Join** và để ý khóa `1`: An ghép với cả đơn `#10` lẫn `#11`. Bình ghép với đơn `#12`. Chi không có đơn khớp, còn đơn `#13` trỏ tới khóa `9` không có khách tương ứng, nên cả hai đều không xuất hiện trong kết quả `INNER JOIN`. Số bước mô phỏng không phải thước đo hiệu năng.
 
 ---
 

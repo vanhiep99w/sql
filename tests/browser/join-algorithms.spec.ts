@@ -7,11 +7,15 @@ test('the article renders the simulation inline and all three algorithms emit th
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(article);
-  const headingId = 'mô-phỏng-đường-đi-của-một-dòng';
+  const headingId = 'các-loại-join-vật-lý';
   await page.locator(`#nd-page a[href="#${headingId}"]`).click();
   await expect.poll(() => decodeURIComponent(new URL(page.url()).hash)).toBe(`#${headingId}`);
-  await expect(page.locator(`#${headingId}`)).toBeVisible();
+  const heading = page.locator(`#${headingId}`);
+  await expect(heading).toBeVisible();
+  const query = page.locator('#nd-page pre').filter({ hasText: 'c.id AS customer_id, c.name, o.id AS order_id' });
+  await expect(query).toContainText('INNER JOIN orders AS o ON c.id = o.customer_id');
   const lab = page.locator('#nd-page').getByRole('region', { name });
+  expect(await query.evaluate((node) => Boolean(node.compareDocumentPosition(document.getElementById('join-animation')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
   await expect(lab).toBeVisible();
   await expect(lab.locator('iframe')).toHaveCount(0);
   const slider = lab.getByRole('slider');
