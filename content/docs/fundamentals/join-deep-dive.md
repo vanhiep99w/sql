@@ -19,7 +19,7 @@ Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ng�
 - [Các loại JOIN vật lý](#các-loại-join-vật-lý)
 - [Nested Loop Join — Thuật toán đơn giản nhất](#4-nested-loop-join--thuật-toán-đơn-giản-nhất)
 - [Hash Join — Vũ khí cho bảng lớn không sắp xếp](#5-hash-join--vũ-khí-cho-bảng-lớn-không-sắp-xếp)
-  - [Chọn phía build và giữ khóa trùng](#511-chọn-phía-build-và-giữ-khóa-trùng)
+  - [Dùng bảng nào để dựng bảng băm và xử lý khóa trùng?](#511-dùng-bảng-nào-để-dựng-bảng-băm-và-xử-lý-khóa-trùng)
   - [Tìm đúng dòng trong bucket](#512-tìm-đúng-dòng-trong-bucket)
 - [Merge Join — Khi dữ liệu đã sắp xếp sẵn](#6-merge-join--khi-dữ-liệu-đã-sắp-xếp-sẵn)
 - [Bảng so sánh 3 thuật toán](#7-bảng-so-sánh-3-thuật-toán)
@@ -354,9 +354,11 @@ o9 -> miss
 >
 > PostgreSQL không cố định hai bucket. Số bucket được chọn dựa trên số dòng ước tính ở phía build và ngân sách bộ nhớ, và có thể thay đổi lúc chạy. Ví dụ ở [mục 5.4](#54-explain-thực-tế), `Buckets: 131072` nghĩa là **131.072 ngăn**; `Batches: 4` nghĩa là **4 lô xử lý**, không phải 4 ngăn hay 4 bảng.
 
-#### 5.1.1. Chọn phía build và giữ khóa trùng
+#### 5.1.1. Dùng bảng nào để dựng bảng băm và xử lý khóa trùng?
 
-Với `ON c.id = o.customer_id`, optimizer thường chọn đầu vào ước tính nhỏ hơn **sau khi lọc** để build. Nó cân nhắc cả số dòng, độ rộng dòng và chi phí của plan, không chỉ kích thước bảng gốc. Trong PostgreSQL, nhìn đầu vào của node `Hash` ở [mục 5.4](#54-explain-thực-tế) để biết phía nào được chọn.
+**Chọn phía build** nghĩa là quyết định lấy dòng từ bảng nào để đưa vào bảng băm. Ví dụ, nếu dùng `customers` để dựng bảng băm, database đưa từng khách vào bucket theo `customers.id`. Sau đó, database đọc từng đơn từ `orders` và dùng `orders.customer_id` để dò. Lúc này `customers` là phía **build** (dựng bảng băm), còn `orders` là phía **probe** (dò bảng băm).
+
+Optimizer thường dựng bảng băm từ phía ước tính có ít dữ liệu hơn **sau khi lọc**. Nó cân nhắc số dòng, độ rộng dòng và chi phí của plan, không chỉ kích thước bảng gốc. Trong `EXPLAIN` của PostgreSQL, nhìn node con dưới `Hash` ở [mục 5.4](#54-explain-thực-tế) để biết dữ liệu dùng để dựng bảng băm đến từ đâu.
 
 Giả sử `orders` là phía **build**: database dùng các dòng đơn hàng để dựng bảng băm và băm theo **`orders.customer_id`**, không phải mã đơn `orders.id`. Nếu đơn `#10` và `#11` đều có `customer_id = 1`, chúng vào cùng bucket nhưng vẫn là **hai mục riêng**, không ghi đè nhau. Khi `customers` làm phía **probe**, khách An (`id = 1`) ghép với cả hai đơn. Nếu hai phía có lần lượt 2 và 3 dòng cùng một khóa, `INNER JOIN` xuất đủ **2 × 3 = 6 cặp** cho khóa đó.
 
