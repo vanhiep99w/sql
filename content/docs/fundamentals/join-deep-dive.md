@@ -22,6 +22,7 @@ Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ng�
   - [Dùng bảng nào để dựng bảng băm và xử lý khóa trùng?](#511-dùng-bảng-nào-để-dựng-bảng-băm-và-xử-lý-khóa-trùng)
   - [Tìm đúng dòng trong bucket](#512-tìm-đúng-dòng-trong-bucket)
 - [Merge Join — Khi dữ liệu đã sắp xếp sẵn](#6-merge-join--khi-dữ-liệu-đã-sắp-xếp-sẵn)
+  - [Vì sao cần thứ tự và lấy thứ tự từ đâu?](#62-điều-kiện-tiên-quyết-cả-hai-đầu-vào-phải-sorted)
 - [Bảng so sánh 3 thuật toán](#7-bảng-so-sánh-3-thuật-toán)
 - [Optimizer chọn thuật toán nào — Cost model](#8-optimizer-chọn-thuật-toán-nào--cost-model)
 - [Driving Table & Join Order — Ai chạy trước quyết định tất cả](#9-driving-table--join-order--ai-chạy-trước-quyết-định-tất-cả)
@@ -447,22 +448,40 @@ customers.binh -> orders.c: khớp
 customers.chi -> orders.d: hết customers; không match key 9
 ```
 
-Hai con trỏ chỉ **tiến, không lùi**. Mỗi bảng đọc đúng 1 lần.
+Merge Join tiến qua các **nhóm khóa theo thứ tự**, không quét lại cả đầu vào cho mỗi dòng. Nếu hai bên đều có nhiều dòng cùng khóa, nó vẫn phải giữ hoặc đọc lại nhóm khớp để xuất đủ mọi cặp.
 
 ### 6.2. Điều kiện tiên quyết: cả hai đầu vào phải sorted
 
-Merge Join chỉ khả thi khi **cả hai** đầu vào được sắp theo cột join. Nguồn của "đã sort":
+Lấy cùng câu JOIN trong mô phỏng:
 
-- **Index Scan** trên B-Tree (index vốn đã sắp xếp), hoặc
-- Một bước **Sort** rõ ràng trước đó (tốn chi phí).
+```sql
+SELECT c.name, o.id AS order_id
+FROM customers AS c
+JOIN orders AS o ON c.id = o.customer_id;
+```
 
-Nếu phải sort cả hai bảng lớn từ đầu → thường Hash Join rẻ hơn.
+Merge Join cần **các dòng đi vào bộ ghép** theo cùng thứ tự của hai khóa trong `ON`. Ở đây là `customers.id` bên khách và `orders.customer_id` bên đơn, **không phải `orders.id`**. Ví dụ, bộ ghép nhận hai dãy tăng dần:
+
+| Khách theo `customers.id` | Đơn theo `orders.customer_id` |
+| --- | --- |
+| `1` — An | `1` — #10 |
+| `2` — Bình | `1` — #11 |
+| `3` — Chi | `2` — #12 |
+| | `9` — #13 |
+
+An ghép với cả `#10` và `#11`, rồi Bình ghép với `#12`. Khi còn Chi (`3`) và đơn `#13` (`9`), Merge Join có thể bỏ qua Chi ngay: dãy đơn đã tăng dần, nên từ vị trí hiện tại trở đi không thể gặp lại khóa `3`.
+
+**Thứ tự đó đến từ đâu?**
+
+- **Đã có thứ tự nhờ index:** nếu PostgreSQL dùng B-tree trên `customers.id` và `orders.customer_id` để đọc tuần tự theo khóa, hai đầu vào đã đúng thứ tự mà không cần node `Sort`. Không có nghĩa là các dòng trong bảng trên đĩa phải được xếp sẵn. Xem hai node `Index Scan` ở [mục 6.4](#64-explain-thực-tế).
+- **Chưa có thứ tự, nhưng sắp xếp ít dòng:** giả sử phía khách đã có thứ tự, còn phía đơn sau khi lọc theo `created_at` chỉ còn **200 dòng**. PostgreSQL có thể thêm `Sort` theo `customer_id` cho **200 dòng đã lọc**, không phải sắp xếp cả bảng `orders`. Nếu tổng chi phí ước tính thấp hơn các plan khác, Merge Join vẫn có thể được chọn.
+
+Nếu cả hai phía có nhiều dòng chưa sắp xếp, chi phí `Sort` có thể làm Hash Join rẻ hơn. Con số 200 chỉ để minh họa, không phải ngưỡng chọn thuật toán.
 
 ### 6.3. Điểm mạnh riêng
 
-- Xử lý tốt **dữ liệu rất lớn** vì không cần chứa cả bảng trong RAM (chỉ giữ 1 row mỗi bên).
-- Hỗ trợ cả **range join** (`a.x <= b.y`) ở một số DB, không chỉ equi-join.
-- Kết quả **đã sắp xếp** → miễn phí cho `ORDER BY` phía sau.
+- Khi hai đầu vào đã đúng thứ tự, Merge Join có thể xử lý dần mà không cần dựng bảng băm cho toàn bộ một phía.
+- Nếu thứ tự mà plan giữ được trùng với `ORDER BY` cần thiết, PostgreSQL có thể tránh thêm một bước `Sort`. Bạn **không cần** thêm `ORDER BY` để dùng Merge Join; chỉ thêm khi muốn SQL bảo đảm thứ tự **kết quả trả về**.
 
 ### 6.4. EXPLAIN thực tế
 
@@ -514,7 +533,15 @@ Q3 -> MJ2: "Không"
 
 ## 8. Optimizer chọn thuật toán nào — Cost model
 
-Optimizer **không** chạy thử cả ba rồi chọn. Nó **ước lượng chi phí** (cost) của từng phương án dựa trên **statistics** và chọn cái rẻ nhất.
+Optimizer **không** chạy thử cả ba rồi chọn. Nó dùng statistics để ước tính chi phí và chọn plan rẻ nhất trong số các phương án đã xét. Với cùng điều kiện `c.id = o.customer_id`, đây là ba tình huống dễ gặp:
+
+| Tình huống | PostgreSQL thường cân nhắc | Vì sao? |
+| --- | --- | --- |
+| Sau khi lọc chỉ còn **5 khách**, có index phù hợp trên `orders.customer_id`. | **Nested Loop** | Tra index cho từng khách (5 lượt), thay vì đọc hết `orders`. |
+| Còn **rất nhiều khách**, phải đọc phần lớn đơn, hai đầu vào chưa có thứ tự phù hợp và bảng băm dự kiến vừa bộ nhớ. | **Hash Join** | Dựng bảng băm từ một phía, rồi dò theo khóa cho từng dòng phía kia. Tránh phải tra lặp lại nhiều lượt vào bảng đơn. |
+| Hai đầu vào **đã theo thứ tự khóa JOIN**, hoặc chỉ cần sắp xếp ít dòng sau lọc. | **Merge Join** | Đi dọc hai dãy để ghép. Ví dụ, phía khách đã có thứ tự và chỉ cần `Sort` 200 dòng phía đơn. Xem [mục 6.2](#62-điều-kiện-tiên-quyết-cả-hai-đầu-vào-phải-sorted). |
+
+Không có ngưỡng cố định kiểu “trên 1.000 dòng thì chọn Hash Join”. Đổi bộ lọc có thể đổi số dòng ước tính, cách đọc bảng và cả thuật toán JOIN.
 
 ### 8.1. Công thức trực giác (Postgres)
 
@@ -524,10 +551,7 @@ Hash Join cost   ≈ cost_build + cost_probe + cost_dựng_hash
 Merge Join cost  ≈ cost_sort_a + cost_sort_b + cost_merge
 ```
 
-Biến quyết định lớn nhất là **`rows_outer`** (số row ước tính của bảng ngoài). Đây là lý do:
-
-> [!IMPORTANT]
-> Statistics sai (số row ước tính lệch xa thực tế) là nguyên nhân số một khiến optimizer chọn nhầm thuật toán join. Nếu nó nghĩ `rows_outer = 5` nhưng thực tế là `5,000,000`, nó sẽ chọn Nested Loop → thảm họa. Xem doc [Statistics & Query Planner](/optimization/statistics-query-planner-deep-dive/).
+Với **Nested Loop**, `rows_outer` đặc biệt quan trọng vì nó quyết định số lượt chạy phía inner. Nếu optimizer ước tính chỉ có 5 dòng outer nhưng thực tế là 5 triệu, một plan Nested Loop trông có vẻ rẻ có thể phải tra inner nhiều hơn dự kiến. Với **Hash Join**, hãy để ý kích thước bảng băm; với **Merge Join**, hãy để ý có cần `Sort` hay không. Xem thêm [Statistics & Query Planner](/optimization/statistics-query-planner-deep-dive/).
 
 ### 8.2. Ví dụ đoán sai statistics
 
@@ -537,7 +561,7 @@ Biến quyết định lớn nhất là **`rows_outer`** (số row ước tính 
                         optimizer đoán 5           thực tế 5 triệu
 ```
 
-Khi `estimated rows` (5) và `actual rows` (5.000.000) lệch nhau hàng triệu lần → đó là dấu hiệu statistics cũ. Fix: `ANALYZE orders;` để cập nhật thống kê.
+Dòng trên cho thấy PostgreSQL ước tính sai **số dòng đầu ra của phép JOIN**. Muốn biết nó có ước tính sai số lượt tra inner không, hãy so `rows` và `actual rows` ở **node con outer**, rồi xem `loops` ở **node con inner**. Nếu thống kê đã cũ, chạy `ANALYZE` trên bảng liên quan có thể giúp; sai lệch lớn không tự nó chứng minh thống kê đã cũ.
 
 ---
 
