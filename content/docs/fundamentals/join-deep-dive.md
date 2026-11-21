@@ -230,6 +230,11 @@ for mỗi row R trong OUTER table:       -- bảng ngoài (driving/outer)
             xuất (R, S)
 ```
 
+> [!NOTE]
+> **Lấy một dòng từ outer, rồi tìm các dòng khớp trong inner.** Outer có 3 dòng thì tìm trong inner 3 lượt, mỗi lượt cho một dòng outer.
+>
+> Outer thường là bên còn ít dòng sau khi lọc, không nhất thiết là bảng nhỏ hơn. Ví dụ: lọc lấy **3 đơn hàng** từ bảng `orders`, rồi tìm khách của từng đơn trong `customers`. Lúc này `orders` có thể là outer, dù cả bảng `orders` lớn hơn `customers`.
+
 ### 4.2. Ví dụ cụ thể
 
 `customers` có 3 row, `orders` có 4 row:
@@ -263,11 +268,6 @@ Chi phí ≈ `số row outer × log(số row inner)`. Với outer = 50 row, inne
 ```
 50 × log₂(50,000,000) ≈ 50 × 26 ≈ 1,300 lần đọc index
 ```
-
-> [!NOTE]
-> **Outer thường trả về ít dòng hơn sau khi lọc, nhưng không nhất thiết là bảng nhỏ hơn.** `Outer` và `inner` là vai trò trong vòng lặp, không phải loại JOIN logic. Mỗi dòng outer kích hoạt một lượt tìm dòng khớp ở inner.
->
-> Ví dụ, nếu lọc được 50 khách rồi tìm đơn của họ, `customers` có thể là outer và `orders` là inner, dùng index trên `orders.customer_id`. Ngược lại, nếu truy vấn chỉ lấy 3 đơn theo mã đơn, `orders` có thể là outer dù bảng này lớn hơn: mỗi đơn tra khách theo khóa chính `customers.id`.
 
 ### 4.4. EXPLAIN thực tế
 
