@@ -347,6 +347,11 @@ o2 -> hash_table.b: khớp Bình
 o9 -> miss
 ```
 
+> [!NOTE]
+> **Hai bucket trong mô phỏng là hai ngăn của cùng một hash table**, không phải hai bảng. Hash Join dựng bảng băm từ `customers`; `orders` chỉ dò vào đó. Demo dùng `key % 2` nên khóa `1` và `3` cùng vào bucket `1`. Khi dò, database vẫn phải so khóa thật để biết dòng nào khớp.
+>
+> PostgreSQL không cố định hai bucket. Số bucket được chọn dựa trên số dòng ước tính ở phía build và ngân sách bộ nhớ, và có thể thay đổi lúc chạy. Ví dụ ở [mục 5.4](#54-explain-thực-tế), `Buckets: 131072` nghĩa là **131.072 ngăn**; `Batches: 4` nghĩa là **4 lô xử lý**, không phải 4 ngăn hay 4 bảng.
+
 ### 5.2. Vì sao nhanh
 
 Tra hash table là **O(1)**. Toàn bộ chỉ cần **đọc mỗi bảng đúng 1 lần**:
