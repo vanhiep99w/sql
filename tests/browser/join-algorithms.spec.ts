@@ -94,3 +94,35 @@ test('mobile dark mode supports reduced motion and playback controls', async ({ 
   expect(await lab.evaluate((node) => node.getAnimations({ subtree: true }).length)).toBe(0);
   expect(await lab.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
 });
+
+test('4.3 shows an indexed lookup skipping nonmatching orders without changing results', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1080 });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.goto(`${article}#nested-loop-index-animation`);
+  const lab = page.getByRole('region', { name: 'So sánh Nested Loop có và không dùng index' });
+  const next = lab.getByRole('button', { name: 'Bước sau' });
+  const output = lab.locator('[data-zone="output"] [data-row]');
+  const slider = lab.getByRole('slider');
+  await next.click();
+  await expect(lab.getByRole('list', { name: 'Khách đang xét' })).toContainText('An');
+  await slider.press('End');
+  await expect(lab.getByText('12 cặp khách–đơn đã so')).toBeVisible();
+  await expect(output).toHaveText(['1An#10', '1An#11', '2Bình#12']);
+
+  await lab.getByRole('button', { name: 'Tra index' }).click();
+  await expect(slider).toHaveValue('0');
+  await next.click();
+  const entries = lab.getByRole('list', { name: 'Mục lá của index' });
+  await expect(entries.locator('[data-active="true"]')).toHaveText('1#10#11');
+  await expect(lab.getByText('1 lượt tra index')).toBeVisible();
+  await next.click();
+  await expect(lab.locator('[data-animation-layer] [data-row="o10"]')).toHaveCount(1);
+  await expect(output).toHaveText(['1An#10']);
+  await slider.press('End');
+  await lab.getByRole('button', { name: 'Bước trước' }).click();
+  await expect(entries.locator('[data-active="true"]')).toHaveCount(0);
+  await expect(lab.getByText('Không có mục nào cho khóa 3; không cần lấy dòng nào từ orders.')).toBeVisible();
+  await expect(lab.getByText('3 lượt tra index')).toBeVisible();
+  await expect(output).toHaveText(['1An#10', '1An#11', '2Bình#12']);
+  await expect(page.getByRole('region', { name }).getByRole('slider')).toHaveValue('0');
+});

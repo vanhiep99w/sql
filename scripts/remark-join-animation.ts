@@ -1,13 +1,19 @@
 import type { Root } from 'mdast';
 import { visit } from 'unist-util-visit';
 
-// Only an exact, standalone marker is supported in Markdown; not arbitrary JSX.
+// Only exact, standalone markers are supported in Markdown; not arbitrary JSX.
+const markers = new Map([
+  ['<JoinAnimation />', 'JoinAnimation'],
+  ['<NestedLoopIndexAnimation />', 'NestedLoopIndexAnimation'],
+]);
+
 export function remarkJoinAnimation() {
   return (tree: Root) => {
     visit(tree, 'html', (node, index, parent) => {
-      if (node.value.trim() !== '<JoinAnimation />' || index === undefined || parent?.type !== 'root') return;
+      const name = markers.get(node.value.trim());
+      if (!name || index === undefined || parent?.type !== 'root') return;
       parent.children[index] = {
-        type: 'mdxJsxFlowElement', name: 'JoinAnimation', attributes: [], children: [], position: node.position,
+        type: 'mdxJsxFlowElement', name, attributes: [], children: [], position: node.position,
       };
     });
   };

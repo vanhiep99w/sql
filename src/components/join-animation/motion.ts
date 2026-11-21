@@ -16,6 +16,7 @@ const easing = 'cubic-bezier(.22,1,.36,1)';
 export function captureTransition(root: HTMLElement, previous: Frame, next: Frame) {
   const source = rectsIn(root, 'inputs');
   const bank = rectsIn(root, 'bank');
+  const index = rectsIn(root, 'index');
   const gate = root.querySelector('[data-gate]')?.getBoundingClientRect();
   return (layer: HTMLDivElement) => {
     const animations: Animation[] = [];
@@ -52,7 +53,7 @@ export function captureTransition(root: HTMLElement, previous: Frame, next: Fram
     for (const side of ['left', 'right'] as const) {
       for (const [id, node] of rowsIn(root, side)) {
         if (previous[side]?.some((row) => row.id === id)) continue;
-        fly(bank.get(id) ?? source.get(id), node, delay);
+        fly(bank.get(id) ?? index.get(id) ?? source.get(id), node, delay);
         delay = Math.min(delay + 60, 180);
       }
     }

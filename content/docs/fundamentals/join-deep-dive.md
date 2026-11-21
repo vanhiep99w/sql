@@ -256,18 +256,19 @@ Nếu quét thô (không index): chi phí = `số row outer × số row inner` =
 
 ### 4.3. Cứu tinh: Index trên bảng inner
 
-Nested Loop thường hiệu quả khi outer trả về ít dòng và inner có index phù hợp trên cột JOIN. Khi plan dùng B-tree để tra khóa, vòng trong có thể tìm thẳng các dòng khớp thay vì quét toàn bảng:
+Vòng ngoài vẫn lấy từng khách. **Index chỉ thay đổi cách vòng trong tìm đơn:** thay vì thử mọi dòng `orders`, database dùng `c.id` để tra đúng khóa `orders.customer_id`. Câu `JOIN ... ON c.id = o.customer_id` không đổi; index dưới đây chỉ bổ sung một cách truy cập để optimizer cân nhắc:
 
-```
-for mỗi row R trong OUTER (nhỏ):
-    dùng index của INNER để tìm row khớp R.id  -- O(log N), không quét
+```sql
+CREATE INDEX idx_orders_customer ON orders (customer_id);
 ```
 
-Chi phí ≈ `số row outer × log(số row inner)`. Với outer = 50 row, inner = 50 triệu row có index:
+Thử **Quét từng đơn**, rồi chuyển sang **Tra index**. Với An (`id = 1`), cách quét phải thử cả bốn đơn; cách tra index tìm khóa `1` và lấy thẳng đơn `#10` và `#11`. Với Chi (`id = 3`), index không có khóa tương ứng nên không cần lấy dòng nào từ `orders`.
 
-```
-50 × log₂(50,000,000) ≈ 50 × 26 ≈ 1,300 lần đọc index
-```
+<NestedLoopIndexAnimation />
+
+Cả hai cách đều trả về 3 cặp. Bản quét thử **12 cặp khách–đơn**; bản có index thực hiện **3 lượt tra khóa**, một lượt cho mỗi khách. Đây là hai loại thao tác khác nhau: một lượt tra có thể phải đi qua nhiều trang B-tree và lấy nhiều dòng khớp. Mô phỏng chỉ hiển thị các mục lá theo khóa, không đo số lần đọc đĩa hay thời gian chạy.
+
+Index giúp rõ nhất khi outer còn ít dòng sau lọc và mỗi khóa chỉ khớp ít đơn. Nếu phần lớn đơn đều phải được lấy, optimizer có thể chọn cách khác.
 
 ### 4.4. EXPLAIN thực tế
 

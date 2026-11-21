@@ -17,7 +17,7 @@ import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 import { TypeTable } from 'fumadocs-ui/components/type-table';
 import type { Metadata } from 'next';
-import { JoinAnimation } from '@/components/join-animation/join-animation';
+import { JoinAnimation, NestedLoopIndexAnimation } from '@/components/join-animation/join-animation';
 
 export default async function Page({
   params,
@@ -37,7 +37,7 @@ export default async function Page({
       <DocsBody>
         <MDX components={{
           ...defaultMdxComponents,
-          D2Diagram, D2InteractiveDiagram, JoinAnimation,
+          D2Diagram, D2InteractiveDiagram, JoinAnimation, NestedLoopIndexAnimation,
           CodeWalkthrough, CodeDiff, TerminalSession, ProtocolExchange, SpanWaterfall,
           SourceRef, Callout, Card, Cards, Step, Steps, Tab, Tabs, Accordion, Accordions, TypeTable,
         }} />

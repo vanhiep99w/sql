@@ -9,6 +9,9 @@ type State = {
   bucket?: number;
   build?: JoinRow;
   pair?: Pair;
+  comparisons?: number;
+  probes?: number;
+  indexKey?: number;
 };
 export type Frame = State & { phase: string; action: string; note: string; pairs: Pair[] };
 type Add = (phase: string, action: string, note: string, state?: State) => void;
@@ -46,13 +49,44 @@ function makeTrace(action: string, note: string, run: (add: Add, compare: Compar
   run(add, compare);
   return frames;
 }
-export const traces = {
-  loop: makeTrace('Giữ khách, quét đơn', 'Bấm Bước sau. Quan sát thẻ khách đứng yên trong khi các đơn lần lượt đi qua.', (add, compare) => {
-    for (const c of customers) {
-      add('GIỮ KHÁCH', `Giữ ${c.label} ở vòng ngoài`, 'Quay về đầu danh sách orders và thử lần lượt từng đơn.', { left: [c] });
-      for (const o of orders) compare(c, o);
+function nestedLoop(outer: JoinRow[]) {
+  return makeTrace('Giữ khách, quét đơn', 'Bấm Bước sau. Quan sát thẻ khách đứng yên trong khi các đơn lần lượt đi qua.', (add, compare) => {
+    let comparisons = 0;
+    for (const c of outer) {
+      add('GIỮ KHÁCH', `Giữ ${c.label} ở vòng ngoài`, 'Quay về đầu danh sách orders và thử lần lượt từng đơn.', { left: [c], comparisons });
+      for (const o of orders) compare(c, o, { comparisons: ++comparisons });
     }
-    add('HOÀN TẤT', 'Cùng 3 cặp kết quả', 'Đã thử 3 × 4 = 12 cặp vì phiên bản này quét toàn bộ orders cho mỗi khách.');
+    add('HOÀN TẤT', 'Cùng 3 cặp kết quả', 'Đã thử 3 × 4 = 12 cặp vì phiên bản này quét toàn bộ orders cho mỗi khách.', { comparisons });
+  });
+}
+
+// Show ordered leaf entries, not the internal pages of a B-tree.
+const ordersByCustomer = new Map<number, JoinRow[]>();
+for (const order of sortedInputs.orders) {
+  const entries = ordersByCustomer.get(order.key) ?? [];
+  entries.push(order);
+  ordersByCustomer.set(order.key, entries);
+}
+export const indexEntries = Array.from(ordersByCustomer);
+export const comparisonInputs = { customers: sortedInputs.customers, orders };
+
+export const traces = {
+  loop: nestedLoop(customers),
+  scan: nestedLoop(comparisonInputs.customers),
+  indexed: makeTrace('Dùng mã khách để tra index', 'Bấm Bước sau để tra khóa 1 của An trên index orders.customer_id đã có sẵn.', (add) => {
+    let probes = 0;
+    for (const c of comparisonInputs.customers) {
+      const matches = ordersByCustomer.get(c.key) ?? [];
+      const state = { left: [c], indexKey: c.key, probes: ++probes };
+      add('TRA INDEX', `Tìm customer_id = ${c.key}`, matches.length
+        ? `Index dẫn tới ${matches.map((order) => order.label).join(' và ')}. Không cần thử các mã khách khác.`
+        : `Không có mục nào cho khóa ${c.key}; không cần lấy dòng nào từ orders.`, state);
+      for (const o of matches) {
+        add('XUẤT', `Ghép ${c.label} với đơn ${o.label}`, `Lấy dòng được index trỏ tới và xuất cặp có cùng khóa ${c.key}.`,
+          { ...state, right: [o], gate: '=', pair: [c, o] });
+      }
+    }
+    add('HOÀN TẤT', 'Cùng 3 cặp kết quả', 'Đã tra index 3 lượt, mỗi khách một lượt, kể cả Chi không có đơn khớp.', { probes });
   }),
   hash: makeTrace('Xây bucket trước, dò sau', 'Thẻ khách sẽ vào bucket theo id % 2. Chưa có kết quả ở pha Build.', (add, compare) => {
     const buckets: [JoinRow[], JoinRow[]] = [[], []];

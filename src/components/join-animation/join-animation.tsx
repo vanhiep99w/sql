@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { captureTransition } from './motion';
-import { inputs, pairId, sortedInputs, traces, type JoinRow, type Mode } from './trace';
+import { comparisonInputs, indexEntries, inputs, pairId, sortedInputs, traces, type JoinRow, type Mode } from './trace';
 import styles from './join-animation.module.css';
 
-const modes: Record<Mode, string> = { loop: 'Nested Loop', hash: 'Hash Join', merge: 'Merge Join' };
+const joinModes = { loop: 'Nested Loop', hash: 'Hash Join', merge: 'Merge Join' };
+const indexModes = { scan: 'Quét từng đơn', indexed: 'Tra index' };
 const reducedMotion = '(prefers-reduced-motion: reduce)';
-const initial = { mode: 'loop' as Mode, step: 0, playing: false };
 
 function Tokens({ rows, active }: { rows?: JoinRow[]; active?: Set<string> }) {
   return rows?.map((row) => (
@@ -19,13 +19,22 @@ function Tokens({ rows, active }: { rows?: JoinRow[]; active?: Set<string> }) {
 }
 
 export function JoinAnimation() {
-  const [cursor, setCursor] = useState(initial);
+  return <Workbench id="join-animation" title="Mô phỏng ba thuật toán JOIN vật lý" />;
+}
+
+export function NestedLoopIndexAnimation() {
+  return <Workbench id="nested-loop-index-animation" title="So sánh Nested Loop có và không dùng index" comparison />;
+}
+
+function Workbench({ id, title, comparison = false }: { id: string; title: string; comparison?: boolean }) {
+  const modes: Partial<Record<Mode, string>> = comparison ? indexModes : joinModes;
+  const [cursor, setCursor] = useState({ mode: (comparison ? 'scan' : 'loop') as Mode, step: 0, playing: false });
   const [speed, setSpeed] = useState(1300);
   const { mode, step, playing } = cursor;
   const frames = traces[mode];
   const frame = frames[step];
   const last = frames.length - 1;
-  const rows = frame.sorted ? sortedInputs : inputs;
+  const rows = comparison ? comparisonInputs : frame.sorted ? sortedInputs : inputs;
   const active = new Set([...(frame.left ?? []), ...(frame.right ?? []), ...(frame.build ? [frame.build] : [])].map((row) => row.id));
   const root = useRef<HTMLElement>(null);
   const layer = useRef<HTMLDivElement>(null);
@@ -81,8 +90,8 @@ export function JoinAnimation() {
   }
 
   return (
-    <section id="join-animation" className={`${styles.lab} not-prose`} aria-label="Mô phỏng ba thuật toán JOIN vật lý" ref={root}>
-      <div className={styles.modes} role="group" aria-label="Chọn thuật toán">
+    <section id={id} className={`${styles.lab} not-prose`} aria-label={title} ref={root}>
+      <div className={styles.modes} role="group" aria-label={comparison ? 'Chọn cách tìm đơn ở inner' : 'Chọn thuật toán'}>
         {(Object.keys(modes) as Mode[]).map((name) => (
           <button key={name} type="button" aria-pressed={mode === name} onClick={() => { if (mode !== name) seek(0, name); }}>{modes[name]}</button>
         ))}
@@ -107,6 +116,14 @@ export function JoinAnimation() {
           <span aria-hidden="true">{step} / {last}</span>
         </div>
       </div>
+      {comparison && (
+        <div className={styles.metrics} aria-label="Số thao tác trên inner">
+          {mode === 'indexed'
+            ? <span><strong>{frame.probes ?? 0}</strong> lượt tra index</span>
+            : <span><strong>{frame.comparisons ?? 0}</strong> cặp khách–đơn đã so</span>}
+          <small>Hai bộ đếm đo thao tác khác nhau, không phải I/O hay thời gian.</small>
+        </div>
+      )}
       <div className={styles.stage}>
         <section className={styles.source} data-zone="inputs" aria-labelledby={`${label}-input`}>
           <h3 className={styles.sectionTitle} id={`${label}-input`}><span className={styles.index} aria-hidden="true">01</span> Đầu vào</h3>
@@ -130,6 +147,21 @@ export function JoinAnimation() {
                   <ul aria-label={`Bucket ${index}`}><Tokens rows={frame.buckets?.[index]} /></ul>
                 </div>
               ))}
+            </div>
+          )}
+          {mode === 'indexed' && (
+            <div className={styles.indexPanel} data-zone="index">
+              <span className={styles.index}>INDEX <code>orders.customer_id</code></span>
+              <ul className={styles.entries} aria-label="Mục lá của index">
+                {indexEntries.map(([key, entries]) => (
+                  <li key={key} data-active={frame.indexKey === key}>
+                    <b aria-label={`Khóa ${key}`}>{key}</b>
+                    <span className={styles.refs}>{entries.map((order) => (
+                      <code key={order.id} data-row={order.id}>{order.label}</code>
+                    ))}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
           <div className={styles.event} aria-live="polite" aria-atomic="true">
