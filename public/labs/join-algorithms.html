@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phòng lab SQL · Ba thuật toán JOIN</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --paper: #f6f1e7;
+      --panel: #fffaf1;
+      --ink: #26221e;
+      --muted: #63594f;
+      --line: #d8ccba;
+      --accent: #9e3024;
+      --on-accent: #fff8ef;
+      --console: #302724;
+      --console-ink: #fff7eb;
+      --console-line: #857069;
+      --tint: #f8e5c9;
+      --hit: #d9ebdd;
+      --hit-ink: #205738;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #221c19; --panel: #2a221e; --ink: #f5e9db; --muted: #c8b8a6;
+        --line: #55473e; --accent: #ffa18e; --on-accent: #341b15;
+        --console: #161211; --console-ink: #fff7eb; --console-line: #79635a;
+        --tint: #503c25; --hit: #263e31; --hit-ink: #b5ebc4;
+      }
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; color: var(--ink); background: var(--paper); font: 1rem/1.55 "Trebuchet MS", sans-serif; }
+    main { max-width: 73rem; margin: auto; padding: clamp(1rem, 4vw, 3.5rem); }
+    h1, h2, p, pre { margin: 0; }
+    h1, .event h2 { font-family: Georgia, serif; font-weight: 400; }
+    h1 { font-size: clamp(2.6rem, 6.2vw, 5.5rem); letter-spacing: -.062em; line-height: 1.02; margin: .3em 0 .22em; }
+    h1 em { color: var(--accent); font-weight: inherit; }
+    a { color: var(--accent); text-underline-offset: .22em; }
+    code, .mono, td:first-child, #counter, .eyebrow { font-family: ui-monospace, "Courier New", monospace; }
+    .eyebrow { font-size: .73rem; font-weight: bold; letter-spacing: .13em; text-transform: uppercase; }
+    .folio { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem 1rem; padding-block: .6rem; border-block: 1px solid var(--line); }
+    .folio a { font-size: .86rem; }
+    .intro { display: grid; gap: 1rem 2.5rem; align-items: end; margin-bottom: clamp(1.4rem, 4vw, 2.5rem); }
+    .lede { max-width: 52ch; color: var(--muted); }
+    pre { font-size: clamp(.72rem, 2.8vw, .88rem); padding: .8rem 0 .8rem 1rem; border-inline-start: 2px solid var(--accent); }
+    pre strong { color: var(--accent); }
+    button, input, select { font: inherit; }
+    button, select { min-height: 2.65rem; }
+    button { cursor: pointer; }
+    button:disabled { opacity: .48; cursor: default; }
+    :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+    .modes { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); }
+    .mode { display: flex; flex-direction: column; justify-content: center; align-items: start; gap: .2rem; border: 0; background: var(--panel); color: var(--ink); padding: .65rem clamp(.45rem, 2vw, 1.15rem); text-align: start; font-weight: bold; line-height: 1.24; }
+    .mode + .mode { border-inline-start: 1px solid var(--line); }
+    .mode small { font-size: .71rem; }
+    .mode:hover:not([aria-pressed="true"]) { background: var(--tint); }
+    .mode[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+    .mode:focus-visible { outline-offset: -4px; outline-color: currentColor; }
+    .console { background: var(--console); color: var(--console-ink); padding: clamp(.8rem, 2.75vw, 1.65rem); }
+    .console :focus-visible { outline-color: #ffbc9d; }
+    .controls { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
+    .controls button, .speed select { border: 1px solid var(--console-line); background: transparent; color: inherit; padding: .35rem .6rem; border-radius: .22rem; font-size: .87rem; }
+    .controls button:not(:disabled):hover { background: #493b35; }
+    .controls #play { background: #f6d2a5; border-color: #f6d2a5; color: #302018; font-weight: bold; }
+    .controls #play:hover { background: #ffe3bc; }
+    .speed { display: inline-flex; margin-inline-start: auto; align-items: center; gap: .5rem; font-size: .82rem; }
+    .speed select { color-scheme: dark; }
+    .speed option { background: var(--console); }
+    .track { display: flex; gap: .75rem; align-items: center; margin-top: .6rem; }
+    #timeline { flex: 1; min-width: 0; margin: 0; min-height: 2rem; accent-color: #f6d2a5; cursor: pointer; }
+    #counter { min-width: 5.5ch; text-align: end; font-size: .8rem; font-variant-numeric: tabular-nums; }
+    .event { display: grid; align-content: start; gap: .25rem; background: var(--panel); border: 1px solid var(--line); border-block-start: 0; padding: clamp(.8rem, 2.5vw, 1.4rem); min-block-size: 8.8rem; }
+    .event .eyebrow { color: var(--accent); }
+    .event h2 { font-size: clamp(1.3rem, 3vw, 1.85rem); line-height: 1.18; }
+    .event p { color: var(--muted); max-width: 77ch; }
+    .workspace { display: grid; border: 1px solid var(--line); border-top: 0; background: var(--panel); }
+    .inputs, .output { padding: clamp(.65rem, 2.3vw, 1.3rem); min-width: 0; }
+    .inputs { display: grid; align-content: start; gap: 1rem; }
+    .output { border-top: 1px solid var(--line); }
+    .tables, #buckets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(.55rem, 2.1vw, 1.2rem); }
+    .table-box { min-width: 0; }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; text-align: start; font-size: .88rem; font-variant-numeric: tabular-nums; }
+    caption { text-align: start; margin-bottom: .55rem; }
+    caption strong, .output h2 { display: block; font-size: 1rem; }
+    caption small { display: block; color: var(--muted); min-height: 2.2em; line-height: 1.2; }
+    th, td { text-align: start; padding: .4rem clamp(.26rem, 1.2vw, .65rem); border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font: bold clamp(.66rem, 2vw, .77rem) ui-monospace, "Courier New", monospace; }
+    thead th { border-top: 1px solid var(--line); }
+    tr[data-state="active"] td { background: var(--tint); }
+    tr[data-state="match"] td { background: var(--hit); color: var(--hit-ink); }
+    tr[data-state] td:first-child { box-shadow: inset 3px 0 currentColor; }
+    .bucket { border: 1px dashed var(--line); padding: .55rem; min-height: 4.6rem; }
+    .bucket[data-active="true"] { background: var(--tint); border-color: var(--accent); border-style: solid; }
+    .bucket strong { font-size: .76rem; }
+    .bucket ul { display: flex; flex-wrap: wrap; gap: .3rem; list-style: none; padding: 0; margin: .25rem 0 0; }
+    .bucket li { font-size: .77rem; color: var(--muted); }
+    .bucket li:not(.missing) { border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 0 .3rem; }
+    #hash-heading { margin-bottom: .4rem; }
+    .output-title { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: space-between; gap: .2rem .7rem; margin-bottom: .45rem; }
+    #result-count { color: var(--hit-ink); font-size: .8rem; }
+    #result-list .new td { background: var(--hit); color: var(--hit-ink); }
+    #result-empty { color: var(--muted); padding: .55rem 0; font-size: .86rem; }
+    .hint { display: grid; gap: .4rem; padding: .85rem 0; border-bottom: 1px solid var(--line); }
+    .hint p, .notes, noscript { color: var(--muted); font-size: .88rem; }
+    .notes { margin-top: 1.25rem; }
+    .notes summary { color: var(--ink); font-weight: bold; cursor: pointer; }
+    .notes p { margin-top: .45rem; max-width: 82ch; }
+    @media (min-width: 42rem) {
+      .intro { grid-template-columns: 1.2fr auto; justify-content: space-between; }
+      .workspace { grid-template-columns: 1.55fr 1fr; }
+      .output { border-top: 0; border-inline-start: 1px solid var(--line); }
+      .hint { grid-template-columns: 10rem 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="folio">
+        <span class="eyebrow">SQL / Phòng lab</span>
+        <a id="lesson-link" href="../../fundamentals/join-deep-dive/" hidden>Về bài JOIN Deep Dive</a>
+      </div>
+      <h1>Một JOIN, <em>ba cách ghép.</em></h1>
+      <div class="intro">
+        <p class="lede">Cùng câu SQL, cùng dữ liệu, cùng các cặp kết quả. Hãy đi từng bước để xem mỗi thuật toán tìm được các cặp đó như thế nào.</p>
+        <pre><code>SELECT c.id, c.name, o.id
+FROM customers c <strong>INNER JOIN</strong> orders o
+  ON c.id = o.customer_id;</code></pre>
+      </div>
+    </header>
+
+    <noscript>
+      <p>Bật JavaScript để chạy mô phỏng. Nested Loop thử từng cặp; Hash Join tạo bảng băm rồi dò; Merge Join đi qua hai đầu vào đã sắp xếp. Cả ba trả về các cặp customer/order: (1, 10), (1, 11), (2, 12).</p>
+    </noscript>
+
+    <section id="lab" aria-label="Mô phỏng thuật toán JOIN" hidden>
+      <div class="modes" role="group" aria-label="Chọn thuật toán">
+        <button class="mode" data-mode="nested" aria-pressed="true"><small class="mono" aria-hidden="true">01</small>Nested Loop</button>
+        <button class="mode" data-mode="hash" aria-pressed="false"><small class="mono" aria-hidden="true">02</small>Hash Join</button>
+        <button class="mode" data-mode="merge" aria-pressed="false"><small class="mono" aria-hidden="true">03</small>Merge Join</button>
+      </div>
+      <div class="console">
+        <div class="controls" role="group" aria-label="Điều khiển mô phỏng">
+          <button id="play">Chạy</button>
+          <button id="previous">Bước trước</button>
+          <button id="next">Bước sau</button>
+          <button id="reset">Về đầu</button>
+          <label class="speed">Tốc độ
+            <select id="speed">
+              <option value="2200">0,5×</option>
+              <option value="1100" selected>1×</option>
+              <option value="550">2×</option>
+            </select>
+          </label>
+        </div>
+        <div class="track">
+          <input id="timeline" type="range" min="0" max="1" value="0" aria-label="Bước mô phỏng">
+          <span id="counter" aria-hidden="true"></span>
+        </div>
+      </div>
+      <div class="event" aria-live="polite" aria-atomic="true">
+        <span id="phase" class="eyebrow"></span>
+        <h2 id="event-title"></h2>
+        <p id="event-note"></p>
+      </div>
+      <div class="workspace">
+        <div class="inputs">
+          <div class="tables">
+            <div class="table-box">
+              <table>
+                <caption><strong class="mono">customers</strong><small id="left-role"></small></caption>
+                <thead><tr><th scope="col">id</th><th scope="col">name</th></tr></thead>
+                <tbody id="customers"></tbody>
+              </table>
+            </div>
+            <div class="table-box">
+              <table>
+                <caption><strong class="mono">orders</strong><small id="right-role"></small></caption>
+                <thead><tr><th scope="col">id</th><th scope="col">customer_id</th></tr></thead>
+                <tbody id="orders"></tbody>
+              </table>
+            </div>
+          </div>
+          <section id="hash-table" aria-labelledby="hash-heading" hidden>
+            <h2 id="hash-heading" class="eyebrow">Bảng băm · <code>h(key) = key % 2</code></h2>
+            <div id="buckets"></div>
+          </section>
+        </div>
+        <section class="output" aria-labelledby="output-title">
+          <div class="output-title">
+            <h2 id="output-title">Kết quả <code>INNER JOIN</code></h2>
+            <span id="result-count" class="mono"></span>
+          </div>
+          <table aria-labelledby="output-title">
+            <thead><tr><th scope="col">c.id</th><th scope="col">c.name</th><th scope="col">o.id</th></tr></thead>
+            <tbody id="result-list"></tbody>
+          </table>
+          <p id="result-empty">Các cặp khớp sẽ xuất hiện ở đây.</p>
+        </section>
+      </div>
+      <aside class="hint" aria-label="Chi tiết cần quan sát">
+        <span class="eyebrow">Để ý chi tiết này</span><p id="hint"></p>
+      </aside>
+    </section>
+
+    <details class="notes">
+      <summary>Mô phỏng này lược bỏ những gì?</summary>
+      <p>Trang chỉ mô phỏng một phép <code>INNER JOIN</code> theo dấu bằng, không chạy database thật. Nested Loop không dùng index, Hash Join dùng hai bucket để bạn thấy va chạm băm, và Merge Join minh họa hai đầu vào đã được sắp theo khóa. Số bước và tốc độ phát không phải chi phí thực thi.</p>
+      <p>Ba cách ghép trả về cùng các cặp, nhưng thứ tự phát sinh có thể khác nhau. Muốn cố định thứ tự kết quả SQL, hãy dùng <code>ORDER BY</code>.</p>
+    </details>
+  </main>
+
+  <script>
+    'use strict';
+
+    const customers = [{ key: 3, name: 'Chi' }, { key: 1, name: 'An' }, { key: 2, name: 'Bình' }];
+    const orders = [{ id: 10, key: 1 }, { id: 13, key: 9 }, { id: 12, key: 2 }, { id: 11, key: 1 }];
+    const hash = (key) => key % 2;
+    const el = (id) => document.getElementById(id);
+    const motion = matchMedia('(prefers-reduced-motion: reduce)');
+
+    // Build snapshots once so stepping backward restores both work state and output.
+    function trace(title, note) {
+      const pairs = [];
+      const frames = [{ phase: 'Sẵn sàng', title, note, pairs: [] }];
+      return {
+        frames,
+        step(phase, title, note, state = {}) {
+          if (state.emit) pairs.push(state.emit);
+          frames.push({ phase, title, note, ...state, pairs: [...pairs] });
+        },
+        done(note, state) {
+          this.step('Hoàn tất', `Đã ghép ${pairs.length} cặp`, note, state);
+          return frames;
+        },
+      };
+    }
+
+    function nestedLoop() {
+      const t = trace('Giữ một khách, quét toàn bộ đơn', 'Chọn Bước sau để so cặp đầu tiên. Khi sang khách kế tiếp, vòng trong bắt đầu lại từ đơn đầu tiên.');
+      for (const c of customers) {
+        for (const [index, o] of orders.entries()) {
+          const match = c.key === o.key;
+          t.step(`Quét vòng trong · ${index + 1}/${orders.length}`,
+            `${c.name} và đơn #${o.id}: ${match ? 'khớp' : 'không khớp'}`,
+            `${index === 0 ? `Bắt đầu quét orders từ đầu cho ${c.name}. ` : ''}So ${c.key} với ${o.key}; ${match ? 'thêm một dòng kết quả.' : 'bỏ qua cặp này.'}`,
+            { left: [c], right: [o], emit: match ? [c, o] : null });
+        }
+      }
+      return t.done(`Đã thử ${customers.length} × ${orders.length} = ${customers.length * orders.length} cặp. Chi không có đơn nào khớp nên không xuất hiện.`);
+    }
+
+    function hashJoin() {
+      const t = trace('Xây bảng băm, rồi mới dò', 'Dùng customers làm build input. Mỗi khách vào bucket theo id % 2; chưa ghép ở pha Build.');
+      const buckets = [[], []];
+      const snapshot = () => buckets.map((entries) => [...entries]);
+      for (const c of customers) {
+        const bucket = hash(c.key);
+        buckets[bucket].push(c);
+        t.step('Build', `Đưa ${c.name} vào bucket ${bucket}`,
+          `${c.key} % 2 = ${bucket}. ${buckets[bucket].length > 1 ? 'Hai khóa khác nhau nằm chung bucket; giữ cả hai.' : 'Lưu lại cả khóa và dòng khách hàng.'}`,
+          { left: [c], buckets: snapshot(), bucket });
+      }
+      for (const o of orders) {
+        const bucket = hash(o.key);
+        const entries = buckets[bucket];
+        t.step('Probe', `Dò bucket ${bucket} cho đơn #${o.id}`,
+          `${o.key} % 2 = ${bucket}. ${entries.length ? 'Chỉ kiểm tra khóa các dòng trong bucket này.' : 'Bucket rỗng, không có cặp khớp.'}`,
+          { right: [o], buckets: snapshot(), bucket });
+        for (const [index, c] of entries.entries()) {
+          const match = c.key === o.key;
+          t.step('Probe · so khóa', `${c.name} và đơn #${o.id}: ${match ? 'khớp' : 'không khớp'}`,
+            match ? `Khóa ${c.key} bằng nhau. Thêm một dòng kết quả.` : `Cùng bucket nhưng ${c.key} ≠ ${o.key}. ${index + 1 < entries.length ? 'Thử dòng kế tiếp trong bucket.' : 'Đã kiểm tra hết bucket cho đơn này.'}`,
+            { left: [c], right: [o], buckets: snapshot(), bucket, emit: match ? [c, o] : null });
+        }
+      }
+      return t.done('Đơn #13 vào bucket 1 nhưng khóa 9 không bằng khóa nào trong bucket. Trùng bucket không có nghĩa là khớp.', { buckets: snapshot() });
+    }
+
+    function mergeJoin() {
+      const t = trace('Đưa hai đầu vào về cùng thứ tự khóa', 'Bắt đầu với cùng dữ liệu như hai cách kia. Merge Join cần customers theo id và orders theo customer_id.');
+      const left = [...customers].sort((a, b) => a.key - b.key);
+      const right = [...orders].sort((a, b) => a.key - b.key);
+      t.step('Chuẩn bị', 'Hai đầu vào đã sắp theo khóa', 'Trong plan thật, thứ tự có thể đến từ index scan phù hợp hoặc bước Sort. Từ đây, nhìn vào khóa tại hai con trỏ.', { sorted: true });
+      let i = 0;
+      let j = 0;
+      while (i < left.length && j < right.length) {
+        const a = left[i];
+        const b = right[j];
+        if (a.key !== b.key) {
+          const leftSmaller = a.key < b.key;
+          t.step('So khóa · dịch con trỏ', `${a.key} ${leftSmaller ? '<' : '>'} ${b.key}: tiến bên ${leftSmaller ? 'customers' : 'orders'}`,
+            'Bỏ qua dòng có khóa nhỏ hơn: các dòng còn lại ở bên kia đều có khóa lớn hơn dòng đó.',
+            { sorted: true, left: [a], right: [b] });
+          if (leftSmaller) i++;
+          else j++;
+        } else {
+          let endI = i + 1;
+          let endJ = j + 1;
+          while (endI < left.length && left[endI].key === a.key) endI++;
+          while (endJ < right.length && right[endJ].key === b.key) endJ++;
+          const groupL = left.slice(i, endI);
+          const groupR = right.slice(j, endJ);
+          t.step('So khóa · gom nhóm', `Hai bên cùng có khóa ${a.key}`,
+            `Giữ hai nhóm khóa bằng nhau (${groupL.length} khách × ${groupR.length} đơn) để ghép đủ mọi cặp trước khi tiến cả hai con trỏ.`,
+            { sorted: true, left: groupL, right: groupR });
+          for (const c of groupL) {
+            for (const o of groupR) {
+              t.step('Ghép trong nhóm', `Ghép ${c.name} với đơn #${o.id}`, `Hai dòng cùng khóa ${c.key}. Thêm một dòng kết quả.`,
+                { sorted: true, left: [c], right: [o], emit: [c, o] });
+            }
+          }
+          i = endI;
+          j = endJ;
+        }
+      }
+      return t.done(`Đã hết ${i === left.length ? 'customers' : 'orders'}; không còn cặp nào có thể khớp.`, { sorted: true });
+    }
+
+    const modes = {
+      nested: { frames: nestedLoop(), left: 'Outer · giữ từng khách', right: 'Inner · quét lại từ đầu', hint: 'Vòng trong quét hết orders cho mỗi khách. Với index phù hợp trên orders.customer_id, một plan Nested Loop có thể tra cứu thay vì quét như ở đây.' },
+      hash: { frames: hashJoin(), left: 'Build · nguồn bảng băm', right: 'Probe · dò từng đơn', hint: 'Đơn #13 có khóa 9, vào cùng bucket với khóa 1 và 3. Hash chỉ chọn nơi tìm; vẫn phải so khóa thật.' },
+      merge: { frames: mergeJoin(), left: 'Con trỏ trái · khóa id', right: 'Con trỏ phải · khóa customer_id', hint: 'Đừng tiến cả hai con trỏ ngay khi thấy khóa 1 bằng nhau: An phải ghép với cả đơn #10 lẫn #11.' },
+    };
+    const tabs = [...document.querySelectorAll('.mode')];
+    const play = el('play');
+    const previous = el('previous');
+    const next = el('next');
+    const timeline = el('timeline');
+    const speed = el('speed');
+    let mode = 'nested';
+    let position = 0;
+    let timer = null;
+    const current = () => modes[mode];
+    const last = () => current().frames.length - 1;
+
+    function row(values) {
+      const tr = document.createElement('tr');
+      for (const value of values) tr.insertCell().textContent = value;
+      return tr;
+    }
+    const customerRows = new Map(customers.map((c) => [c, row([c.key, c.name])]));
+    const orderRows = new Map(orders.map((o) => [o, row([o.id, o.key])]));
+    const bucketViews = [0, 1].map((index) => {
+      const box = document.createElement('div');
+      box.className = 'bucket';
+      const name = document.createElement('strong');
+      name.className = 'mono';
+      name.textContent = `Bucket ${index}`;
+      const list = document.createElement('ul');
+      box.append(name, list);
+      el('buckets').append(box);
+      return { box, list };
+    });
+
+    function animate(node, keyframes, duration) {
+      if (!motion.matches) node.animate(keyframes, { duration, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+    }
+    function renderInput(body, dataset, rows, active, state, sorted) {
+      const ordered = (sorted ? [...dataset].sort((a, b) => a.key - b.key) : dataset).map((item) => rows.get(item));
+      const changedOrder = ordered.some((tr, i) => body.children[i] !== tr);
+      if (changedOrder) {
+        const oldTops = new Map([...body.children].map((tr) => [tr, tr.getBoundingClientRect().top]));
+        body.replaceChildren(...ordered);
+        const shifts = ordered.map((tr) => [tr, (oldTops.get(tr) ?? tr.getBoundingClientRect().top) - tr.getBoundingClientRect().top]);
+        for (const [tr, dy] of shifts) {
+          if (dy) animate(tr, [{ transform: `translateY(${dy}px)` }, { transform: 'none' }], 450);
+        }
+      }
+      for (const [item, tr] of rows) {
+        if (!active?.includes(item)) delete tr.dataset.state;
+        else if (tr.dataset.state !== state) {
+          tr.dataset.state = state;
+          animate(tr, [{ opacity: .48 }, { opacity: 1 }], 275);
+        }
+      }
+    }
+    function renderBuckets(frame) {
+      el('hash-table').hidden = mode !== 'hash';
+      if (mode !== 'hash') return;
+      bucketViews.forEach(({ box, list }, index) => {
+        const active = frame.bucket === index;
+        box.dataset.active = String(active);
+        const entries = frame.buckets?.[index] ?? [];
+        const items = entries.length ? entries.map((c) => `${c.key} · ${c.name}`) : ['Trống'];
+        if (items.length === list.children.length && items.every((text, i) => list.children[i].textContent === text)) return;
+        const added = entries.length > (list.firstElementChild?.classList.contains('missing') ? 0 : list.children.length);
+        list.replaceChildren(...items.map((text) => {
+          const li = document.createElement('li');
+          li.textContent = text;
+          if (!entries.length) li.className = 'missing';
+          return li;
+        }));
+        if (active && added) animate(list.lastElementChild, [{ transform: 'translateY(-6px)', opacity: .15 }, { transform: 'none', opacity: 1 }], 320);
+      });
+    }
+    function renderResults(frame) {
+      const body = el('result-list');
+      body.replaceChildren(...frame.pairs.map(([c, o]) => row([c.key, c.name, o.id])));
+      if (frame.emit) {
+        const latest = body.lastElementChild;
+        latest.classList.add('new');
+        animate(latest, [{ transform: 'translateY(-8px)', opacity: .18 }, { transform: 'none', opacity: 1 }], 360);
+      }
+      el('result-count').textContent = `${frame.pairs.length} dòng`;
+      el('result-empty').hidden = frame.pairs.length > 0;
+    }
+    function render() {
+      const frame = current().frames[position];
+      el('phase').textContent = frame.phase;
+      el('event-title').textContent = frame.title;
+      el('event-note').textContent = frame.note;
+      const state = frame.emit ? 'match' : 'active';
+      renderInput(el('customers'), customers, customerRows, frame.left, state, frame.sorted);
+      renderInput(el('orders'), orders, orderRows, frame.right, state, frame.sorted);
+      renderBuckets(frame);
+      renderResults(frame);
+      timeline.max = last();
+      timeline.value = position;
+      timeline.setAttribute('aria-valuetext', `Bước ${position} trên ${last()}`);
+      el('counter').textContent = `${position} / ${last()}`;
+      previous.disabled = position === 0;
+      next.disabled = position === last();
+      updatePlay();
+    }
+    function updatePlay() {
+      play.textContent = timer !== null ? 'Tạm dừng' : position === last() ? 'Chạy lại' : 'Chạy';
+    }
+    function pause() {
+      clearTimeout(timer);
+      timer = null;
+      updatePlay();
+    }
+    function schedule() {
+      timer = setTimeout(() => {
+        position++;
+        if (position === last()) pause();
+        else schedule();
+        render();
+      }, Number(speed.value));
+      updatePlay();
+    }
+    function seek(step) {
+      pause();
+      position = step;
+      render();
+    }
+    play.addEventListener('click', () => {
+      if (timer !== null) return pause();
+      position = position === last() ? 1 : position + 1;
+      if (position < last()) schedule();
+      render();
+    });
+    previous.addEventListener('click', () => seek(position - 1));
+    next.addEventListener('click', () => seek(position + 1));
+    el('reset').addEventListener('click', () => seek(0));
+    timeline.addEventListener('input', () => seek(Number(timeline.value)));
+    speed.addEventListener('change', () => {
+      if (timer === null) return;
+      clearTimeout(timer);
+      schedule();
+    });
+    function selectMode(selection) {
+      mode = selection;
+      tabs.forEach((tab) => tab.setAttribute('aria-pressed', String(tab.dataset.mode === mode)));
+      el('left-role').textContent = current().left;
+      el('right-role').textContent = current().right;
+      el('hint').textContent = current().hint;
+      seek(0);
+    }
+    tabs.forEach((tab) => tab.addEventListener('click', () => {
+      if (tab.dataset.mode !== mode) selectMode(tab.dataset.mode);
+    }));
+    if (location.protocol !== 'file:') el('lesson-link').hidden = false;
+    el('lab').hidden = false;
+    selectMode(mode);
+  </script>
+</body>
+</html>

@@ -36,6 +36,10 @@ export default async function Page({
       <DocsBody>
         <MDX components={{
           ...defaultMdxComponents,
+          // Static labs are public files, not App Router pages with an RSC payload.
+          a: (props) => props.href?.startsWith('/labs/')
+            ? <a {...props} />
+            : <defaultMdxComponents.a {...props} />,
           D2Diagram, D2InteractiveDiagram,
           CodeWalkthrough, CodeDiff, TerminalSession, ProtocolExchange, SpanWaterfall,
           SourceRef, Callout, Card, Cards, Step, Steps, Tab, Tabs, Accordion, Accordions, TypeTable,

@@ -11,6 +11,8 @@ Mở các đoạn code trong bài
 
 Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
 
+[**Mở phòng lab mô phỏng ba thuật toán JOIN**](/labs/join-algorithms.html). Chạy tự động hoặc đi từng bước để xem Nested Loop quét lại `orders`, Hash Join xử lý va chạm băm và Merge Join ghép đủ các đơn có cùng khóa. Cả ba dùng cùng một câu `INNER JOIN`.
+
 ## Mục lục
 
 - [Bối cảnh: Cùng một JOIN, hai plan, chênh nhau 400 lần](#1-bối-cảnh-cùng-một-join-hai-plan-chênh-nhau-400-lần)
