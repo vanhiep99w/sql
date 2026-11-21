@@ -11,13 +11,9 @@ Mở các đoạn code trong bài
 
 Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
 
-Hai phiên bản phòng lab dùng cùng câu `INNER JOIN` và cùng dữ liệu để bạn dễ so sánh:
-
-- **V1 — Tô sáng bảng:** [Mở phòng lab mô phỏng ba thuật toán JOIN](/labs/join-algorithms.html) để theo dõi các dòng đang được xét ngay trong bảng.
-- **V2 — Thẻ di chuyển:** [Theo dõi đường đi của một dòng](/labs/join-algorithms-v2.html) để xem từng dòng vào bộ xử lý, vào bucket hoặc ghép thành một cặp kết quả.
-
 ## Mục lục
 
+- [Mô phỏng: Đường đi của một dòng](#mô-phỏng-đường-đi-của-một-dòng)
 - [Bối cảnh: Cùng một JOIN, hai plan, chênh nhau 400 lần](#1-bối-cảnh-cùng-một-join-hai-plan-chênh-nhau-400-lần)
 - [JOIN logic vs JOIN vật lý — Hai tầng khác nhau](#2-join-logic-vs-join-vật-lý--hai-tầng-khác-nhau)
 - [Các loại JOIN logic — INNER, LEFT, RIGHT, FULL, CROSS](#3-các-loại-join-logic--inner-left-right-full-cross)
@@ -33,6 +29,16 @@ Hai phiên bản phòng lab dùng cùng câu `INNER JOIN` và cùng dữ liệu 
 - [So sánh giữa Postgres / MySQL / Oracle / SQL Server](#13-so-sánh-giữa-postgres--mysql--oracle--sql-server)
 - [Anti-patterns cần tránh](#14-anti-patterns-cần-tránh)
 - [Tóm tắt — Cheat sheet](#15-tóm-tắt--cheat-sheet)
+
+---
+
+## Mô phỏng: Đường đi của một dòng
+
+Cả ba chế độ ghép cùng 3 khách và 4 đơn hàng theo `customers.id = orders.customer_id`. Số trong ô vuông trên mỗi thẻ là khóa JOIN. Bấm **Bước sau** để theo dõi thẻ vào bộ xử lý, vào bucket hoặc sang vùng kết quả.
+
+<JoinAnimation />
+
+Thử **Merge Join** và để ý khóa `1`: An ghép với cả đơn `#10` lẫn `#11`. Cả ba cách đều cho cùng 3 cặp `INNER JOIN`; số bước mô phỏng không đo hiệu năng.
 
 ---
 
