@@ -251,7 +251,7 @@ Nếu quét thô (không index): chi phí = `số row outer × số row inner` =
 
 ### 4.3. Cứu tinh: Index trên bảng inner
 
-Nested Loop **chỉ nhanh khi bảng inner có index** trên cột join. Khi đó vòng trong không quét toàn bảng mà **nhảy thẳng** bằng B-Tree:
+Nested Loop thường hiệu quả khi outer trả về ít dòng và inner có index phù hợp trên cột JOIN. Khi plan dùng B-tree để tra khóa, vòng trong có thể tìm thẳng các dòng khớp thay vì quét toàn bảng:
 
 ```
 for mỗi row R trong OUTER (nhỏ):
@@ -264,10 +264,10 @@ Chi phí ≈ `số row outer × log(số row inner)`. Với outer = 50 row, inne
 50 × log₂(50,000,000) ≈ 50 × 26 ≈ 1,300 lần đọc index
 ```
 
-Cực nhanh. Đây là lý do:
-
-> [!IMPORTANT]
-> Nested Loop là **lựa chọn tối ưu khi bảng outer NHỎ và bảng inner có INDEX** trên cột join. Đây là trường hợp phổ biến nhất trong OLTP (query lấy vài row rồi join sang bảng lớn).
+> [!NOTE]
+> **Outer thường trả về ít dòng hơn sau khi lọc, nhưng không nhất thiết là bảng nhỏ hơn.** `Outer` và `inner` là vai trò trong vòng lặp, không phải loại JOIN logic. Mỗi dòng outer kích hoạt một lượt tìm dòng khớp ở inner.
+>
+> Ví dụ, nếu lọc được 50 khách rồi tìm đơn của họ, `customers` có thể là outer và `orders` là inner, dùng index trên `orders.customer_id`. Ngược lại, nếu truy vấn chỉ lấy 3 đơn theo mã đơn, `orders` có thể là outer dù bảng này lớn hơn: mỗi đơn tra khách theo khóa chính `customers.id`.
 
 ### 4.4. EXPLAIN thực tế
 
@@ -292,7 +292,7 @@ WHERE c.country = 'Vietnam';   -- chỉ 50 khách
 ```
 
 > [!TIP]
-> Dấu hiệu Nested Loop trong EXPLAIN: node `Nested Loop`, và node inner có `loops=N` với N = số row outer. `loops` càng lớn thì Nested Loop càng nguy hiểm — mỗi loop là một lần đọc index.
+> Trong `EXPLAIN ANALYZE` của PostgreSQL, node con thứ nhất dưới `Nested Loop` là **outer**, node con thứ hai là **inner**. Đọc thứ tự trong plan, đừng suy ra từ thứ tự `FROM ... JOIN ...`. Ví dụ trên, inner `Index Scan` có `loops=50` vì được gọi một lượt cho mỗi khách; `loops` đếm số lần chạy node, không phải số lần đọc đĩa.
 
 ### 4.5. Khi nào Nested Loop thành thảm họa
 
