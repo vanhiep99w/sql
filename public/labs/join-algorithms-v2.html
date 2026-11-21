@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phòng lab SQL V2 · Đường đi của một dòng</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f3f2e9; --panel: #fcfbf4; --ink: #19281f; --quiet: #4b5d52; --line: #c7cfc2;
+      --green: #215744; --green-wash: #deeee3; --rust: #883a29; --rust-wash: #fae6d7;
+      --night: #132b23; --snow: #f4f6e9; --signal: #d8f283; --soft: #b8cbbd;
+      --mono: ui-monospace, 'Courier New', monospace;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 1rem/1.5 'Trebuchet MS', sans-serif; }
+    main { width: min(100%, 76rem); margin: auto; padding: clamp(.85rem, 3.5vw, 3rem); }
+    p, h1, h2, h3, ul { margin: 0; }
+    a { color: var(--green); text-underline-offset: .23em; }
+    code, .mono, .index { font-family: var(--mono); }
+    .index { font-size: .72rem; letter-spacing: .08em; font-weight: bold; }
+    .nav, .transport, .section-title, .version { display: flex; align-items: center; flex-wrap: wrap; gap: .55rem 1rem; justify-content: space-between; }
+    .nav { border-block: 1px solid var(--line); padding-block: .55rem; }
+    .version { justify-content: flex-start; font-size: .88rem; }
+    h1 { font: 400 clamp(2rem, 6vw, 4.9rem)/1.05 Georgia, serif; letter-spacing: -.055em; margin: .3em 0 .13em; }
+    .intro { max-width: 75ch; color: var(--quiet); margin-bottom: 1.2rem; }
+    button, select, input { font: inherit; }
+    button, select { min-height: 2.65rem; }
+    button { cursor: pointer; }
+    button:disabled { opacity: .45; cursor: default; }
+    :focus-visible { outline: 3px solid var(--rust); outline-offset: 2px; }
+    .modes { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .7rem; }
+    .modes button, .controls button, select { background: var(--panel); color: var(--ink); border: 1px solid var(--line); padding: .35rem .7rem; font-weight: bold; }
+    .modes button:hover, .controls button:not(:disabled):hover { border-color: var(--green); }
+    .modes button[aria-pressed="true"], .controls #play { background: var(--green); border-color: var(--green); color: var(--snow); }
+    .transport { padding: .6rem; border: 1px solid var(--line); background: var(--panel); }
+    .controls { display: flex; flex-wrap: wrap; gap: .35rem; }
+    .controls button, select, label { font-size: .85rem; }
+    label { display: flex; align-items: center; gap: .4rem; }
+    .scrub { display: flex; align-items: center; gap: .55rem; min-width: 10rem; flex: 1; }
+    .scrub input { flex: 1; min-width: 0; width: 100%; min-height: 2rem; margin: 0; accent-color: var(--green); }
+    #progress { min-width: 8ch; text-align: right; }
+    .stage { display: grid; background: var(--panel); border: 1px solid var(--line); border-top: 0; }
+    .source, .operator, .result { padding: clamp(.75rem, 2.4vw, 1.25rem); min-width: 0; }
+    .source, .result { background-image: radial-gradient(var(--line) .75px, transparent .75px); background-size: 12px 12px; }
+    .section-title { gap: .2rem .7rem; font-size: .92rem; margin-bottom: .8rem; }
+    .section-title .index { color: var(--quiet); }
+    .decks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem 1rem; }
+    .decks h3 { font-size: .83rem; }
+    ul { list-style: none; padding: 0; }
+    .rows { display: grid; align-content: start; gap: .3rem; margin-top: .35rem; }
+    .token {
+      display: flex; align-items: center; justify-content: space-between; gap: .4rem;
+      min-height: 2rem; padding: .22rem .38rem; border: 1px solid; font: bold .76rem/1.25 var(--mono);
+    }
+    .customer { color: var(--green); background: var(--green-wash); border-color: #6a917d; }
+    .order { color: var(--rust); background: var(--rust-wash); border-color: #b18673; }
+    .token b { display: inline-grid; place-items: center; min-width: 1.35rem; min-height: 1.35rem; border: 1px solid currentColor; background: var(--panel); }
+    .token[data-active="true"] { outline: 2px solid currentColor; outline-offset: -2px; }
+    .operator { background: var(--night); color: var(--snow); }
+    .operator .index, .operator p { color: var(--soft); }
+    .slots { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: start; gap: .3rem; }
+    .slot { display: grid; align-content: start; gap: .3rem; min-height: 2.65rem; padding: .25rem; border: 1px dashed #7f9d8e; }
+    .slot:empty::after { content: '—'; color: var(--soft); padding: .13rem .35rem; }
+    #gate { color: var(--signal); padding-top: .55rem; }
+    #gate[data-value="miss"] { color: #ffd8bd; }
+    .bank { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; margin-top: .6rem; }
+    .bucket { border: 1px dashed #7f9d8e; min-height: 2.4rem; padding: .25rem .35rem; }
+    .bucket[data-active="true"] { border-color: var(--signal); border-style: solid; outline: 1px solid var(--signal); outline-offset: -2px; }
+    .bucket .index { color: var(--snow); }
+    .bucket ul { display: grid; gap: .3rem; }
+    .bucket ul:empty::after { content: 'Trống'; color: var(--soft); font-size: .74rem; }
+    .event { margin-top: .65rem; }
+    .event h3 { color: var(--signal); font-size: 1rem; }
+    .event p, .empty { font-size: .86rem; margin-top: .2rem; }
+    .empty { color: var(--quiet); }
+    .pair { display: grid; grid-template-columns: auto 1fr auto; gap: .4rem; align-items: baseline; padding: .35rem .45rem; border: 1px solid #6a917d; background: var(--green-wash); color: var(--green); font-size: .83rem; }
+    .pair.new { border-style: solid; box-shadow: inset 3px 0 var(--green); }
+    .flyer { position: fixed; z-index: 1; margin: 0; pointer-events: none; transform-origin: left top; }
+    details { margin-top: 1rem; color: var(--quiet); font-size: .89rem; }
+    summary { cursor: pointer; color: var(--green); font-weight: bold; }
+    details pre { padding: .5rem 0; overflow-x: auto; }
+    @media (min-width: 50rem) {
+      .stage { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.3fr) minmax(0, .8fr); min-height: 22rem; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="nav">
+      <span class="index">SQL / PHÒNG LAB / V2</span>
+      <div class="version"><a href="join-algorithms.html">So với V1: tô sáng bảng</a><a id="lesson" href="../../fundamentals/join-deep-dive/">Về bài học</a></div>
+    </div>
+    <h1>Đường đi của một dòng</h1>
+    <p class="intro">Theo dõi thẻ từ <strong>đầu vào</strong> sang <strong>bộ xử lý</strong> rồi tới <strong>kết quả</strong>. Ô vuông trên thẻ là khóa JOIN: <code>customers.id = orders.customer_id</code>.</p>
+  </header>
+  <noscript><p>Bật JavaScript để mô phỏng. Cả ba thuật toán trả về cùng các cặp khách/đơn: (1, 10), (1, 11), (2, 12).</p></noscript>
+  <div id="lab" hidden>
+    <div class="modes" role="group" aria-label="Chọn thuật toán">
+      <button data-mode="loop" aria-pressed="true">Nested Loop</button>
+      <button data-mode="hash" aria-pressed="false">Hash Join</button>
+      <button data-mode="merge" aria-pressed="false">Merge Join</button>
+    </div>
+    <div class="transport">
+      <div class="controls" role="group" aria-label="Điều khiển mô phỏng">
+        <button id="play">Chạy</button><button id="back">Bước trước</button><button id="next">Bước sau</button><button id="reset">Về đầu</button>
+      </div>
+      <label>Tốc độ <select id="speed"><option value="2600">0,5×</option><option value="1300" selected>1×</option><option value="650">2×</option></select></label>
+      <div class="scrub"><input id="seek" type="range" min="0" value="0" aria-label="Bước mô phỏng"><span id="progress" class="mono" aria-hidden="true"></span></div>
+    </div>
+    <div class="stage">
+      <section class="source" aria-labelledby="input-title">
+        <h2 id="input-title" class="section-title"><span class="index" aria-hidden="true">01</span> Đầu vào</h2>
+        <div class="decks">
+          <div><h3 class="mono" id="customers-title">customers</h3><ul id="customers" class="rows" aria-labelledby="customers-title"></ul></div>
+          <div><h3 class="mono" id="orders-title">orders</h3><ul id="orders" class="rows" aria-labelledby="orders-title"></ul></div>
+        </div>
+      </section>
+      <section class="operator" aria-labelledby="operator-title">
+        <h2 id="operator-title" class="section-title"><span class="index" aria-hidden="true">02</span> Bộ xử lý <span id="phase" class="index"></span></h2>
+        <div class="slots">
+          <ul class="slot" id="left" aria-label="Khách đang xét"></ul>
+          <strong id="gate" class="mono" aria-hidden="true">·</strong>
+          <ul class="slot" id="right" aria-label="Đơn đang xét"></ul>
+        </div>
+        <div id="bank" class="bank" aria-label="Bảng băm, h(key) = key % 2" hidden>
+          <div class="bucket"><span class="index" id="bucket-title-0">BUCKET 0</span><ul id="bucket-0" aria-labelledby="bucket-title-0"></ul></div>
+          <div class="bucket"><span class="index" id="bucket-title-1">BUCKET 1</span><ul id="bucket-1" aria-labelledby="bucket-title-1"></ul></div>
+        </div>
+        <div class="event" aria-live="polite" aria-atomic="true"><h3 id="action"></h3><p id="note"></p></div>
+      </section>
+      <section class="result" aria-labelledby="output-title">
+        <h2 id="output-title" class="section-title"><span class="index" aria-hidden="true">03</span> Kết quả <span id="count" class="index"></span></h2>
+        <p class="empty" id="empty">Chỉ cặp có khóa bằng nhau đi tiếp.</p>
+        <ul id="pairs" class="rows" aria-label="Các cặp INNER JOIN"></ul>
+      </section>
+    </div>
+  </div>
+  <details>
+    <summary>Câu SQL và phạm vi mô phỏng</summary>
+    <pre><code>SELECT c.id, c.name, o.id
+FROM customers c INNER JOIN orders o
+  ON c.id = o.customer_id;</code></pre>
+    <p>Cùng dữ liệu như V1: 3 khách, 4 đơn. Nested Loop ở đây không dùng index; Hash Join dùng hàm băm minh họa <code>key % 2</code>; Merge Join cần đầu vào có thứ tự khóa. Số bước mô phỏng không đo hiệu năng.</p>
+  </details>
+</main>
+<script>
+  'use strict';
+  const customers = [
+    { id: 'c3', label: 'Chi', key: 3 }, { id: 'c1', label: 'An', key: 1 }, { id: 'c2', label: 'Bình', key: 2 },
+  ];
+  const orders = [
+    { id: 'o10', label: '#10', key: 1 }, { id: 'o13', label: '#13', key: 9 },
+    { id: 'o12', label: '#12', key: 2 }, { id: 'o11', label: '#11', key: 1 },
+  ];
+  const sortKeys = (rows) => [...rows].sort((a, b) => a.key - b.key);
+  const sorted = { customers: sortKeys(customers), orders: sortKeys(orders) };
+  const hash = ({ key }) => key % 2;
+
+  // The trace records semantic actions, independent of playback or animation.
+  function makeTrace(action, note, run) {
+    const pairs = [];
+    const frames = [{ phase: 'SẴN SÀNG', action, note, pairs: [] }];
+    const add = (phase, action, note, state = {}) => {
+      if (state.pair) pairs.push(state.pair);
+      frames.push({ phase, action, note, ...state, pairs: [...pairs] });
+    };
+    function compare(c, o, state = {}) {
+      const match = c.key === o.key;
+      const { phase = 'SO KHÓA', note = '', ...rest } = state;
+      const compared = { ...rest, left: [c], right: [o], gate: match ? '=' : '≠' };
+      add(phase, `${c.key} ${match ? '=' : '≠'} ${o.key} · ${match ? 'Khớp khóa' : 'Không ghép'}`,
+        note || (match ? `${c.label} và đơn ${o.label} cùng khóa ${c.key}.` : `Bỏ qua cặp ${c.label} và ${o.label}.`), compared);
+      if (match) add('XUẤT', `Ghép ${c.label} với đơn ${o.label}`, 'Cặp khớp rời bộ xử lý và xuất hiện trong kết quả.',
+        { ...compared, pair: [c, o] });
+    }
+    run(add, compare);
+    return frames;
+  }
+  const traces = {
+    loop: makeTrace('Giữ khách, quét đơn', 'Bấm Bước sau. Quan sát thẻ khách đứng yên trong khi các đơn lần lượt đi qua.', (add, compare) => {
+      for (const c of customers) {
+        add('GIỮ KHÁCH', `Giữ ${c.label} ở vòng ngoài`, 'Quay về đầu danh sách orders và thử lần lượt từng đơn.', { left: [c] });
+        for (const o of orders) compare(c, o);
+      }
+      add('HOÀN TẤT', 'Cùng 3 cặp kết quả', 'Đã thử 3 × 4 = 12 cặp vì phiên bản này quét toàn bộ orders cho mỗi khách.');
+    }),
+    hash: makeTrace('Xây bucket trước, dò sau', 'Thẻ khách sẽ vào bucket theo id % 2. Chưa có kết quả ở pha Build.', (add, compare) => {
+      const buckets = [[], []];
+      const view = (bucket) => ({ buckets: buckets.map((entries) => [...entries]), bucket });
+      for (const c of customers) {
+        const b = hash(c);
+        buckets[b].push(c);
+        add('BUILD', `Đưa ${c.label} vào bucket ${b}`, `${c.key} % 2 = ${b}. Lưu thẻ cùng khóa thật.`, { ...view(b), build: c });
+      }
+      for (const o of orders) {
+        const b = hash(o);
+        add('PROBE', `Đơn ${o.label} dò bucket ${b}`, `${o.key} % 2 = ${b}. Trùng bucket chưa phải trùng khóa.`, { ...view(b), right: [o] });
+        for (const c of buckets[b]) {
+          compare(c, o, { ...view(b), phase: 'PROBE · SO KHÓA',
+            note: c.key === o.key ? '' : `Cùng bucket ${b}, nhưng khóa ${c.key} khác khóa ${o.key}.` });
+        }
+      }
+      add('HOÀN TẤT', 'Cùng 3 cặp kết quả', 'Đơn #13 dò bucket 1 nhưng không có khóa 9, nên không sinh kết quả.', view());
+    }),
+    merge: makeTrace('Sắp xếp trước khi ghép', 'Hai dãy dùng chung thứ tự tăng dần của khóa JOIN.', (add, compare) => {
+      add('CHUẨN BỊ', 'Xếp cả hai dãy theo khóa', 'Trong database, thứ tự có thể đến từ index scan phù hợp hoặc bước Sort.', { sorted: true });
+      const { customers: left, orders: right } = sorted;
+      let i = 0;
+      let j = 0;
+      while (i < left.length && j < right.length) {
+        const c = left[i];
+        const o = right[j];
+        if (c.key !== o.key) {
+          const advanceLeft = c.key < o.key;
+          const gate = advanceLeft ? '<' : '>';
+          add('DỊCH CON TRỎ', `${c.key} ${gate} ${o.key} · tiến bên ${advanceLeft ? 'customers' : 'orders'}`,
+            'Dãy bên kia đã sắp xếp, nên dòng có khóa nhỏ hơn không thể khớp với bất kỳ dòng nào còn lại ở đó.',
+            { sorted: true, left: [c], right: [o], gate });
+          if (advanceLeft) i++;
+          else j++;
+          continue;
+        }
+        const groupL = [];
+        const groupR = [];
+        while (left[i]?.key === c.key) groupL.push(left[i++]);
+        while (right[j]?.key === o.key) groupR.push(right[j++]);
+        add('GOM NHÓM', `Giữ cả hai nhóm khóa ${c.key}`, `Ghép đủ ${groupL.length} × ${groupR.length} cặp rồi mới chuyển sang nhóm khác.`,
+          { sorted: true, left: groupL, right: groupR, gate: '=' });
+        for (const a of groupL) for (const b of groupR) compare(a, b, { sorted: true, phase: 'GHÉP TRONG NHÓM' });
+      }
+      add('HOÀN TẤT', 'Cùng 3 cặp kết quả', `Đã đi hết dãy ${i === left.length ? 'customers' : 'orders'}.`, { sorted: true });
+    }),
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const motion = matchMedia('(prefers-reduced-motion: reduce)');
+  const modes = [...document.querySelectorAll('[data-mode]')];
+  const flyers = new Set();
+  let mode = 'loop';
+  let step = 0;
+  let timer = null;
+  const last = () => traces[mode].length - 1;
+  const labelPlay = () => { $('play').textContent = timer !== null ? 'Tạm dừng' : step === last() ? 'Chạy lại' : 'Chạy'; };
+
+  function token(row) {
+    const node = document.createElement('li');
+    node.className = `token ${row.id.startsWith('c') ? 'customer' : 'order'}`;
+    node.dataset.row = row.id;
+    const name = document.createElement('span');
+    const key = document.createElement('b');
+    name.textContent = row.label;
+    key.textContent = row.key;
+    key.setAttribute('aria-label', `Khóa ${row.key}`);
+    node.append(name, key);
+    return node;
+  }
+  function output([c, o]) {
+    const node = document.createElement('li');
+    node.className = 'pair';
+    node.dataset.row = `${c.id}-${o.id}`;
+    const key = document.createElement('code');
+    const name = document.createElement('strong');
+    const order = document.createElement('code');
+    key.textContent = c.key;
+    name.textContent = c.label;
+    order.textContent = o.label;
+    node.append(key, name, order);
+    return node;
+  }
+  function clearMotion() {
+    for (const flyer of flyers) flyer.remove();
+    flyers.clear();
+    $('lab').getAnimations({ subtree: true }).forEach((animation) => animation.cancel());
+  }
+  motion.addEventListener('change', clearMotion);
+  function renderRows(id, data, create = token) {
+    const list = $(id);
+    const nodes = new Map([...list.children].map((child) => [child.dataset.row, child]));
+    const keep = data.map((row) => {
+      const key = row.id ?? `${row[0].id}-${row[1].id}`;
+      return nodes.get(key) ?? create(row);
+    });
+    if (keep.length !== list.children.length || keep.some((node, i) => list.children[i] !== node)) list.replaceChildren(...keep);
+    return keep;
+  }
+  function flip(node, old) {
+    const now = node.getBoundingClientRect();
+    if (old && old.top !== now.top) node.animate([
+      { transform: `translateY(${old.top - now.top}px)` }, { transform: 'none' },
+    ], { duration: 500, easing: 'cubic-bezier(.22,1,.36,1)' });
+  }
+  function fly(from, target, delay = 0) {
+    if (!from?.height) return;
+    const end = target.getBoundingClientRect();
+    if (!end.height || [from, end].some((rect) => rect.bottom < 0 || rect.top > innerHeight)) return;
+    const ghost = target.cloneNode(true);
+    ghost.classList.add('flyer');
+    ghost.setAttribute('aria-hidden', 'true');
+    Object.assign(ghost.style, { left: `${from.left}px`, top: `${from.top}px`, width: `${end.width}px` });
+    document.body.append(ghost);
+    flyers.add(ghost);
+    const route = ghost.animate([
+      { opacity: 0, transform: 'scale(.92)' },
+      { opacity: 1, offset: .13, transform: `translate(${(end.left - from.left) * .12}px, ${(end.top - from.top) * .12}px) scale(.98)` },
+      { opacity: 1, transform: `translate(${end.left - from.left}px, ${end.top - from.top}px)` },
+    ], { duration: 420, delay, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'backwards' });
+    target.animate([{ opacity: .15 }, { opacity: 1 }], { duration: 150, delay: delay + 310, fill: 'backwards' });
+    const remove = () => { ghost.remove(); flyers.delete(ghost); };
+    route.onfinish = remove;
+    route.oncancel = remove;
+  }
+  function render(previous = null) {
+    clearMotion();
+    const frame = traces[mode][step];
+    const moving = previous && !motion.matches;
+    const rects = (selector) => new Map([...document.querySelectorAll(selector)].map((node) => [node.dataset.row, node.getBoundingClientRect()]));
+    const sourceRects = moving ? rects('.source [data-row]') : new Map();
+    const binRects = moving ? rects('.bank [data-row]') : new Map();
+    const gateRect = moving ? $('gate').getBoundingClientRect() : null;
+    const inputs = frame.sorted ? sorted : { customers, orders };
+    const inputNodes = [...renderRows('customers', inputs.customers), ...renderRows('orders', inputs.orders)];
+    const left = renderRows('left', frame.left ?? []);
+    const right = renderRows('right', frame.right ?? []);
+    const pairs = renderRows('pairs', frame.pairs, output);
+    const active = new Set([...(frame.left ?? []), ...(frame.right ?? []), ...(frame.build ? [frame.build] : [])].map(({ id }) => id));
+    const arrived = (id, items = []) => !items.some((row) => row.id === id);
+    $('bank').hidden = mode !== 'hash';
+    $('phase').textContent = frame.phase;
+    $('action').textContent = frame.action;
+    $('note').textContent = frame.note;
+    $('gate').textContent = frame.gate ?? '·';
+    $('gate').dataset.value = frame.gate && frame.gate !== '=' ? 'miss' : '';
+    $('count').textContent = `${pairs.length} CẶP`;
+    $('empty').hidden = pairs.length !== 0;
+    $('seek').max = last();
+    $('seek').value = step;
+    $('seek').setAttribute('aria-valuetext', `Bước ${step} trên ${last()}`);
+    $('progress').textContent = `${step} / ${last()}`;
+    $('next').disabled = step === last();
+    $('back').disabled = step === 0;
+    labelPlay();
+    for (const node of inputNodes) {
+      node.dataset.active = active.has(node.dataset.row);
+      if (moving && frame.sorted !== previous.sorted) flip(node, sourceRects.get(node.dataset.row));
+    }
+    for (const index of [0, 1]) {
+      const list = $(`bucket-${index}`);
+      list.parentElement.dataset.active = frame.bucket === index;
+      for (const node of renderRows(list.id, frame.buckets?.[index] ?? [])) {
+        if (moving && arrived(node.dataset.row, previous.buckets?.[index])) fly(sourceRects.get(node.dataset.row), node);
+      }
+    }
+    let delay = 0;
+    if (moving) {
+      for (const [nodes, old] of [[left, previous.left], [right, previous.right]]) {
+        for (const node of nodes) {
+          if (!arrived(node.dataset.row, old)) continue;
+          fly(binRects.get(node.dataset.row) ?? sourceRects.get(node.dataset.row), node, delay);
+          delay = Math.min(delay + 60, 180);
+        }
+      }
+    }
+    for (const [index, node] of pairs.entries()) node.classList.toggle('new', !!frame.pair && index === pairs.length - 1);
+    if (moving && frame.pair) fly(gateRect, pairs.at(-1));
+  }
+  function stop() {
+    clearTimeout(timer);
+    timer = null;
+    labelPlay();
+  }
+  function forward() {
+    const previous = traces[mode][step++];
+    if (step === last()) stop();
+    render(previous);
+  }
+  function schedule() {
+    timer = setTimeout(() => { forward(); if (timer !== null) schedule(); }, Number($('speed').value));
+    labelPlay();
+  }
+  function seek(index) { stop(); step = index; render(); }
+  $('play').onclick = () => {
+    if (timer !== null) { stop(); return; }
+    if (step === last()) seek(0);
+    forward();
+    if (step < last()) schedule();
+  };
+  $('next').onclick = () => { stop(); forward(); };
+  $('back').onclick = () => seek(step - 1);
+  $('reset').onclick = () => seek(0);
+  $('seek').oninput = () => seek(Number($('seek').value));
+  $('speed').onchange = () => { if (timer !== null) { stop(); schedule(); } };
+  for (const button of modes) button.onclick = () => {
+    if (mode === button.dataset.mode) return;
+    mode = button.dataset.mode;
+    for (const candidate of modes) candidate.setAttribute('aria-pressed', String(candidate === button));
+    seek(0);
+  };
+  if (location.protocol === 'file:') $('lesson').hidden = true;
+  $('lab').hidden = false;
+  render();
+</script>
+</body>
+</html>

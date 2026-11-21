@@ -11,7 +11,10 @@ Mở các đoạn code trong bài
 
 Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ngữ cảnh và database của từng mục; không chạy nối tiếp tất cả như một script.
 
-[**Mở phòng lab mô phỏng ba thuật toán JOIN**](/labs/join-algorithms.html). Chạy tự động hoặc đi từng bước để xem Nested Loop quét lại `orders`, Hash Join xử lý va chạm băm và Merge Join ghép đủ các đơn có cùng khóa. Cả ba dùng cùng một câu `INNER JOIN`.
+Hai phiên bản phòng lab dùng cùng câu `INNER JOIN` và cùng dữ liệu để bạn dễ so sánh:
+
+- **V1 — Tô sáng bảng:** [Mở phòng lab mô phỏng ba thuật toán JOIN](/labs/join-algorithms.html) để theo dõi các dòng đang được xét ngay trong bảng.
+- **V2 — Thẻ di chuyển:** [Theo dõi đường đi của một dòng](/labs/join-algorithms-v2.html) để xem từng dòng vào bộ xử lý, vào bucket hoặc ghép thành một cặp kết quả.
 
 ## Mục lục
 
