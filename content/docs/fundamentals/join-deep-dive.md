@@ -256,10 +256,16 @@ Nếu quét thô (không index): chi phí = `số row outer × số row inner` =
 
 ### 4.3. Cứu tinh: Index trên bảng inner
 
-Vòng ngoài vẫn lấy từng khách. **Index chỉ thay đổi cách vòng trong tìm đơn:** thay vì thử mọi dòng `orders`, database dùng `c.id` để tra đúng khóa `orders.customer_id`. Câu `JOIN ... ON c.id = o.customer_id` không đổi; index dưới đây chỉ bổ sung một cách truy cập để optimizer cân nhắc:
+Vòng ngoài vẫn lấy từng khách. **Index chỉ thay đổi cách vòng trong tìm đơn:** thay vì thử mọi dòng `orders`, database dùng `c.id` để tra đúng khóa `orders.customer_id`. Chạy cùng câu `SELECT` trước và sau khi tạo index để so sánh. Index bổ sung một cách tìm đơn cho optimizer, không đổi điều kiện JOIN hay kết quả:
 
 ```sql
+-- Tạo index trên cột JOIN của bảng orders (inner).
 CREATE INDEX idx_orders_customer ON orders (customer_id);
+
+-- Câu SELECT của mô phỏng: lấy tên khách và mã đơn khớp.
+SELECT c.id AS customer_id, c.name, o.id AS order_id
+FROM customers AS c
+INNER JOIN orders AS o ON c.id = o.customer_id;
 ```
 
 Thử **Quét từng đơn**, rồi chuyển sang **Tra index**. Với An (`id = 1`), cách quét phải thử cả bốn đơn; cách tra index tìm khóa `1` và lấy thẳng đơn `#10` và `#11`. Với Chi (`id = 3`), index không có khóa tương ứng nên không cần lấy dòng nào từ `orders`.

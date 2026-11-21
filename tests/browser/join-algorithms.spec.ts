@@ -12,7 +12,8 @@ test('the article renders the simulation inline and all three algorithms emit th
   await expect.poll(() => decodeURIComponent(new URL(page.url()).hash)).toBe(`#${headingId}`);
   const heading = page.locator(`#${headingId}`);
   await expect(heading).toBeVisible();
-  const query = page.locator('#nd-page pre').filter({ hasText: 'c.id AS customer_id, c.name, o.id AS order_id' });
+  const query = page.locator('#nd-page pre').filter({ hasText: 'c.id AS customer_id, c.name, o.id AS order_id' })
+    .filter({ hasNotText: 'CREATE INDEX' });
   await expect(query).toContainText('INNER JOIN orders AS o ON c.id = o.customer_id');
   const lab = page.locator('#nd-page').getByRole('region', { name });
   expect(await query.evaluate((node) => Boolean(node.compareDocumentPosition(document.getElementById('join-animation')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
@@ -99,6 +100,8 @@ test('4.3 shows an indexed lookup skipping nonmatching orders without changing r
   await page.setViewportSize({ width: 1440, height: 1080 });
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.goto(`${article}#nested-loop-index-animation`);
+  const sql = page.locator('#nd-page pre').filter({ hasText: 'CREATE INDEX idx_orders_customer ON orders (customer_id);' });
+  await expect(sql).toContainText('INNER JOIN orders AS o ON c.id = o.customer_id');
   const lab = page.getByRole('region', { name: 'So sánh Nested Loop có và không dùng index' });
   const next = lab.getByRole('button', { name: 'Bước sau' });
   const output = lab.locator('[data-zone="output"] [data-row]');
