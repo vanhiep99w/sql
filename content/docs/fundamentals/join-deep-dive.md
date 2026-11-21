@@ -19,6 +19,8 @@ Các file trong Source Explorer là **snippet độc lập**, giữ nguyên ng�
 - [Các loại JOIN vật lý](#các-loại-join-vật-lý)
 - [Nested Loop Join — Thuật toán đơn giản nhất](#4-nested-loop-join--thuật-toán-đơn-giản-nhất)
 - [Hash Join — Vũ khí cho bảng lớn không sắp xếp](#5-hash-join--vũ-khí-cho-bảng-lớn-không-sắp-xếp)
+  - [Chọn phía build và giữ khóa trùng](#511-chọn-phía-build-và-giữ-khóa-trùng)
+  - [Tìm đúng dòng trong bucket](#512-tìm-đúng-dòng-trong-bucket)
 - [Merge Join — Khi dữ liệu đã sắp xếp sẵn](#6-merge-join--khi-dữ-liệu-đã-sắp-xếp-sẵn)
 - [Bảng so sánh 3 thuật toán](#7-bảng-so-sánh-3-thuật-toán)
 - [Optimizer chọn thuật toán nào — Cost model](#8-optimizer-chọn-thuật-toán-nào--cost-model)
@@ -323,9 +325,9 @@ Hash Join gồm **2 pha**:
 
 ```d2 title="Hash Join gồm hai pha"
 direction: right
-n0: "BUILD: chọn bảng nhỏ hơn"
-n1: "Đọc và băm cột join → hash table trong RAM"
-n2: "PROBE: đọc bảng lớn từng row"
+n0: "BUILD: đọc đầu vào được chọn để dựng bảng băm"
+n1: "Băm khóa JOIN → đưa từng dòng vào bucket"
+n2: "PROBE: đọc từng dòng của đầu vào còn lại"
 n3: "Băm cột join → tra hash table"
 n4: "Khớp thì xuất kết quả"
 n0 -> n1 -> n2 -> n3 -> n4
@@ -352,15 +354,30 @@ o9 -> miss
 >
 > PostgreSQL không cố định hai bucket. Số bucket được chọn dựa trên số dòng ước tính ở phía build và ngân sách bộ nhớ, và có thể thay đổi lúc chạy. Ví dụ ở [mục 5.4](#54-explain-thực-tế), `Buckets: 131072` nghĩa là **131.072 ngăn**; `Batches: 4` nghĩa là **4 lô xử lý**, không phải 4 ngăn hay 4 bảng.
 
+#### 5.1.1. Chọn phía build và giữ khóa trùng
+
+Với `ON c.id = o.customer_id`, optimizer thường chọn đầu vào ước tính nhỏ hơn **sau khi lọc** để build. Nó cân nhắc cả số dòng, độ rộng dòng và chi phí của plan, không chỉ kích thước bảng gốc. Trong PostgreSQL, nhìn đầu vào của node `Hash` ở [mục 5.4](#54-explain-thực-tế) để biết phía nào được chọn.
+
+Giả sử `orders` là phía **build**: database dùng các dòng đơn hàng để dựng bảng băm và băm theo **`orders.customer_id`**, không phải mã đơn `orders.id`. Nếu đơn `#10` và `#11` đều có `customer_id = 1`, chúng vào cùng bucket nhưng vẫn là **hai mục riêng**, không ghi đè nhau. Khi `customers` làm phía **probe**, khách An (`id = 1`) ghép với cả hai đơn. Nếu hai phía có lần lượt 2 và 3 dòng cùng một khóa, `INNER JOIN` xuất đủ **2 × 3 = 6 cặp** cho khóa đó.
+
+#### 5.1.2. Tìm đúng dòng trong bucket
+
+Giả sử khóa đang dò là `1`, hash đầy đủ là `101`, và ta chọn bucket bằng `hash % 2`. Đây là số minh họa, không phải giá trị hash thật của PostgreSQL. Cả hash `101` và `103` đều dẫn tới **bucket `1`**. Khi duyệt từng mục trong bucket, PostgreSQL so hash đầy đủ **trước khi so khóa thật**:
+
+| Mục trong bucket `1` | PostgreSQL làm gì? |
+| --- | --- |
+| Hash `103`, khóa `3` | `103 ≠ 101`: bỏ mục này mà không cần so khóa. |
+| Hash `101`, khóa `1` | Hash trùng: so khóa `1 = 1` rồi xuất cặp khớp. |
+
+Hash trùng **chưa đủ** để kết luận khóa trùng. Ngược lại, nếu nhiều dòng thật sự có cùng khóa, Hash Join phải xuất đủ các cặp khớp. Tăng số bucket có thể giảm va chạm giữa các khóa khác nhau, nhưng không tách các dòng có cùng khóa.
+
 ### 5.2. Vì sao nhanh
 
-Tra hash table là **O(1)**. Toàn bộ chỉ cần **đọc mỗi bảng đúng 1 lần**:
+Với khóa có kích thước cố định, tính hash và chọn bucket thường là `O(1)`. Nhưng nếu bucket có `k` mục, lượt dò của `INNER JOIN` có thể phải duyệt cả `k` mục, tức `O(k)`. Ví dụ, bucket có 1.000 mục thì tìm được bucket không có nghĩa là bỏ qua 1.000 mục đó; bước so hash chỉ giúp loại nhanh các mục có hash khác.
 
-```
-Chi phí ≈ (số row build) + (số row probe)      -- tuyến tính!
-```
+Bảng băm là cấu trúc tạm, thường được **dựng lại mỗi lần chạy query**; tái sử dụng execution plan không đồng nghĩa tái sử dụng bảng băm. Pha build phải đọc và băm từng dòng phía build, và nếu thiếu bộ nhớ còn có thể phải ghi batch ra đĩa. Đổi lại, mỗi dòng probe chỉ cần dò một bucket thay vì quét lại toàn bộ phía build.
 
-So với Nested Loop `outer × inner`, Hash Join thắng áp đảo khi **cả hai bảng lớn** và **không có index** phù hợp (hoặc index không giúp vì phải quét gần hết bảng).
+Khi hash phân bố tốt và bảng băm vừa bộ nhớ, tổng chi phí kỳ vọng gần `O(số dòng build + số dòng probe + số cặp khớp)`. Đây là lợi thế so với Nested Loop quét thô, nhất là khi cả hai đầu vào lớn và không có index phù hợp.
 
 ### 5.3. Cái giá: RAM và không tận dụng order
 
