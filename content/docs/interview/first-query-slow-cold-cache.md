@@ -118,6 +118,10 @@ Thang thời gian để cảm nhận khoảng cách (ước lượng):
 > [!IMPORTANT]
 > Một query đụng 5,000 page. Nếu tất cả trong buffer pool: `5,000 × 100ns = 0.5ms`. Nếu tất cả phải đọc random từ HDD: `5,000 × 8ms = 40 giây`. Cùng plan, cùng index — chênh nhau **gần 100,000 lần** chỉ vì page nóng hay lạnh. Con số "2s lần đầu, 50ms lần sau" của bạn nằm gọn trong khoảng này.
 
+Chuyển qua lại giữa **Lần chạy 1 (Cold Cache)** và **Lần chạy 2 (Warm Cache)** trong mô phỏng dưới đây để theo dõi dòng chảy `shared read` vs `shared hit` qua Buffer Pool, OS Page Cache và Disk:
+
+<ColdWarmCacheAnimation />
+
 ---
 
 ## 5. Lần chạy đầu tiên đi qua những đâu — từng bước

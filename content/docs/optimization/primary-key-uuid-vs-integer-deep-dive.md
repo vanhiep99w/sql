@@ -495,6 +495,10 @@ b1: "UUIDv4 random" {
 
 Không mặc định sequential luôn 100% full hoặc UUIDv4 luôn 50%. Occupancy còn phụ thuộc fillfactor, chính sách split và lịch sử workload.
 
+Chạy từng bước trong mô phỏng bên dưới để so sánh trực tiếp **Sequential (BIGSERIAL / UUIDv7)** với **UUIDv4 (Random Insert)** trên cùng cây B+Tree mẫu — quan sát số lần page split, độ đầy trung bình và mức độ phân mảnh:
+
+<PrimaryKeySplitAnimation />
+
 Postgres `pgstattuple` đo được:
 
 ```sql

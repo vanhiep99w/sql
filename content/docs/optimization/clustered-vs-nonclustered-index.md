@@ -282,6 +282,10 @@ Leaf entry thường chứa:
 nonclustered key + row locator + included columns nếu có
 ```
 
+Chuyển qua lại bốn chế độ trong mô phỏng bên dưới để theo dõi đường đi từ index tới row thật của **Clustered (InnoDB PK)**, **PostgreSQL Heap CTID**, **InnoDB Secondary Double Lookup** và **Covering Index (Index-Only Scan)**:
+
+<ClusteredLookupAnimation />
+
 ### Row locator là gì
 
 **Row locator** là thông tin giúp database đi từ leaf của nonclustered index tới row thật.

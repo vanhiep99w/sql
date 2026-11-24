@@ -164,6 +164,10 @@ Khi **UPDATE** xảy ra:
 2. Row mới được INSERT với `xmin = txid_current`, `xmax = 0`.
 3. Cả hai version **đều nằm trong heap**.
 
+Chạy từng bước trong mô phỏng dưới đây để quan sát **Snapshot `xmin/xmax` của PostgreSQL**, cơ chế **HOT vs Non-HOT Update** và so sánh **Heap Versioning với InnoDB Undo Log**:
+
+<MvccSnapshotAnimation />
+
 ### Transaction Snapshot
 
 PostgreSQL dùng cùng tên `xmin` và `xmax` cho **row version** và **snapshot**, nhưng ý nghĩa của chúng khác nhau:

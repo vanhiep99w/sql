@@ -381,6 +381,10 @@ LIMIT 10 OFFSET 20   -- Lấy 10 row, bỏ 20 row đầu (trang 3)
 
 ---
 
+Bấm **Bước sau** trong mô phỏng dưới đây để xem bảng dữ liệu mẫu biến đổi qua từng bước **`FROM/JOIN → WHERE → GROUP BY → HAVING → SELECT → ORDER BY/LIMIT`** (và so sánh filter `ON` vs `WHERE` trong `LEFT JOIN`):
+
+<QueryPipelineAnimation />
+
 ## Giai đoạn 3 — Sau khi thực thi
 
 ### Bước 15 — Result Formatting

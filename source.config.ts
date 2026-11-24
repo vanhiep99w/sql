@@ -7,6 +7,8 @@ import { remarkProtocolExchange } from '@vanhiep99w/docs-kit/protocol-exchange';
 import { remarkSpanWaterfall } from '@vanhiep99w/docs-kit/span-waterfall';
 import { remarkSourceRefs } from './scripts/remark-source-refs.mjs';
 import { remarkJoinAnimation } from './scripts/remark-join-animation';
+import { remarkBTreeAnimation } from './scripts/remark-btree-animation';
+import { remarkSqlAnimations } from './scripts/remark-sql-animations';
 import { visit } from 'unist-util-visit';
 
 const admonitionTypeMap: Record<string, string> = {
@@ -63,6 +65,8 @@ export default defineConfig({
       remarkGithubCallouts,
       remarkSourceRefs,
       remarkJoinAnimation,
+      remarkBTreeAnimation,
+      remarkSqlAnimations,
       remarkCodeWalkthrough,
       remarkCodeDiff,
       remarkTerminalSession,

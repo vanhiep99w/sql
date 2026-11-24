@@ -446,6 +446,10 @@ index -> page.item: index không đổi
 > [!IMPORTANT]
 > Nếu bạn update cột không có index, mà page còn free space → HOT kích hoạt → cực nhanh. **Nếu bạn update bất kỳ cột nào đang được index → HOT bị vô hiệu → mọi index bị cập nhật**.
 
+So sánh trực tiếp **Non-HOT Update** (phải ghi thêm entry vào mọi index) với **HOT Update** (giữ nguyên toàn bộ index nhờ chuỗi redirect nội bộ trong Page) ở mô phỏng bên dưới:
+
+<HotUpdateAnimation />
+
 ### 5.4. Ví dụ — khi HOT vs non-HOT
 
 ```sql

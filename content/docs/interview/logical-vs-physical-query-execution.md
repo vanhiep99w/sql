@@ -800,6 +800,10 @@ WHERE o.status = 'paid';
 
 PostgreSQL/MySQL có thể nhận ra null-rejecting predicate và thật sự đổi outer join thành inner join trong plan.
 
+Chạy từng bước trong mô phỏng bên dưới trên đúng bộ dữ liệu mẫu `(An, Bình, Chi)` để thấy tận mắt vì sao đặt `o.status = 'paid'` trong **`ON`** giữ lại 3 customer còn đặt trong **`WHERE`** xóa sạch Bình và Chi:
+
+<LeftJoinFilterAnimation />
+
 ### 10.4. Bẫy filter bên trái trong ON của LEFT JOIN
 
 Giả sử muốn chỉ lấy customer ở Việt Nam:

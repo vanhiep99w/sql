@@ -559,6 +559,10 @@ Nếu bắt buộc scatter-gather, hãy giới hạn blast radius:
 - Rate-limit các admin/report query nặng.
 - Cache kết quả aggregate khi có thể.
 
+So sánh ba trạng thái định tuyến trong mô phỏng tương tác dưới đây: **Single-Shard Lookup**, **Scatter-Gather (tail latency theo shard chậm nhất)** và **Hot Shard (lệch tải do celebrity key)**:
+
+<ShardingRoutingAnimation />
+
 ## Hot shard và hot key
 
 Hash tốt chỉ phân phối **nhiều key** gần đều. Nó không thể làm một key đơn lẻ tự nhiên bớt nóng.

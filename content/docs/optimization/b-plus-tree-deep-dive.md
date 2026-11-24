@@ -464,6 +464,10 @@ Kết quả là:
 
 Database chỉ đi từ root xuống một lần. Sau đó nó đi ngang qua các leaf liền kề.
 
+Bấm **Bước sau** trong mô phỏng dưới đây để so sánh hai thao tác trên cùng một cây mẫu: **Tìm chính xác (`id = 42`)** và **Quét khoảng (`BETWEEN 35 AND 75`)**. Để ý ở chế độ quét khoảng, database chỉ đọc `Root` đúng một lần rồi trượt ngang qua sibling link từ `Leaf B` sang `Leaf C` và dừng ngay tại `90`:
+
+<BTreeSearchAnimation />
+
 Cơ chế tương tự giúp `ORDER BY` và `LIMIT` chạy nhanh khi thứ tự index phù hợp:
 
 ```sql
@@ -582,6 +586,10 @@ n0 -> n1 -> n2
 Đây là cách duy nhất cây cao thêm một tầng.
 
 Page split làm `INSERT` tốn thêm I/O. Tuy nhiên, split không xảy ra ở mọi lần insert. Nó chỉ cần thiết khi page đích không đủ chỗ.
+
+Chạy từng bước trong mô phỏng bên dưới để so sánh ba tình huống khi chèn `47`: **leaf còn chỗ**, **leaf đầy (Leaf Split)** và **cả leaf lẫn root đều đầy (Root Split tăng chiều cao từ 2 lên 3 tầng)**:
+
+<BTreeSplitAnimation />
 
 <Callout type="warn" title="Không nên hiểu quá máy móc">
   Database thực tế có chiến lược chọn điểm split riêng. Hai page sau split không bắt buộc luôn đầy đúng 50 phần trăm.

@@ -18,6 +18,20 @@ import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 import { TypeTable } from 'fumadocs-ui/components/type-table';
 import type { Metadata } from 'next';
 import { HashBucketAnimation, JoinAnimation, NestedLoopIndexAnimation } from '@/components/join-animation/join-animation';
+import { BTreeSearchAnimation, BTreeSplitAnimation } from '@/components/btree-animation/btree-animation';
+import {
+  ClusteredLookupAnimation,
+  CompositeIndexAnimation,
+  LikePatternAnimation,
+  OffsetPaginationAnimation,
+  PrimaryKeySplitAnimation,
+} from '@/components/btree-animation/extended-btree';
+import { SkipLockedAnimation } from '@/components/sql-workbench/skip-locked-animation';
+import { HotUpdateAnimation, MvccSnapshotAnimation, VacuumBloatAnimation } from '@/components/sql-workbench/mvcc-vacuum-animation';
+import { IsolationAnomalyAnimation, LockMechanicsAnimation } from '@/components/sql-workbench/concurrency-animation';
+import { PartitionPruningAnimation, ShardingRoutingAnimation } from '@/components/sql-workbench/distribution-animation';
+import { LeftJoinFilterAnimation, QueryPipelineAnimation } from '@/components/sql-workbench/query-pipeline-animation';
+import { ColdWarmCacheAnimation } from '@/components/sql-workbench/cold-cache-animation';
 
 export default async function Page({
   params,
@@ -38,6 +52,13 @@ export default async function Page({
         <MDX components={{
           ...defaultMdxComponents,
           D2Diagram, D2InteractiveDiagram, JoinAnimation, NestedLoopIndexAnimation, HashBucketAnimation,
+          BTreeSearchAnimation, BTreeSplitAnimation,
+          PrimaryKeySplitAnimation, CompositeIndexAnimation, ClusteredLookupAnimation,
+          LikePatternAnimation, OffsetPaginationAnimation,
+          SkipLockedAnimation, MvccSnapshotAnimation, HotUpdateAnimation, VacuumBloatAnimation,
+          IsolationAnomalyAnimation, LockMechanicsAnimation,
+          PartitionPruningAnimation, ShardingRoutingAnimation,
+          QueryPipelineAnimation, LeftJoinFilterAnimation, ColdWarmCacheAnimation,
           CodeWalkthrough, CodeDiff, TerminalSession, ProtocolExchange, SpanWaterfall,
           SourceRef, Callout, Card, Cards, Step, Steps, Tab, Tabs, Accordion, Accordions, TypeTable,
         }} />

@@ -356,6 +356,10 @@ WHERE status = 'pending' AND customer_id = 90341    -- ✅ dùng index (cust, st
 
 Cái quan trọng là **cột nào có mặt** trong WHERE, không phải thứ tự bạn viết. Optimizer luôn cố ghép predicate vào prefix của index.
 
+Bấm **Bước sau** trong mô phỏng dưới đây để so sánh ba kịch bản trên cùng composite index `(a, b, c)`: **đủ Leftmost Prefix**, **có gap/range chặn cột sau (Access vs Filter)** và **vi phạm Leftmost**:
+
+<CompositeIndexAnimation />
+
 ---
 
 ## 4. Access Predicate vs Filter Predicate trên composite index

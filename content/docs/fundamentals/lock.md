@@ -361,6 +361,10 @@ A -> R2: "Chờ lock"
 B -> R1: "Chờ lock"
 ```
 
+Theo dõi từng bước quá trình hình thành chu trình **Deadlock (Wait-For Graph)** và cách **Gap / Next-Key Lock** của InnoDB chặn `INSERT 15M` trong mô phỏng bên dưới:
+
+<LockMechanicsAnimation />
+
 ### Cách phát hiện
 
 - **Wait-for graph**: database xây dựng đồ thị chờ, nếu phát hiện **cycle** → deadlock.

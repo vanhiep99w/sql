@@ -131,6 +131,10 @@ b2: "Merge Join" {
 
 Mô hình phổ biến: Simple Nested Loop O(N×M); Index Nested Loop có chi phí các lookup; Hash build/probe trung bình O(N+M) cộng output; Merge trên input đã sort O(N+M) cộng output. Dữ liệu skew, spill và số cặp output có thể thay đổi chi phí thực tế.
 
+Chạy mô phỏng tương tác bên dưới để quan sát từng bước cách **Nested Loop**, **Hash Join** và **Merge Join** xử lý cùng một tập dữ liệu:
+
+<JoinAnimation />
+
 ---
 
 ## 3. Nested Loop Join — Chi tiết
@@ -162,6 +166,10 @@ output -> next_inner
 | Simple | Scan inner cho mỗi outer row | O(N×M) cộng output |
 | Index | Lookup index inner | Chi phí N lần lookup cộng output |
 | Block / BKA | Buffer nhiều outer rows, giảm việc đọc hoặc lookup lặp | Theo batch và access path |
+
+So sánh trực quan **Nested Loop quét tuần tự** và **Index Nested Loop** trên cùng dữ liệu mẫu:
+
+<NestedLoopIndexAnimation />
 
 ### Simple Nested Loop vs Index Nested Loop
 
@@ -293,6 +301,10 @@ probe: "2. PROBE — Orders, ví dụ 5M rows" {
 ```
 
 Build: băm key của mỗi row bảng build, đưa row vào bucket. Probe: băm key của row input còn lại, duyệt bucket và **so key thật** để xử lý hash collision trước khi emit. Chi phí build/probe trung bình O(N+M), cộng chi phí output; memory phụ thuộc build input và overhead. Spill/skew có thể làm tăng chi phí.
+
+Theo dõi chi tiết cách Hash Join xử lý **hash collision** và **khóa trùng hai bên** trong mô phỏng dưới đây:
+
+<HashBucketAnimation />
 
 ### Grace Hash Join — Khi hash table không vừa memory
 

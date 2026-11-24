@@ -607,6 +607,10 @@ q3 -> p4
 
 Tổng dữ liệu minh họa là 150 triệu rows. Q1 giữ partition 40M rows; Q2 giữ 35M + 40M = 75M rows; Q3 không loại bỏ partition bằng điều kiện `customer_id` này. Tỷ lệ 150/40 hoặc 150/75 chỉ mô tả lượng dữ liệu trong các partition, **không cam kết query nhanh hơn cùng tỷ lệ**; index trong partition còn có thể giảm lượng rows thực đọc.
 
+Chuyển đổi giữa hai kịch bản trong mô phỏng bên dưới để quan sát **Partition Pruning** loại bỏ 3/4 partition không liên quan, so với việc bọc hàm làm mất pruning:
+
+<PartitionPruningAnimation />
+
 ### Điều kiện để Pruning hoạt động
 
 | Condition Type | RANGE Partition | LIST Partition | HASH Partition |

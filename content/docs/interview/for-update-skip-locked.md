@@ -87,6 +87,10 @@ b -> skip
 > [!NOTE]
 > `SKIP LOCKED` là lựa chọn đúng khi các row là **work items thay thế được**. Nếu request cần đọc/chỉnh sửa chính order `#101`, bỏ qua nó rồi trả dữ liệu khác là sai semantics.
 
+Chuyển đổi giữa ba chế độ trong mô phỏng dưới đây để quan sát 3 worker cùng tranh claim job trên bảng queue với **`FOR UPDATE SKIP LOCKED`**, **`FOR UPDATE`** và **`FOR UPDATE NOWAIT`**:
+
+<SkipLockedAnimation />
+
 ## 4. `FOR UPDATE SKIP LOCKED` hoạt động như thế nào?
 
 `FOR UPDATE` yêu cầu database lấy một row-level lock có tính loại trừ đối với các locking operation/ghi xung đột. Nó không biến plain `SELECT` thành exclusive lock cho mọi reader: trong PostgreSQL và InnoDB, plain `SELECT` thường vẫn đọc snapshot MVCC phù hợp.

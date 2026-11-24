@@ -307,6 +307,10 @@ K -> L
 E -> J
 ```
 
+Bấm **Bước sau** trong mô phỏng dưới đây để thấy rõ vì sao **`VACUUM` thường** chỉ tái sử dụng chỗ trống qua FSM (không thu nhỏ file) còn **`VACUUM FULL`** phải khóa toàn bảng để nén sang file mới:
+
+<VacuumBloatAnimation />
+
 ## Transaction ID Wraparound
 
 ### Vấn đề

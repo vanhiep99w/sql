@@ -338,6 +338,10 @@ Hai dòng đáng chú ý:
 - **`LIKE '_QL%'`**: dấu `_` ở đầu (single-character wildcard) cũng **giết** prefix. Không có điểm bắt đầu cố định.
 - **`LIKE 'S_L%'`**: prefix cố định = `'S'`, sau đó `_L%` là filter. Index dùng được nhưng chỉ giới hạn ở phạm vi `'S'`.
 
+Chạy mô phỏng dưới đây để so sánh cách B+Tree xử lý **`LIKE 'SQL%'`** (Range Scan), **`LIKE '%SQL%'`** (Leading Wildcard) và **`LIKE 'SQL%DB'`** (Access + Filter):
+
+<LikePatternAnimation />
+
 ---
 
 ## 5. Access Predicate vs Filter Predicate — Mổ xẻ với EXPLAIN

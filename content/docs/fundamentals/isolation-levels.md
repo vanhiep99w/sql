@@ -328,6 +328,10 @@ Snapshot T1: An=true, Bình=true
 Snapshot T2: An=true, Bình=true
 ```
 
+Chạy từng bước trong mô phỏng bên dưới để so sánh trực tiếp kịch bản hai bác sĩ xin nghỉ ở **`REPEATABLE READ` (lọt Write Skew)** với **`SERIALIZABLE` (SSI phát hiện và abort)**, cùng kịch bản **Non-Repeatable Read**:
+
+<IsolationAnomalyAnimation />
+
 T1 ghi row `An`, T2 ghi row `Binh`, nên không có write/write conflict trên cùng một row. Cả hai có thể commit và tạo ra:
 
 ```text

@@ -127,6 +127,10 @@ n0 -> n1 -> n2 -> n3 -> n4
 
 `EXPLAIN` cho keyset ở "trang 50,000" trông **giống hệt** trang đầu — vẫn chỉ `rows=20`, vài page, ~0.1ms. **Hiệu năng không đổi dù ở trang nào** (O(log n) tìm mốc + O(LIMIT) đọc).
 
+Bấm **Bước sau** trong mô phỏng dưới đây để thấy tận mắt sự khác biệt giữa **`OFFSET 8 LIMIT 3`** (phải đọc và vứt bỏ 8 dòng qua nhiều leaf) và **Keyset / Seek (`WHERE id > 45 LIMIT 3`)**:
+
+<OffsetPaginationAnimation />
+
 > [!IMPORTANT]
 > Điều kiện để keyset hoạt động: cột(s) trong `ORDER BY` phải có **index** khớp thứ tự, và phải có một **tie-breaker duy nhất** (thường là PK) để thứ tự xác định và không bỏ sót/lặp dòng khi có giá trị trùng. Dùng so sánh **row-values** `(a, b) < (:a, :b)` để diễn đạt đúng "sau mốc" trên nhiều cột.
 
